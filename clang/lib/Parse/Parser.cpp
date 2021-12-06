@@ -48,7 +48,7 @@ IdentifierInfo *Parser::getSEHExceptKeyword() {
   return Ident__except;
 }
 
-Parser::Parser(Preprocessor &pp, Sema &actions, bool skipFunctionBodies)
+Parser::Parser(Preprocessor &pp, Sema &actions, bool skipFunctionBodies, bool touchPP)
     : PP(pp), PreferredType(pp.isCodeCompletionEnabled()), Actions(actions),
       Diags(PP.getDiagnostics()), GreaterThanIsOperator(true),
       ColonIsSacred(false), InMessageExpression(false),
@@ -60,14 +60,16 @@ Parser::Parser(Preprocessor &pp, Sema &actions, bool skipFunctionBodies)
   NumCachedScopes = 0;
   CurParsedObjCImpl = nullptr;
 
-  // Add #pragma handlers. These are removed and destroyed in the
-  // destructor.
-  initializePragmaHandlers();
+  if (touchPP) {
+    // Add #pragma handlers. These are removed and destroyed in the
+    // destructor.
+    initializePragmaHandlers();
 
-  CommentSemaHandler.reset(new ActionCommentHandler(actions));
-  PP.addCommentHandler(CommentSemaHandler.get());
+    CommentSemaHandler.reset(new ActionCommentHandler(actions));
+    PP.addCommentHandler(CommentSemaHandler.get());
 
-  PP.setCodeCompletionHandler(*this);
+    PP.setCodeCompletionHandler(*this);
+  }
 }
 
 DiagnosticBuilder Parser::Diag(SourceLocation Loc, unsigned DiagID) {

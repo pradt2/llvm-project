@@ -430,7 +430,7 @@ class Parser : public CodeCompletionHandler {
   StmtResult handleExprStmt(ExprResult E, ParsedStmtContext StmtCtx);
 
 public:
-  Parser(Preprocessor &PP, Sema &Actions, bool SkipFunctionBodies);
+  Parser(Preprocessor &PP, Sema &Actions, bool SkipFunctionBodies, bool touchPP = true);
   ~Parser() override;
 
   const LangOptions &getLangOpts() const { return PP.getLangOpts(); }

@@ -15,6 +15,7 @@
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ExternalASTSource.h"
 #include "clang/AST/Stmt.h"
+#include "clang/Rewrite/Core/Rewriter.h"
 #include "clang/Parse/ParseDiagnostic.h"
 #include "clang/Parse/Parser.h"
 #include "clang/Sema/CodeCompleteConsumer.h"
@@ -149,7 +150,7 @@ void clang::ParseAST(Sema &S, bool PrintStats, bool SkipFunctionBodies) {
   // the source, or a PCH is being created with #pragma hdrstop with nothing
   // after the pragma, there won't be any tokens or a Lexer.
   bool HaveLexer = S.getPreprocessor().getCurrentLexer();
-
+  llvm::SmallVector<Parser::DeclGroupPtrTy> topLevelDecls;
   if (HaveLexer) {
     llvm::TimeTraceScope TimeScope("Frontend");
     P.Initialize();
@@ -159,9 +160,102 @@ void clang::ParseAST(Sema &S, bool PrintStats, bool SkipFunctionBodies) {
       // If we got a null return and something *was* parsed, ignore it.  This
       // is due to a top-level semicolon, an action override, or a parse error
       // skipping something.
-      if (ADecl && !Consumer->HandleTopLevelDecl(ADecl.get()))
-        return;
+      if (ADecl) topLevelDecls.push_back(ADecl);
+//      if (ADecl && !Consumer->HandleTopLevelDecl(ADecl.get()))
+//        return;
     }
+  }
+
+  Rewriter rewriter;
+  rewriter.setSourceMgr(S.getSourceManager(), S.getLangOpts());
+
+  SourceLocation rewriteSourceLocation;
+  for (auto ADecl : topLevelDecls) {
+    for (Decl *decl : ADecl.get()) {
+      auto kind = decl->getKind();
+//      if (kind == Decl::Kind::CXXRecord) {
+//        int boolCount = 0;
+//        FieldDecl *firstRemovedDecl;
+//
+//        auto *recordDecl = llvm::dyn_cast<CXXRecordDecl>(decl);
+//        if (!recordDecl->isCompleteDefinition()) continue;
+//        if (recordDecl->getNameAsString().find("Packed") == std::string::npos) continue;
+//        for (auto field : recordDecl->fields()) {
+//          auto type = llvm::dyn_cast<BuiltinType>(field->getType()->getUnqualifiedDesugaredType());
+//          if (!type) continue;
+//          if (type->getKind() != BuiltinType::Kind::Bool) continue;
+//          if (!firstRemovedDecl) firstRemovedDecl = field;
+//          rewriter.RemoveText(field->getSourceRange());
+//        }
+//      } else
+        if (kind == Decl::Kind::Function) {
+          auto funcDecl = llvm::dyn_cast<FunctionDecl>(decl);
+          if (!funcDecl->isMain()) continue;
+        auto bodyCompoundStmt = llvm::dyn_cast<CompoundStmt>(decl->getBody());
+        if (!bodyCompoundStmt) continue;
+        for (auto *stmt : bodyCompoundStmt->body()) {
+          auto returnStmt = llvm::dyn_cast<ReturnStmt>(stmt);
+          if (!returnStmt) continue;
+          rewriteSourceLocation = returnStmt->getSourceRange().getBegin();
+          rewriter.ReplaceText(returnStmt->getSourceRange(), llvm::StringRef("return 0"));
+        }
+      }
+    }
+  }
+
+  auto &sourceMgr = S.getSourceManager();
+  auto rewrittenFileId = sourceMgr.getFileID(rewriteSourceLocation);
+  auto rewrittenFileEntry = sourceMgr.getFileEntryForID(rewrittenFileId);
+  auto rewriteBuffer = rewriter.getRewriteBufferFor(rewrittenFileId);
+  auto rewriteString = std::string(rewriteBuffer->begin(), rewriteBuffer->end());
+  auto rewriteMemoryBuffer = llvm::MemoryBuffer::getMemBuffer(llvm::StringRef(rewriteString));
+  sourceMgr.overrideFileContents(rewrittenFileEntry, std::move(rewriteMemoryBuffer));
+  CXXRecordDecl *d;
+  llvm::outs() << rewriteString;
+
+  // --------------- REPEATED SECTION ------------------
+
+  // If a PCH through header is specified that does not have an include in
+  // the source, or a PCH is being created with #pragma hdrstop with nothing
+  // after the pragma, there won't be any tokens or a Lexer.
+
+  std::unique_ptr<Parser> ParseOP2(
+      new Parser(S.getPreprocessor(), S, SkipFunctionBodies, false));
+  Parser &P2 = *ParseOP2.get();
+
+  llvm::CrashRecoveryContextCleanupRegistrar<const void, ResetStackCleanup>
+      CleanupPrettyStack2(llvm::SavePrettyStackState());
+  PrettyStackTraceParserEntry CrashInfo2(P2);
+
+  // Recover resources if we crash before exiting this method.
+  llvm::CrashRecoveryContextCleanupRegistrar<Parser>
+      CleanupParser2(ParseOP2.get());
+
+  S.getPreprocessor().EnterMainSourceFile();
+  ExternalASTSource *External2 = S.getASTContext().getExternalSource();
+  if (External)
+    External->StartTranslationUnit(Consumer);
+
+
+  topLevelDecls.clear();
+  if (HaveLexer) {
+//    llvm::TimeTraceScope TimeScope("Frontend");
+    P2.Initialize();
+    Parser::DeclGroupPtrTy ADecl;
+    for (bool AtEOF = P2.ParseFirstTopLevelDecl(ADecl); !AtEOF;
+         AtEOF = P2.ParseTopLevelDecl(ADecl)) {
+      // If we got a null return and something *was* parsed, ignore it.  This
+      // is due to a top-level semicolon, an action override, or a parse error
+      // skipping something.
+      if (ADecl) topLevelDecls.push_back(ADecl);
+      //      if (ADecl && !Consumer->HandleTopLevelDecl(ADecl.get()))
+      //        return;
+    }
+  }
+
+
+  for (auto ADecl : topLevelDecls) {
+    if (!Consumer->HandleTopLevelDecl(ADecl.get())) return;
   }
 
   // Process any TopLevelDecls generated by #pragma weak.
