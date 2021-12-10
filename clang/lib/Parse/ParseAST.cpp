@@ -151,6 +151,8 @@ void clang::ParseAST(Sema &S, bool PrintStats, bool SkipFunctionBodies) {
   // after the pragma, there won't be any tokens or a Lexer.
   bool HaveLexer = S.getPreprocessor().getCurrentLexer();
 
+  llvm::SmallVector<Parser::DeclGroupPtrTy> decls;
+
   if (HaveLexer) {
     llvm::TimeTraceScope TimeScope("Frontend");
     P.Initialize();
@@ -161,11 +163,156 @@ void clang::ParseAST(Sema &S, bool PrintStats, bool SkipFunctionBodies) {
 
     for (bool AtEOF = P.ParseFirstTopLevelDecl(ADecl, ImportState); !AtEOF;
          AtEOF = P.ParseTopLevelDecl(ADecl, ImportState)) {
-      // If we got a null return and something *was* parsed, ignore it.  This
-      // is due to a top-level semicolon, an action override, or a parse error
-      // skipping something.
-      if (ADecl && !Consumer->HandleTopLevelDecl(ADecl.get()))
-        return;
+      decls.push_back(ADecl);
+  }
+
+  FieldDecl *alternativeField;
+  CXXRecordDecl *alternativeRecordDecl;
+  CXXConstructorDecl *alternativeRecordConstructorDecl;
+  CXXRecordDecl *rewrittenRecordDeclOld;
+  auto &astContext = S.getASTContext();
+  for (auto dDecl : decls) {
+    for (auto *decl : dDecl.get()) {
+      if (decl->getKind() != Decl::CXXRecord) continue;
+      auto *recordDecl = llvm::cast<CXXRecordDecl>(decl);
+      if (!recordDecl->isCompleteDefinition()) continue;
+      if (recordDecl->getNameAsString().find("PackedData") != 0) continue;
+      rewrittenRecordDeclOld = recordDecl;
+//      llvm::SmallVector<Decl*> fieldsToRemove;
+//      for (auto *field : recordDecl->fields()) {
+//        fieldsToRemove.push_back(field);
+//      }
+//      for (auto *field : fieldsToRemove) {
+//        recordDecl->removeDecl(field);
+//      }
+      auto type = astContext.BoolTy;
+      for (int i = 0; i < 1; i++) {
+        alternativeRecordDecl = CXXRecordDecl::Create(astContext, TTK_Struct, astContext.getTranslationUnitDecl(), SourceLocation(), SourceLocation(), nullptr);
+        astContext.getTranslationUnitDecl()->addDecl(alternativeRecordDecl);
+        alternativeRecordDecl->startDefinition();
+        alternativeField = FieldDecl::Create(astContext, alternativeRecordDecl, SourceLocation(), SourceLocation(), nullptr, type, astContext.getTrivialTypeSourceInfo(type), nullptr, false, ICIS_NoInit);
+        alternativeField->setAccess(AS_public);
+        alternativeRecordDecl->startDefinition();
+        alternativeRecordDecl->addDecl(alternativeField);
+        alternativeRecordDecl->setReferenced();
+        alternativeRecordConstructorDecl = S.DeclareImplicitDefaultConstructor(alternativeRecordDecl); // this already calls CXXRecordDecl->addDecl
+//        auto *constructorDecl = CXXConstructorDecl::Create(astContext, alternativeRecordDecl, SourceLocation(), declarationNameInfo, QualType(), astContext.getTrivialTypeSourceInfo(alternativeRecordType), ExplicitSpecifier::Invalid(), true, true, ConstexprSpecKind::Unspecified);
+//        alternativeRecordDecl->addDecl(constructorDecl);
+
+        alternativeRecordDecl->completeDefinition();
+      }
+    }
+
+    for (auto *decl : dDecl.get()) {
+      if (decl->getKind() != Decl::Function) continue;
+      auto *functionDecl = llvm::cast<FunctionDecl>(decl);
+      if (!functionDecl->isMain()) continue;
+
+      // change of the return statement
+      for (auto *stmt : llvm::cast<CompoundStmt>(functionDecl->getBody())->body()) {
+        if (!ReturnStmt::classof(stmt)) {
+          continue;
+        }
+        auto *returnVal = llvm::cast<ReturnStmt>(stmt)->getRetValue();
+        if (!ImplicitCastExpr::classof(returnVal)) {
+          continue;
+        }
+        auto *implicitCastExpr = llvm::cast<ImplicitCastExpr>(returnVal)->getSubExpr();
+        if (!ImplicitCastExpr::classof(implicitCastExpr)) {
+          continue;
+        }
+        implicitCastExpr = llvm::cast<ImplicitCastExpr>(implicitCastExpr)->getSubExpr();
+        if (!MemberExpr::classof(implicitCastExpr)) {
+          continue;
+        }
+        auto *memberExpr = llvm::cast<MemberExpr>(implicitCastExpr);
+        auto *memberExprBaseExpr = memberExpr->getBase();
+        if (!DeclRefExpr::classof(memberExprBaseExpr)) {
+          continue;
+        }
+        auto *refdTypeDecl = llvm::cast<DeclRefExpr>(memberExprBaseExpr)->getDecl()->getType()->getAsCXXRecordDecl();
+        if (refdTypeDecl != rewrittenRecordDeclOld) {
+          continue;
+        }
+        memberExprBaseExpr->setType(astContext.getRecordType(alternativeRecordDecl));
+        memberExpr->setMemberDecl(alternativeField);
+      }
+
+      // change the value assignment operation on the 'packedDataObj.packedA = true' line
+      for (auto *stmt : llvm::cast<CompoundStmt>(functionDecl->getBody())->body()) {
+        if (!BinaryOperator::classof(stmt)) {
+          continue;
+        }
+        auto *binopStmt = llvm::cast<BinaryOperator>(stmt);
+        if (!binopStmt->isAssignmentOp()) {
+          continue;
+        }
+        auto *binopLhs = binopStmt->getLHS();
+        if (!MemberExpr::classof(binopLhs)) {
+          continue;
+        }
+        auto memberExpr = llvm::cast<MemberExpr>(binopLhs);
+        auto *memberExprBaseExpr = memberExpr->getBase();
+        if (!DeclRefExpr::classof(memberExprBaseExpr)) {
+          continue;
+        }
+        auto *refdTypeDecl = llvm::cast<DeclRefExpr>(memberExprBaseExpr)->getDecl()->getType()->getAsCXXRecordDecl();
+        if (refdTypeDecl != rewrittenRecordDeclOld) {
+          continue;
+        }
+        memberExprBaseExpr->setType(astContext.getRecordType(alternativeRecordDecl));
+        memberExpr->setMemberDecl(alternativeField);
+      }
+
+      // changing type of 'packedDataObj' variable decl
+      for (auto *stmt : llvm::cast<CompoundStmt>(functionDecl->getBody())->body()) {
+        if (!DeclStmt::classof(stmt)) continue;
+        auto *declStmt = llvm::cast<DeclStmt>(stmt);
+        if (!declStmt->isSingleDecl()) continue;
+        auto *declStmtDecl = declStmt->getSingleDecl();
+        if (!VarDecl::classof(declStmtDecl)) continue;
+        auto *varDecl = llvm::cast<VarDecl>(declStmtDecl);
+        if (varDecl->getNameAsString().find("packedDataObj") == std::string::npos) continue;
+        QualType varType = varDecl->getType();
+        if (!varType->isRecordType()) continue;
+        auto *oldRecordDecl = varType->getAsCXXRecordDecl();
+        if (oldRecordDecl != rewrittenRecordDeclOld) continue;
+        varDecl->setType(astContext.getRecordType(alternativeRecordDecl));
+        varDecl->setInit(CXXConstructExpr::Create(astContext, astContext.getRecordType(alternativeRecordDecl), SourceLocation(), alternativeRecordConstructorDecl, false, llvm::ArrayRef<Expr*>(), false, false, false, false, CXXConstructExpr::CK_Complete, SourceRange()));
+      }
+
+      // change of the return statement if we return sizeof(packedDataObj)
+      for (auto *stmt : llvm::cast<CompoundStmt>(functionDecl->getBody())->body()) {
+        if (!ReturnStmt::classof(stmt)) {
+          continue;
+        }
+        auto *returnVal = llvm::cast<ReturnStmt>(stmt)->getRetValue();
+        if (!ImplicitCastExpr::classof(returnVal)) {
+          continue;
+        }
+        auto *implicitCastExpr = llvm::cast<ImplicitCastExpr>(returnVal)->getSubExpr();
+        if (!UnaryExprOrTypeTraitExpr::classof(implicitCastExpr)) {
+          continue;
+        }
+        auto *declRefExprMaybe = llvm::cast<UnaryExprOrTypeTraitExpr>(implicitCastExpr)->getArgumentExpr();
+        if (!DeclRefExpr::classof(declRefExprMaybe)) {
+          continue;
+        }
+        auto *declRefExpr = llvm::cast<DeclRefExpr>(declRefExprMaybe);
+        auto *valueDecl = declRefExpr->getDecl();
+        if (llvm::cast<VarDecl>(valueDecl)->getType()->getAsCXXRecordDecl() != alternativeRecordDecl) continue;
+        auto *replacementDeclRefExpr = DeclRefExpr::Create(astContext, NestedNameSpecifierLoc(), SourceLocation(), valueDecl, false, DeclarationNameInfo(), valueDecl->getType(), ExprValueKind::VK_LValue);
+        llvm::cast<UnaryExprOrTypeTraitExpr>(implicitCastExpr)->setArgument(replacementDeclRefExpr);
+      }
+    }
+  }
+
+  for (auto aDecl : decls) {
+    // If we got a null return and something *was* parsed, ignore it.  This
+    // is due to a top-level semicolon, an action override, or a parse error
+    // skipping something.
+    if (aDecl && !Consumer->HandleTopLevelDecl(aDecl.get()))
+    return;
     }
   }
 
