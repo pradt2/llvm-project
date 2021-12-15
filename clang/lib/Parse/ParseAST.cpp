@@ -31,6 +31,66 @@ using namespace clang;
 
 namespace {
 
+using FieldMap = std::map<FieldDecl *, unsigned int>;
+using PackedFieldType = std::tuple<clang::CanQualType, unsigned int>;
+
+FieldMap getFieldsMap(RecordDecl *recordDecl) {
+  std::map<FieldDecl*, unsigned int> fieldsMap;
+  int index = 0;
+  for (auto *field : recordDecl->fields()) {
+    auto type = field->getType();
+    if (!type->isBooleanType()) continue;
+    fieldsMap[field] = index;
+    index++;
+  }
+  return fieldsMap;
+}
+
+Expr *getGetterExpr(FieldMap fieldMap, FieldDecl *oldField, MemberExpr *packedField, PackedFieldType packedFieldType, QualType targetType) {
+  auto &astContext = oldField->getASTContext();
+
+ int index = fieldMap[oldField];
+ clang::CanQualType packedType = std::get<clang::CanQualType>(packedFieldType);
+ unsigned int packedTypeWidth = std::get<unsigned int>(packedFieldType);
+ auto *readPackedFieldExpr = ImplicitCastExpr::Create(astContext, packedType, clang::CastKind::CK_LValueToRValue, packedField, nullptr, clang::ExprValueKind::VK_PRValue, clang::FPOptionsOverride());
+
+ int maskValue = 1 << index;
+ auto *maskLiteralExpr = IntegerLiteral::Create(astContext, llvm::APInt(packedTypeWidth, maskValue), packedType, SourceLocation());
+ auto *indexLiteralExpr = IntegerLiteral::Create(astContext, llvm::APInt(packedTypeWidth, index), packedType, SourceLocation());
+ auto *maskBinOp = clang::BinaryOperator::Create(astContext, readPackedFieldExpr, maskLiteralExpr, clang::BinaryOperator::Opcode::BO_And, packedType, ExprValueKind::VK_PRValue, ExprObjectKind::OK_Ordinary, SourceLocation(), FPOptionsOverride());
+ auto *bitshiftOp = clang::BinaryOperator::Create(astContext, maskBinOp, indexLiteralExpr, clang::BinaryOperator::Opcode::BO_Shr, packedType, clang::ExprValueKind::VK_PRValue, clang::ExprObjectKind::OK_Ordinary, SourceLocation(), FPOptionsOverride());
+ auto *outputCast = ImplicitCastExpr::Create(astContext, targetType, clang::CastKind::CK_IntegralToBoolean, bitshiftOp, nullptr, clang::ExprValueKind::VK_PRValue, FPOptionsOverride());
+ return outputCast;
+}
+
+Expr *getSetterExpr(FieldMap fieldMap, FieldDecl *oldField, MemberExpr *packedField, PackedFieldType packedFieldType, Expr *value) {
+  auto &astContext = oldField->getASTContext();
+
+  int index = fieldMap[oldField];
+  clang::CanQualType packedType = std::get<clang::CanQualType>(packedFieldType);
+  unsigned int packedTypeWidth = std::get<unsigned int>(packedFieldType);
+  auto *readPackedFieldExpr = ImplicitCastExpr::Create(astContext, packedType, clang::CastKind::CK_LValueToRValue, packedField, nullptr, clang::ExprValueKind::VK_PRValue, clang::FPOptionsOverride());
+
+  int maskValue = ~(1 << index);
+  auto *maskLiteralExpr = IntegerLiteral::Create(astContext, llvm::APInt(packedTypeWidth, maskValue), packedType, SourceLocation());
+  auto *indexLiteralExpr = IntegerLiteral::Create(astContext, llvm::APInt(packedTypeWidth, index), packedType, SourceLocation());
+  auto *maskBinOp = clang::BinaryOperator::Create(astContext, readPackedFieldExpr, maskLiteralExpr, clang::BinaryOperator::Opcode::BO_And, packedType, ExprValueKind::VK_PRValue, ExprObjectKind::OK_Ordinary, SourceLocation(), FPOptionsOverride());
+  auto *inputImplicitCast = ImplicitCastExpr::Create(astContext, packedType, clang::CastKind::CK_IntegralCast, value, nullptr, clang::ExprValueKind::VK_PRValue, FPOptionsOverride());
+  auto *bitshiftOp = BinaryOperator::Create(astContext, inputImplicitCast, indexLiteralExpr, clang::BinaryOperator::Opcode::BO_Shl, packedType, clang::ExprValueKind::VK_PRValue, clang::ExprObjectKind::OK_Ordinary, SourceLocation(), FPOptionsOverride());
+  auto *bitwiseOrOp = BinaryOperator::Create(astContext, bitshiftOp, maskBinOp, clang::BinaryOperator::Opcode::BO_Or, packedType, clang::ExprValueKind::VK_PRValue, clang::ExprObjectKind::OK_Ordinary, SourceLocation(), FPOptionsOverride());
+  auto *assignOp = BinaryOperator::Create(astContext, packedField, bitwiseOrOp, clang::BinaryOperator::Opcode::BO_Assign, packedType, clang::ExprValueKind::VK_PRValue, clang::ExprObjectKind::OK_Ordinary, SourceLocation(), FPOptionsOverride());
+  return assignOp;
+}
+
+PackedFieldType getPackedType(FieldMap fieldMap, clang::ASTContext &astContext) {
+  if (fieldMap.size() <= 8) return PackedFieldType(astContext.UnsignedCharTy, 8);
+  if (fieldMap.size() <= 16) return PackedFieldType(astContext.UnsignedShortTy, 16);
+  if (fieldMap.size() <= 32) return PackedFieldType(astContext.UnsignedIntTy, 32);
+  if (fieldMap.size() <= 64) return PackedFieldType(astContext.UnsignedLongTy, 64);
+  if (fieldMap.size() <= 128) return PackedFieldType(astContext.UnsignedInt128Ty, 128);
+}
+
+
 /// Resets LLVM's pretty stack state so that stack traces are printed correctly
 /// when there are nested CrashRecoveryContexts and the inner one recovers from
 /// a crash.
@@ -167,10 +227,14 @@ void clang::ParseAST(Sema &S, bool PrintStats, bool SkipFunctionBodies) {
   }
 
   FieldDecl *alternativeField;
+  PackedFieldType packedFieldType;
   CXXRecordDecl *alternativeRecordDecl;
   CXXConstructorDecl *alternativeRecordConstructorDecl;
   CXXRecordDecl *rewrittenRecordDeclOld;
+  FieldMap fieldMap;
+  clang::CanQualType packedType;
   auto &astContext = S.getASTContext();
+
   for (auto dDecl : decls) {
     for (auto *decl : dDecl.get()) {
       if (decl->getKind() != Decl::CXXRecord) continue;
@@ -178,27 +242,20 @@ void clang::ParseAST(Sema &S, bool PrintStats, bool SkipFunctionBodies) {
       if (!recordDecl->isCompleteDefinition()) continue;
       if (recordDecl->getNameAsString().find("PackedData") != 0) continue;
       rewrittenRecordDeclOld = recordDecl;
-//      llvm::SmallVector<Decl*> fieldsToRemove;
-//      for (auto *field : recordDecl->fields()) {
-//        fieldsToRemove.push_back(field);
-//      }
-//      for (auto *field : fieldsToRemove) {
-//        recordDecl->removeDecl(field);
-//      }
-      auto type = astContext.BoolTy;
+      fieldMap = getFieldsMap(rewrittenRecordDeclOld);
+      packedFieldType = getPackedType(fieldMap, astContext);
+      packedType = std::get<clang::CanQualType>(packedFieldType);
       for (int i = 0; i < 1; i++) {
-        alternativeRecordDecl = CXXRecordDecl::Create(astContext, TTK_Struct, astContext.getTranslationUnitDecl(), SourceLocation(), SourceLocation(), nullptr);
+        auto &classIdentifierInfo = astContext.Idents.getOwn(llvm::StringRef(recordDecl->getDeclName().getAsString() + "$$Packed"));
+        alternativeRecordDecl = CXXRecordDecl::Create(astContext, TTK_Struct, astContext.getTranslationUnitDecl(), SourceLocation(), SourceLocation(), &classIdentifierInfo);
         astContext.getTranslationUnitDecl()->addDecl(alternativeRecordDecl);
-        alternativeRecordDecl->startDefinition();
-        alternativeField = FieldDecl::Create(astContext, alternativeRecordDecl, SourceLocation(), SourceLocation(), nullptr, type, astContext.getTrivialTypeSourceInfo(type), nullptr, false, ICIS_NoInit);
+        auto &fieldIdentifierInfo = astContext.Idents.getOwn("__packed_bytes");
+        alternativeField = FieldDecl::Create(astContext, alternativeRecordDecl, SourceLocation(), SourceLocation(), &fieldIdentifierInfo, packedType, astContext.getTrivialTypeSourceInfo(packedType), nullptr, false, ICIS_NoInit);
         alternativeField->setAccess(AS_public);
         alternativeRecordDecl->startDefinition();
         alternativeRecordDecl->addDecl(alternativeField);
         alternativeRecordDecl->setReferenced();
         alternativeRecordConstructorDecl = S.DeclareImplicitDefaultConstructor(alternativeRecordDecl); // this already calls CXXRecordDecl->addDecl
-//        auto *constructorDecl = CXXConstructorDecl::Create(astContext, alternativeRecordDecl, SourceLocation(), declarationNameInfo, QualType(), astContext.getTrivialTypeSourceInfo(alternativeRecordType), ExplicitSpecifier::Invalid(), true, true, ConstexprSpecKind::Unspecified);
-//        alternativeRecordDecl->addDecl(constructorDecl);
-
         alternativeRecordDecl->completeDefinition();
       }
     }
@@ -208,34 +265,59 @@ void clang::ParseAST(Sema &S, bool PrintStats, bool SkipFunctionBodies) {
       auto *functionDecl = llvm::cast<FunctionDecl>(decl);
       if (!functionDecl->isMain()) continue;
 
+      // changing type of 'packedDataObj' variable decl
+      for (auto *stmt : llvm::cast<CompoundStmt>(functionDecl->getBody())->body()) {
+        if (!DeclStmt::classof(stmt)) continue;
+        auto *declStmt = llvm::cast<DeclStmt>(stmt);
+        if (!declStmt->isSingleDecl()) continue;
+        auto *declStmtDecl = declStmt->getSingleDecl();
+        if (!VarDecl::classof(declStmtDecl)) continue;
+        auto *varDecl = llvm::cast<VarDecl>(declStmtDecl);
+        if (varDecl->getNameAsString().find("packedDataObj") == std::string::npos) continue;
+        QualType varType = varDecl->getType();
+        if (!varType->isRecordType()) continue;
+        auto *oldRecordDecl = varType->getAsCXXRecordDecl();
+        if (oldRecordDecl != rewrittenRecordDeclOld) continue;
+        varDecl->setDeclName(alternativeRecordDecl->getDeclName());
+        varDecl->setType(astContext.getRecordType(alternativeRecordDecl));
+        varDecl->setInit(CXXConstructExpr::Create(astContext, astContext.getRecordType(alternativeRecordDecl), SourceLocation(), alternativeRecordConstructorDecl, false, llvm::ArrayRef<Expr*>(), false, false, false, false, CXXConstructExpr::CK_Complete, SourceRange()));
+      }
+
       // change of the return statement
       for (auto *stmt : llvm::cast<CompoundStmt>(functionDecl->getBody())->body()) {
         if (!ReturnStmt::classof(stmt)) {
           continue;
         }
-        auto *returnVal = llvm::cast<ReturnStmt>(stmt)->getRetValue();
+        auto *returnStmt = llvm::cast<ReturnStmt>(stmt);
+        auto *returnVal = returnStmt->getRetValue();
         if (!ImplicitCastExpr::classof(returnVal)) {
           continue;
         }
-        auto *implicitCastExpr = llvm::cast<ImplicitCastExpr>(returnVal)->getSubExpr();
-        if (!ImplicitCastExpr::classof(implicitCastExpr)) {
+        auto *outerImplicitCastExpr = llvm::cast<ImplicitCastExpr>(returnVal);
+        auto *insideImplicitCastExpr = outerImplicitCastExpr->getSubExpr();
+        if (!ImplicitCastExpr::classof(insideImplicitCastExpr)) {
           continue;
         }
-        implicitCastExpr = llvm::cast<ImplicitCastExpr>(implicitCastExpr)->getSubExpr();
-        if (!MemberExpr::classof(implicitCastExpr)) {
+        insideImplicitCastExpr = llvm::cast<ImplicitCastExpr>(insideImplicitCastExpr)->getSubExpr();
+        if (!MemberExpr::classof(insideImplicitCastExpr)) {
           continue;
         }
-        auto *memberExpr = llvm::cast<MemberExpr>(implicitCastExpr);
+        auto *memberExpr = llvm::cast<MemberExpr>(insideImplicitCastExpr);
         auto *memberExprBaseExpr = memberExpr->getBase();
         if (!DeclRefExpr::classof(memberExprBaseExpr)) {
           continue;
         }
-        auto *refdTypeDecl = llvm::cast<DeclRefExpr>(memberExprBaseExpr)->getDecl()->getType()->getAsCXXRecordDecl();
-        if (refdTypeDecl != rewrittenRecordDeclOld) {
+
+        auto *declRefExpr = llvm::cast<DeclRefExpr>(memberExprBaseExpr);
+        auto *refdTypeDecl = declRefExpr->getDecl()->getType()->getAsCXXRecordDecl();
+        if (refdTypeDecl != alternativeRecordDecl) {
           continue;
         }
-        memberExprBaseExpr->setType(astContext.getRecordType(alternativeRecordDecl));
-        memberExpr->setMemberDecl(alternativeField);
+
+        auto *oldField = llvm::cast<FieldDecl>(memberExpr->getMemberDecl());
+        auto *newDeclRefExpr = DeclRefExpr::Create(astContext, clang::NestedNameSpecifierLoc(), SourceLocation(), declRefExpr->getDecl(), false, SourceLocation(), declRefExpr->getDecl()->getType(), clang::ExprValueKind::VK_LValue);
+        auto *newMemberExpr = MemberExpr::CreateImplicit(astContext, newDeclRefExpr, false, alternativeField, packedType, clang::ExprValueKind::VK_LValue, clang::ExprObjectKind::OK_Ordinary);
+        outerImplicitCastExpr->setSubExpr(getGetterExpr(fieldMap, oldField, newMemberExpr, packedFieldType, memberExpr->getType()));
       }
 
       // change the value assignment operation on the 'packedDataObj.packedA = true' line
@@ -256,29 +338,27 @@ void clang::ParseAST(Sema &S, bool PrintStats, bool SkipFunctionBodies) {
         if (!DeclRefExpr::classof(memberExprBaseExpr)) {
           continue;
         }
-        auto *refdTypeDecl = llvm::cast<DeclRefExpr>(memberExprBaseExpr)->getDecl()->getType()->getAsCXXRecordDecl();
-        if (refdTypeDecl != rewrittenRecordDeclOld) {
+        auto *declRefExpr = llvm::cast<DeclRefExpr>(memberExprBaseExpr);
+        auto *refdTypeDecl = declRefExpr->getDecl()->getType()->getAsCXXRecordDecl();
+        if (refdTypeDecl != alternativeRecordDecl) {
           continue;
         }
-        memberExprBaseExpr->setType(astContext.getRecordType(alternativeRecordDecl));
-        memberExpr->setMemberDecl(alternativeField);
-      }
 
-      // changing type of 'packedDataObj' variable decl
-      for (auto *stmt : llvm::cast<CompoundStmt>(functionDecl->getBody())->body()) {
-        if (!DeclStmt::classof(stmt)) continue;
-        auto *declStmt = llvm::cast<DeclStmt>(stmt);
-        if (!declStmt->isSingleDecl()) continue;
-        auto *declStmtDecl = declStmt->getSingleDecl();
-        if (!VarDecl::classof(declStmtDecl)) continue;
-        auto *varDecl = llvm::cast<VarDecl>(declStmtDecl);
-        if (varDecl->getNameAsString().find("packedDataObj") == std::string::npos) continue;
-        QualType varType = varDecl->getType();
-        if (!varType->isRecordType()) continue;
-        auto *oldRecordDecl = varType->getAsCXXRecordDecl();
-        if (oldRecordDecl != rewrittenRecordDeclOld) continue;
-        varDecl->setType(astContext.getRecordType(alternativeRecordDecl));
-        varDecl->setInit(CXXConstructExpr::Create(astContext, astContext.getRecordType(alternativeRecordDecl), SourceLocation(), alternativeRecordConstructorDecl, false, llvm::ArrayRef<Expr*>(), false, false, false, false, CXXConstructExpr::CK_Complete, SourceRange()));
+        auto *oldField = llvm::cast<FieldDecl>(memberExpr->getMemberDecl());
+        auto *newDeclRefExpr = DeclRefExpr::Create(astContext, clang::NestedNameSpecifierLoc(), SourceLocation(), declRefExpr->getDecl(), false, SourceLocation(), declRefExpr->getDecl()->getType(), clang::ExprValueKind::VK_LValue);
+        auto *newMemberExpr = MemberExpr::CreateImplicit(astContext, newDeclRefExpr, false, alternativeField, packedType, clang::ExprValueKind::VK_LValue, clang::ExprObjectKind::OK_Ordinary);
+        auto *assignStmt = (clang::BinaryOperator *) getSetterExpr(fieldMap, oldField, newMemberExpr, packedFieldType, binopStmt->getRHS());
+        binopStmt->setLHS(assignStmt->getLHS());
+        binopStmt->setRHS(assignStmt->getRHS());
+        binopStmt->setOpcode(assignStmt->getOpcode());
+        binopStmt->setType(assignStmt->getType());
+        binopStmt->setValueKind(assignStmt->getValueKind());
+        binopStmt->setObjectKind(assignStmt->getObjectKind());
+        bool hasStoredFeatures = assignStmt->hasStoredFPFeatures();
+        if (hasStoredFeatures) {
+          binopStmt->setStoredFPFeatures(assignStmt->getStoredFPFeatures());
+          binopStmt->setHasStoredFPFeatures(assignStmt->hasStoredFPFeatures());
+        }
       }
 
       // change of the return statement if we return sizeof(packedDataObj)
@@ -339,3 +419,4 @@ void clang::ParseAST(Sema &S, bool PrintStats, bool SkipFunctionBodies) {
     Consumer->PrintStats();
   }
 }
+
