@@ -1,5 +1,5 @@
 struct PackedData {bool packedA, packedB, pc;};
-int main() {
+int main(int argc, char** argv) {
   PackedData packedDataObj;
 
   packedDataObj.packedA = 12 >> 1;
