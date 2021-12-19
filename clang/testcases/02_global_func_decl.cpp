@@ -1,0 +1,1 @@
+long func1(long arg1, long &arg2, long **arg4);
