@@ -68,6 +68,25 @@ bool ASTTypeSwitcher::VisitVarDecl(VarDecl *D) {
   return true;
 }
 
+bool ASTTypeSwitcher::VisitFunctionDecl(FunctionDecl *D) {
+  return true;
+}
+
+bool ASTTypeSwitcher::VisitFieldDecl(FieldDecl *D) {
+    return true;
+}
+
+bool ASTTypeSwitcher::VisitDeclRefExpr(DeclRefExpr *S) {
+  auto declType = S->getType();
+  while (isPointerRefArrType(declType)) {
+    declType = getImmediatePointeeType(declType);
+  }
+  if (declType != this->oldType) return true;
+  auto newType = createNewPointerRefArrType(this->C, S->getType(), this->newType);
+  S->setType(newType);
+  return true;
+}
+
 CXXRecordDecl *createNewEmptyRecord(ASTContext &C, Sema &S, std::string name, TagTypeKind kind, bool completeDefinition) {
   auto &classIdentifierInfo = createIdentifierInfo(C, name);
   auto *translationUnitDecl = C.getTranslationUnitDecl();
