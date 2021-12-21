@@ -45,6 +45,8 @@ public:
       : C(C), oldType(oldType), newType(newType), initExpr(init){};
   bool VisitVarDecl(VarDecl *D);
   bool VisitFunctionDecl(FunctionDecl *D);
+  bool VisitFieldDecl(FieldDecl *D);
+  bool VisitDeclRefExpr(DeclRefExpr *S);
 };
 } // namespace clang
 
