@@ -47,6 +47,7 @@ public:
   bool VisitFunctionDecl(FunctionDecl *D);
   bool VisitFieldDecl(FieldDecl *D);
   bool VisitDeclRefExpr(DeclRefExpr *S);
+  void ExecuteTreeTransform(Sema &S);
 };
 } // namespace clang
 

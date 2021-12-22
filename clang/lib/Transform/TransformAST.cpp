@@ -1,5 +1,6 @@
 
 #include "clang/Transform/TransformAST.h"
+#include "../Sema/TreeTransform.h"
 
 namespace clang {
 
@@ -85,6 +86,22 @@ bool ASTTypeSwitcher::VisitDeclRefExpr(DeclRefExpr *S) {
   auto newType = createNewPointerRefArrType(this->C, S->getType(), this->newType);
   S->setType(newType);
   return true;
+}
+
+void ASTTypeSwitcher::ExecuteTreeTransform(Sema &S) {
+  class TypeSwapTreeTransform : public TreeTransform<TypeSwapTreeTransform> {
+  public:
+    explicit TypeSwapTreeTransform(Sema &S) : TreeTransform<TypeSwapTreeTransform>(S) {}
+    Decl *TransformDecl(SourceLocation Loc, Decl *D) {
+      if (!llvm::isa<CXXRecordDecl>(D)) return D;
+      CXXRecordDecl *d = llvm::cast<CXXRecordDecl>(D);
+      if (d->getNameAsString().find("Packed") == std::string::npos) return D;
+      Decl *replacementDecl = createNewEmptyRecord(this->getSema().getASTContext(), this->getSema(), "NewPackedStruct");
+      return replacementDecl;
+    }
+    bool ReplacingOriginal() { return true; }
+  } treeTransform(S);
+//  treeTransform.RebuildCXXThisExpr()
 }
 
 CXXRecordDecl *createNewEmptyRecord(ASTContext &C, Sema &S, std::string name, TagTypeKind kind, bool completeDefinition) {
