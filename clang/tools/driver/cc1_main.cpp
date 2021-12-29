@@ -24,7 +24,9 @@
 #include "clang/Frontend/TextDiagnosticBuffer.h"
 #include "clang/Frontend/TextDiagnosticPrinter.h"
 #include "clang/Frontend/Utils.h"
+#include "clang/Frontend/FrontendActions.h"
 #include "clang/FrontendTool/Utils.h"
+#include "clang/Lex/PreprocessorOptions.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Config/llvm-config.h"
 #include "llvm/LinkAllPasses.h"
@@ -181,16 +183,16 @@ static int PrintSupportedCPUs(std::string TargetStr) {
   return 0;
 }
 
+std::unique_ptr<CompilerInstance> CreateCompilerInstance(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr);
+void CopyRewriterEntriesAsPreprocessorOpts(Rewriter *R, PreprocessorOptions &PreprocessorOpts);
+
 int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   ensureSufficientStack();
 
-  std::unique_ptr<CompilerInstance> Clang(new CompilerInstance());
-  IntrusiveRefCntPtr<DiagnosticIDs> DiagID(new DiagnosticIDs());
+  auto Clang = CreateCompilerInstance(Argv, Argv0, MainAddr);
 
-  // Register the support for object-file-wrapped Clang modules.
-  auto PCHOps = Clang->getPCHContainerOperations();
-  PCHOps->registerWriter(std::make_unique<ObjectFilePCHContainerWriter>());
-  PCHOps->registerReader(std::make_unique<ObjectFilePCHContainerReader>());
+  if (!Clang)
+    return 1;
 
   // Initialize targets first, so that --version shows registered targets.
   llvm::InitializeAllTargets();
@@ -198,52 +200,36 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   llvm::InitializeAllAsmPrinters();
   llvm::InitializeAllAsmParsers();
 
-  // Buffer diagnostics from argument parsing so that we can output them using a
-  // well formed diagnostic object.
-  IntrusiveRefCntPtr<DiagnosticOptions> DiagOpts = new DiagnosticOptions();
-  TextDiagnosticBuffer *DiagsBuffer = new TextDiagnosticBuffer;
-  DiagnosticsEngine Diags(DiagID, &*DiagOpts, DiagsBuffer);
+  auto FrontendOpts = Clang->getFrontendOpts();
+  auto TargetOpts = Clang->getTargetOpts();
+  auto &Diags = Clang->getDiagnostics();
 
-  // Setup round-trip remarks for the DiagnosticsEngine used in CreateFromArgs.
-  if (find(Argv, StringRef("-Rround-trip-cc1-args")) != Argv.end())
-    Diags.setSeverity(diag::remark_cc1_round_trip_generated,
-                      diag::Severity::Remark, {});
-
-  bool Success = CompilerInvocation::CreateFromArgs(Clang->getInvocation(),
-                                                    Argv, Diags, Argv0);
-
-  if (Clang->getFrontendOpts().TimeTrace) {
-    llvm::timeTraceProfilerInitialize(
-        Clang->getFrontendOpts().TimeTraceGranularity, Argv0);
+  if (FrontendOpts.TimeTrace) {
+    llvm::timeTraceProfilerInitialize(FrontendOpts.TimeTraceGranularity, Argv0);
   }
   // --print-supported-cpus takes priority over the actual compilation.
-  if (Clang->getFrontendOpts().PrintSupportedCPUs)
-    return PrintSupportedCPUs(Clang->getTargetOpts().Triple);
-
-  // Infer the builtin include path if unspecified.
-  if (Clang->getHeaderSearchOpts().UseBuiltinIncludes &&
-      Clang->getHeaderSearchOpts().ResourceDir.empty())
-    Clang->getHeaderSearchOpts().ResourceDir =
-      CompilerInvocation::GetResourcesPath(Argv0, MainAddr);
-
-  // Create the actual diagnostics engine.
-  Clang->createDiagnostics();
-  if (!Clang->hasDiagnostics())
-    return 1;
+  if (FrontendOpts.PrintSupportedCPUs)
+    return PrintSupportedCPUs(TargetOpts.Triple);
 
   // Set an error handler, so that any LLVM backend diagnostics go through our
   // error handler.
   llvm::install_fatal_error_handler(LLVMErrorHandler,
-                                  static_cast<void*>(&Clang->getDiagnostics()));
-
-  DiagsBuffer->FlushDiagnostics(Clang->getDiagnostics());
-  if (!Success)
-    return 1;
+                                  static_cast<void*>(&Diags));
 
   // Execute the frontend actions.
+  CompilerInvocationResult Result;
+  bool Success;
   {
     llvm::TimeTraceScope TimeScope("ExecuteCompiler");
-    Success = ExecuteCompilerInvocation(Clang.get());
+    Result = ExecuteCompilerInvocation(Clang.get(), std::make_unique<RewriteAction>());
+    Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
+  }
+
+  if (Result == FRONTEND_ACTION_SUCCESS) {
+    auto ClangActual = CreateCompilerInstance(Argv, Argv0, MainAddr);
+    CopyRewriterEntriesAsPreprocessorOpts(Clang->getSourceManager().getRewriter(), ClangActual->getPreprocessorOpts());
+    Result = ExecuteCompilerInvocation(ClangActual.get());
+    Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
   }
 
   // If any timers were active but haven't been destroyed yet, print their
@@ -252,7 +238,7 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   llvm::TimerGroup::clearAll();
 
   if (llvm::timeTraceProfilerEnabled()) {
-    SmallString<128> Path(Clang->getFrontendOpts().OutputFile);
+    SmallString<128> Path(FrontendOpts.OutputFile);
     llvm::sys::path::replace_extension(Path, "json");
     if (auto profilerOutput = Clang->createOutputFile(
             Path.str(), /*Binary=*/false, /*RemoveFileOnSignal=*/false,
@@ -271,10 +257,68 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   llvm::remove_fatal_error_handler();
 
   // When running with -disable-free, don't do any destruction or shutdown.
-  if (Clang->getFrontendOpts().DisableFree) {
+  if (FrontendOpts.DisableFree) {
     llvm::BuryPointer(std::move(Clang));
     return !Success;
   }
 
   return !Success;
+}
+
+std::unique_ptr<CompilerInstance> CreateCompilerInstance(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
+  // Buffer diagnostics from argument parsing so that we can output them using a
+  // well formed diagnostic object.
+  IntrusiveRefCntPtr<DiagnosticOptions> DiagOpts = new DiagnosticOptions();
+  TextDiagnosticBuffer *DiagsBuffer = new TextDiagnosticBuffer;
+  IntrusiveRefCntPtr<DiagnosticIDs> DiagID(new DiagnosticIDs());
+  DiagnosticsEngine Diags(DiagID, &*DiagOpts, DiagsBuffer);
+
+  // Setup round-trip remarks for the DiagnosticsEngine used in CreateFromArgs.
+  if (find(Argv, StringRef("-Rround-trip-cc1-args")) != Argv.end())
+    Diags.setSeverity(diag::remark_cc1_round_trip_generated,
+                      diag::Severity::Remark, {});
+
+  // Register the support for object-file-wrapped Clang modules.
+  std::unique_ptr<CompilerInstance> Clang(new CompilerInstance());
+  auto PCHOps = Clang->getPCHContainerOperations();
+  PCHOps->registerWriter(std::make_unique<ObjectFilePCHContainerWriter>());
+  PCHOps->registerReader(std::make_unique<ObjectFilePCHContainerReader>());
+
+  bool Success = CompilerInvocation::CreateFromArgs(Clang->getInvocation(),
+                                                    Argv, Diags, Argv0);
+
+  if (!Success)
+    return nullptr;
+
+  // Create the actual diagnostics engine.
+  Clang->createDiagnostics();
+  if (!Clang->hasDiagnostics())
+    return nullptr;
+
+  DiagsBuffer->FlushDiagnostics(Clang->getDiagnostics());
+
+  // Infer the builtin include path if unspecified.
+  if (Clang->getHeaderSearchOpts().UseBuiltinIncludes &&
+      Clang->getHeaderSearchOpts().ResourceDir.empty())
+    Clang->getHeaderSearchOpts().ResourceDir =
+        CompilerInvocation::GetResourcesPath(Argv0, MainAddr);
+
+  return Clang;
+}
+
+void CopyRewriterEntriesAsPreprocessorOpts(Rewriter *R, PreprocessorOptions &PreprocessorOpts) {
+  for (auto IT = R->buffer_begin(); IT != R->buffer_end(); IT++) {
+    auto FileID = IT->first;
+    auto *FileEntry = R->getSourceMgr().getFileEntryForID(FileID);
+    if (!FileEntry)
+      continue;
+    auto *RewriterBuffer = R->getRewriteBufferFor(FileID);
+    if (!RewriterBuffer)
+      continue;
+    auto FilePath = FileEntry->getName();
+    auto *RewrittenSourceStr = new std::string(RewriterBuffer->begin(), RewriterBuffer->end());
+    auto RewrittenSource = llvm::StringRef(RewrittenSourceStr->c_str());
+    auto RewrittenSourceBuffer = llvm::MemoryBuffer::getMemBuffer(RewrittenSource);
+    PreprocessorOpts.addRemappedFile(FilePath, RewrittenSourceBuffer.release());
+  }
 }

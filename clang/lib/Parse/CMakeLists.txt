@@ -27,6 +27,7 @@ add_clang_library(clangParse
   clangAST
   clangBasic
   clangLex
+  clangRewrite
   clangSema
 
   DEPENDS

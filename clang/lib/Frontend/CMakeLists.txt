@@ -52,6 +52,7 @@ add_clang_library(clangFrontend
   clangEdit
   clangLex
   clangParse
+  clangRewrite
   clangSema
   clangSerialization
   )
