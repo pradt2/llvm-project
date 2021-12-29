@@ -5,7 +5,21 @@
 namespace clang {
 
 bool isPointerRefArrType(QualType type) {
-  return type->isPointerType() || type->isReferenceType() || type->isAggregateType();
+  return type->isPointerType() || type->isReferenceType() || type->isArrayType();
+}
+
+CXXRecordDecl *findRecordDeclByName(std::string name, TranslationUnitDecl *unitDecl) {
+  for (auto *decl : unitDecl->decls()) {
+    if (decl->getKind() != Decl::CXXRecord)
+      continue;
+    auto *recordDecl = llvm::cast<CXXRecordDecl>(decl);
+    if (!recordDecl->isCompleteDefinition())
+      continue;
+    if (recordDecl->getNameAsString().find(name) != 0)
+      continue;
+    return recordDecl;
+  }
+  assert(false && "Record does not exist");
 }
 
 QualType getImmediatePointeeType(QualType type) {

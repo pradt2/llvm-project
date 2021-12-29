@@ -91,6 +91,10 @@ ReadPCHAndPreprocessAction::CreateASTConsumer(CompilerInstance &CI,
 //===----------------------------------------------------------------------===//
 // AST Consumer Actions
 //===----------------------------------------------------------------------===//
+std::unique_ptr<ASTConsumer>
+RewriteAction::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
+  return CreateRewriterASTConsumer(CI);
+}
 
 std::unique_ptr<ASTConsumer>
 ASTPrintAction::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
