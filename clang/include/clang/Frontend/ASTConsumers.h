@@ -14,12 +14,15 @@
 #define LLVM_CLANG_FRONTEND_ASTCONSUMERS_H
 
 #include "clang/AST/ASTDumperUtils.h"
+#include "clang/Frontend/CompilerInstance.h"
 #include "clang/Basic/LLVM.h"
 #include <memory>
 
 namespace clang {
 
 class ASTConsumer;
+
+std::unique_ptr<ASTConsumer> CreateRewriterASTConsumer(CompilerInstance &CI);
 
 // AST pretty-printer: prints out the AST in a format that is close to the
 // original C code.  The output is intended to be in a format such that

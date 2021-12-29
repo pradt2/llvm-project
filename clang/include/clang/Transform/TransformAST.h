@@ -32,6 +32,8 @@ CXXRecordDecl *createNewEmptyRecord(ASTContext &C, Sema &S, std::string name,
 
 CXXConstructorDecl *getDefaultNoArgConstructorDecl(CXXRecordDecl *recordDecl);
 
+CXXRecordDecl *findRecordDeclByName(std::string name, TranslationUnitDecl *unitDecl);
+
 Expr *getInitExpr(ASTContext &C, CXXRecordDecl *recordDecl);
 
 class ASTTypeSwitcher : public RecursiveASTVisitor<ASTTypeSwitcher> {

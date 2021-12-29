@@ -38,6 +38,7 @@
 #include "clang/Basic/FileEntry.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/SourceLocation.h"
+#include "clang/Rewrite/Core/Rewriter.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/DenseMap.h"
@@ -662,6 +663,8 @@ class SourceManager : public RefCountedBase<SourceManager> {
 
   FileManager &FileMgr;
 
+  Rewriter *TheRewriter;
+
   mutable llvm::BumpPtrAllocator ContentCacheAlloc;
 
   /// Memoized information about all of the files tracked by this
@@ -848,6 +851,12 @@ public:
   DiagnosticsEngine &getDiagnostics() const { return Diag; }
 
   FileManager &getFileManager() const { return FileMgr; }
+
+  Rewriter *getRewriter() { return TheRewriter; };
+
+  void setRewriter(Rewriter *Rewriter) {
+    TheRewriter = Rewriter;
+  }
 
   /// Set true if the SourceManager should report the original file name
   /// for contents of files that were overridden by other files. Defaults to

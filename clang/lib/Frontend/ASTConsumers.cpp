@@ -28,6 +28,27 @@ using namespace clang;
 /// ASTPrinter - Pretty-printer and dumper of ASTs
 
 namespace {
+  class RewriterASTConsumer : public ASTConsumer,
+                         public RecursiveASTVisitor<RewriterASTConsumer> {
+    typedef RecursiveASTVisitor<RewriterASTConsumer> base;
+
+    CompilerInstance &CI;
+    Rewriter *R;
+
+  public:
+    RewriterASTConsumer(CompilerInstance &CI) : CI(CI), R(CI.getSourceManager().getRewriter()) {}
+
+    void HandleTranslationUnit(ASTContext &Context) override {
+      TranslationUnitDecl *D = Context.getTranslationUnitDecl();
+      TraverseDecl(D);
+    }
+
+    bool VisitIntegerLiteral(IntegerLiteral *IntegerLiteral) {
+      R->ReplaceText(IntegerLiteral->getSourceRange(), llvm::StringRef("77"));
+      return true;
+    }
+  };
+
   class ASTPrinter : public ASTConsumer,
                      public RecursiveASTVisitor<ASTPrinter> {
     typedef RecursiveASTVisitor<ASTPrinter> base;
@@ -155,6 +176,11 @@ namespace {
     raw_ostream &Out;
   };
 } // end anonymous namespace
+
+std::unique_ptr<ASTConsumer>
+clang::CreateRewriterASTConsumer(clang::CompilerInstance &CI) {
+    return std::make_unique<RewriterASTConsumer>(CI);
+}
 
 std::unique_ptr<ASTConsumer>
 clang::CreateASTPrinter(std::unique_ptr<raw_ostream> Out,

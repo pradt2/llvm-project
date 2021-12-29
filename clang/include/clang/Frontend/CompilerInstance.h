@@ -18,6 +18,7 @@
 #include "clang/Frontend/Utils.h"
 #include "clang/Lex/HeaderSearchOptions.h"
 #include "clang/Lex/ModuleLoader.h"
+#include "clang/Rewrite/Core/Rewriter.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
@@ -443,10 +444,7 @@ public:
   bool hasSourceManager() const { return SourceMgr != nullptr; }
 
   /// Return the current source manager.
-  SourceManager &getSourceManager() const {
-    assert(SourceMgr && "Compiler instance has no source manager!");
-    return *SourceMgr;
-  }
+  SourceManager &getSourceManager() const;
 
   IntrusiveRefCntPtr<SourceManager> getSourceManagerPtr() const {
     assert(SourceMgr && "Compiler instance has no source manager!");
