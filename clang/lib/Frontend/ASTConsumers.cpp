@@ -44,6 +44,7 @@ namespace {
     }
 
     bool VisitIntegerLiteral(IntegerLiteral *IntegerLiteral) {
+      if (IntegerLiteral->getValue().getSExtValue() != 1111) return true;
       R->ReplaceText(IntegerLiteral->getSourceRange(), llvm::StringRef("77"));
       return true;
     }
