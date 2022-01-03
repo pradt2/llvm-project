@@ -4488,6 +4488,11 @@ void Parser::ParseDeclarationSpecifiers(
                                  getLangOpts());
       break;
 
+    case tok::annot_pragma_dastgen:
+      // TODO save annotation tokens
+      ConsumeAnnotationToken();
+      continue;
+
     // OpenCL address space qualifiers:
     case tok::kw___generic:
       // generic address space is introduced only in OpenCL v2.0

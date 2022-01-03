@@ -398,6 +398,12 @@ struct PragmaMaxTokensTotalHandler : public PragmaHandler {
                     Token &FirstToken) override;
 };
 
+struct PragmaDastgenHandler : public PragmaHandler {
+  PragmaDastgenHandler() : PragmaHandler("dastgen") {}
+  void HandlePragma(Preprocessor &PP, PragmaIntroducer Introducer,
+                    Token &FirstToken) override;
+};
+
 struct PragmaRISCVHandler : public PragmaHandler {
   PragmaRISCVHandler(Sema &Actions)
       : PragmaHandler("riscv"), Actions(Actions) {}
@@ -561,6 +567,9 @@ void Parser::initializePragmaHandlers() {
   MaxTokensTotalPragmaHandler = std::make_unique<PragmaMaxTokensTotalHandler>();
   PP.AddPragmaHandler("clang", MaxTokensTotalPragmaHandler.get());
 
+  DastgenPragmaHandler = std::make_unique<PragmaDastgenHandler>();
+  PP.AddPragmaHandler(DastgenPragmaHandler.get());
+
   if (getTargetInfo().getTriple().isRISCV()) {
     RISCVPragmaHandler = std::make_unique<PragmaRISCVHandler>(Actions);
     PP.AddPragmaHandler("clang", RISCVPragmaHandler.get());
@@ -694,6 +703,9 @@ void Parser::resetPragmaHandlers() {
 
   PP.RemovePragmaHandler("clang", MaxTokensTotalPragmaHandler.get());
   MaxTokensTotalPragmaHandler.reset();
+
+  PP.RemovePragmaHandler(DastgenPragmaHandler.get());
+  DastgenPragmaHandler.reset();
 
   if (getTargetInfo().getTriple().isRISCV()) {
     PP.RemovePragmaHandler("clang", RISCVPragmaHandler.get());
@@ -4110,6 +4122,43 @@ void PragmaMaxTokensTotalHandler::HandlePragma(Preprocessor &PP,
   }
 
   PP.overrideMaxTokens(MaxTokens, Loc);
+}
+
+void PragmaDastgenHandler::HandlePragma(Preprocessor &PP,
+                                        PragmaIntroducer Introducer,
+                                        Token &Tok) {
+
+  auto FirstToken = Tok;
+  auto *Info = new std::string;
+
+  *Info = "\"";
+
+  PP.Lex(Tok); // this swallows the 'dastgen' identifier
+  while (Tok.isNot(tok::eod)) {
+    if (Tok.isNot(tok::identifier)) llvm::outs() << "#pragma dastgen token not identifier: " << Tok.getName();
+    *Info += PP.getSpelling(Tok) + " ";
+    PP.Lex(Tok);
+  }
+  *Info += "\"";
+
+  auto TokenArray = std::make_unique<Token[]>(10);
+  TokenArray[0].setKind(tok::l_square);
+  TokenArray[1].setKind(tok::l_square);
+  TokenArray[2].setKind(tok::identifier);
+  TokenArray[2].setIdentifierInfo(PP.getIdentifierInfo("clang"));
+  TokenArray[3].setKind(tok::coloncolon);
+  TokenArray[4].setKind(tok::identifier);
+  TokenArray[4].setIdentifierInfo(PP.getIdentifierInfo("annotate"));
+  TokenArray[5].setKind(tok::l_paren);
+  TokenArray[6].setKind(tok::string_literal);
+  TokenArray[6].setLiteralData(Info->c_str());
+  TokenArray[6].setLength(Info->length());
+  TokenArray[7].setKind(tok::r_paren);
+  TokenArray[8].setKind(tok::r_square);
+  TokenArray[9].setKind(tok::r_square);
+  PP.EnterTokenStream(std::move(TokenArray), 10, true, false);
+
+//  PP.EnterAnnotationToken(SourceRange(FirstToken.getLocation(), Tok.getEndLoc()), tok::annot_pragma_dastgen, static_cast<void*>(Info));
 }
 
 // Handle '#pragma clang riscv intrinsic vector'.

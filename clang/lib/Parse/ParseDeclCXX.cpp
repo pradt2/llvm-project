@@ -3440,6 +3440,10 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclarationWithPragmas(
   case tok::annot_pragma_openacc:
     return ParseOpenACCDirectiveDecl();
 
+  case tok::annot_pragma_dastgen:
+    ConsumeAnnotationToken();
+    // TODO save annotation tokens
+    return ParseCXXClassMemberDeclarationWithPragmas(AS, AccessAttrs, TagType, TagDecl);
   default:
     if (tok::isPragmaAnnotation(Tok.getKind())) {
       Diag(Tok.getLocation(), diag::err_pragma_misplaced_in_decl)
