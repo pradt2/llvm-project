@@ -3767,7 +3767,7 @@ void PragmaDastgenHandler::HandlePragma(Preprocessor &PP,
   TokenArray[7].setKind(tok::r_paren);
   TokenArray[8].setKind(tok::r_square);
   TokenArray[9].setKind(tok::r_square);
-  PP.EnterTokenStream(std::move(TokenArray), 10, true, false);
+//  PP.EnterTokenStream(std::move(TokenArray), 10, true, false);
 
-//  PP.EnterAnnotationToken(SourceRange(FirstToken.getLocation(), Tok.getEndLoc()), tok::annot_pragma_dastgen, static_cast<void*>(Info));
+  PP.EnterAnnotationToken(SourceRange(FirstToken.getLocation(), Tok.getEndLoc()), tok::annot_pragma_dastgen, static_cast<void*>(Info));
 }

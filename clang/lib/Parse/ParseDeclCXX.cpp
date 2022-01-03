@@ -3273,10 +3273,17 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclarationWithPragmas(
     return ParseOpenMPDeclarativeDirectiveWithExtDecl(
         AS, AccessAttrs, /*Delayed=*/true, TagType, TagDecl);
 
-  case tok::annot_pragma_dastgen:
+  case tok::annot_pragma_dastgen: {
     ConsumeAnnotationToken();
     // TODO save annotation tokens
-    return ParseCXXClassMemberDeclarationWithPragmas(AS, AccessAttrs, TagType, TagDecl);
+    auto x = ParseCXXClassMemberDeclarationWithPragmas(AS, AccessAttrs, TagType, TagDecl);
+    auto y = x.get();
+      for (auto *IT = y.begin(); IT != y.end(); IT++) {
+        auto *IT2 = *IT;
+        IT2->addAttr(AnnotateAttr::Create(IT2->getASTContext(), llvm::StringRef("PawelPawelPawel"), AttributeCommonInfo(IT2->getLocation())));
+      }
+    return x;
+  }
   default:
     if (tok::isPragmaAnnotation(Tok.getKind())) {
       Diag(Tok.getLocation(), diag::err_pragma_misplaced_in_decl)
