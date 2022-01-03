@@ -238,6 +238,11 @@ Retry:
     [[fallthrough]];
   }
 
+  case tok::annot_pragma_dastgen:
+    ConsumeAnnotationToken();
+    // TODO save annotation tokens
+    return ParseStatementOrDeclarationAfterAttributes(Stmts, StmtCtx, TrailingElseLoc, Attrs);
+
   default: {
     bool HaveAttrs = !CXX11Attrs.empty() || !GNUAttrs.empty();
     auto IsStmtAttr = [](ParsedAttr &Attr) { return Attr.isStmtAttr(); };
