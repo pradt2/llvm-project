@@ -212,6 +212,11 @@ Retry:
     LLVM_FALLTHROUGH;
   }
 
+  case tok::annot_pragma_dastgen:
+    ConsumeAnnotationToken();
+    // TODO save annotation tokens
+    return ParseStatementOrDeclarationAfterAttributes(Stmts, StmtCtx, TrailingElseLoc, Attrs);
+
   default: {
     if ((getLangOpts().CPlusPlus || getLangOpts().MicrosoftExt ||
          (StmtCtx & ParsedStmtContext::AllowDeclarationsInC) !=

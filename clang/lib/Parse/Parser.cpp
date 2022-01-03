@@ -909,6 +909,14 @@ Parser::ParseExternalDeclaration(ParsedAttributesWithRange &attrs,
       return ParseDeclaration(DeclaratorContext::File, DeclEnd, attrs);
     }
 
+  case tok::annot_pragma_dastgen:
+  {
+    auto *annotationTokens = static_cast<std::vector<std::string>*>(Tok.getAnnotationValue());
+    ConsumeAnnotationToken();
+    // TODO save annotation tokens
+    return ParseExternalDeclaration(attrs, DS);
+  }
+
   case tok::kw_static:
     // Parse (then ignore) 'static' prior to a template instantiation. This is
     // a GCC extension that we intentionally do not support.
