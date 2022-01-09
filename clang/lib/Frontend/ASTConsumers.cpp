@@ -17,17 +17,21 @@
 #include "clang/AST/PrettyPrinter.h"
 #include "clang/AST/RecordLayout.h"
 #include "clang/AST/RecursiveASTVisitor.h"
-#include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/SourceManager.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Timer.h"
 #include "llvm/Support/raw_ostream.h"
+#include "clang/Dastgen/ClangAstConsumer.h"
+#include "clang/Dastgen/DataClassMemoryOptimiser.h"
+#include "clang/Dastgen/CppSourceGenerator.h"
+
 using namespace clang;
 
 //===----------------------------------------------------------------------===//
 /// ASTPrinter - Pretty-printer and dumper of ASTs
 
 namespace {
+
   class RewriterASTConsumer : public ASTConsumer,
                          public RecursiveASTVisitor<RewriterASTConsumer> {
     typedef RecursiveASTVisitor<RewriterASTConsumer> base;
@@ -40,6 +44,23 @@ namespace {
 
     void HandleTranslationUnit(ASTContext &Context) override {
       TranslationUnitDecl *D = Context.getTranslationUnitDecl();
+      std::vector<DataClass *> dataClasses;
+      std::vector<Enum *> enums;
+      ClangAstConsumer CAC(&dataClasses, &enums);
+      CAC.HandleTranslationUnit(Context);
+      this->removeDuplicateClasses(&dataClasses);
+
+      DataClassMemoryOptimiser opt;
+      CppSourceGenerator gen;
+
+      for (auto *dataClass : dataClasses) {
+        DataClass *optimisedDataClass = opt.getOptimisedClass(dataClass);
+        std::vector<SourceUnit *> sources = gen.generateSourceUnits(optimisedDataClass);
+        for (auto *source : sources) {
+          llvm::outs() << source->contents;
+        }
+      }
+
       TraverseDecl(D);
     }
 
@@ -47,6 +68,22 @@ namespace {
       if (IntegerLiteral->getValue().getSExtValue() != 1111) return true;
       R->ReplaceText(IntegerLiteral->getSourceRange(), llvm::StringRef("77"));
       return true;
+    }
+
+  private:
+    void removeDuplicateClasses(std::vector<DataClass *> *classes) {
+      std::vector<DataClass *> uniqueClasses;
+      std::set<std::string> names;
+      for (auto dataClass : *classes) {
+        std::string name;
+        for (const auto& ns : dataClass->namespaces) name += ns;
+        name += dataClass->name;
+        if (names.count(name) == 1) continue;
+        uniqueClasses.emplace_back(dataClass);
+        names.insert(name);
+      }
+      classes->clear();
+      classes->insert(classes->end(), uniqueClasses.begin(), uniqueClasses.end());
     }
   };
 
