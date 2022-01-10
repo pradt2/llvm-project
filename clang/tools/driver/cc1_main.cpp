@@ -394,6 +394,7 @@ void CopyRewriterEntriesAsPreprocessorOpts(Rewriter *R, PreprocessorOptions &Pre
       continue;
     auto FilePath = FileEntry->getName();
     auto *RewrittenSourceStr = new std::string(RewriterBuffer->begin(), RewriterBuffer->end());
+    llvm::outs() << FilePath << "\n" << *RewrittenSourceStr << "\n\n";
     auto RewrittenSource = llvm::StringRef(RewrittenSourceStr->c_str());
     auto RewrittenSourceBuffer = llvm::MemoryBuffer::getMemBuffer(RewrittenSource);
     PreprocessorOpts.addRemappedFile(FilePath, RewrittenSourceBuffer.release());
