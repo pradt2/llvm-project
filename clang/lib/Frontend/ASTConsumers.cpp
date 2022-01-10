@@ -14,11 +14,13 @@
 #include "clang/AST/AST.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/ParentMapContext.h"
 #include "clang/AST/PrettyPrinter.h"
 #include "clang/AST/RecordLayout.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/SourceManager.h"
+#include "clang/Lex/Lexer.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Timer.h"
 #include "llvm/Support/raw_ostream.h"
@@ -33,21 +35,245 @@ namespace {
     typedef RecursiveASTVisitor<RewriterASTConsumer> base;
 
     CompilerInstance &CI;
-    Rewriter *R;
+    Rewriter &R;
+
+
+  private:
+    class SubExprFinder : public ASTConsumer,
+                          public RecursiveASTVisitor<SubExprFinder> {
+      Expr *child;
+      bool found;
+
+    public:
+      bool VisitExpr(Expr *E) {
+        if (E == child)
+          this->found = true;
+        return true;
+      }
+
+      bool containsSubExpr(Expr *parent, Expr *child) {
+        this->found = false;
+        this->child = child;
+        this->TraverseStmt(parent);
+        return this->found;
+      }
+    };
+
+    static bool containsSubExpr(Expr *parent, Expr *child) {
+      bool contains = SubExprFinder().containsSubExpr(parent, child);
+      return contains;
+    }
+    // ------
+
+    template<class ExprClass>
+    class SubExprOfTypeFinder : public ASTConsumer,
+                          public RecursiveASTVisitor<SubExprFinder> {
+      ExprClass *child;
+
+    public:
+      bool VisitExpr(Expr *E) {
+        if (llvm::isa<ExprClass>(E))
+          this->child = llvm::cast_or_null<ExprClass>(E);
+        return true;
+      }
+
+      ExprClass* containsSubExpr(Expr *parent) {
+        this->child = nullptr;
+        this->TraverseStmt(parent);
+        return this->child;
+      }
+    };
+
+    class NewStructAdder : public ASTConsumer, public RecursiveASTVisitor<NewStructAdder> {
+    private:
+      Rewriter &R;
+    public:
+      explicit NewStructAdder(Rewriter &R) : R(R) {}
+
+      void HandleTranslationUnit(ASTContext &Context) override {
+        TranslationUnitDecl *D = Context.getTranslationUnitDecl();
+        TraverseDecl(D);
+      }
+
+      bool VisitCXXRecordDecl(CXXRecordDecl *decl) {
+        if (decl->getNameAsString() != "Particle") return true;
+        std::string rewrittenSource = "struct Particle__PACKED { char __table[1]; };\n";
+        R.InsertTextBefore(decl->getBeginLoc(), rewrittenSource);
+        return true;
+      }
+    };
+
+    template<class ExprClass>
+    static bool containsSubExprOfType(Expr *parent) {
+      ExprClass *child = SubExprOfTypeFinder<ExprClass>().containsSubExpr(parent);
+      return child;
+    }
+
+    class VarDeclUpdater : public ASTConsumer, public RecursiveASTVisitor<VarDeclUpdater> {
+    private:
+      Rewriter &R;
+    public:
+      explicit VarDeclUpdater(Rewriter &R) : R(R) {}
+
+      void HandleTranslationUnit(ASTContext &Context) override {
+        TranslationUnitDecl *D = Context.getTranslationUnitDecl();
+        TraverseDecl(D);
+      }
+
+      bool VisitVarDecl(VarDecl *decl) {
+        std::string refs = "";
+        std::string ptrs = "";
+        auto type = decl->getType();
+        while (type->isReferenceType() || type->isAnyPointerType()) {
+          if (type->isReferenceType()) {
+            type = type.getNonReferenceType();
+            refs += "&";
+          } else if (type->isAnyPointerType()) {
+            type = type->getPointeeType();
+            ptrs += "*";
+          }
+        }
+        if (!type->isRecordType()) return true;
+        auto *record = type->getAsRecordDecl();
+        if (record->getNameAsString() != "Particle") return true;
+        R.ReplaceText(SourceRange(decl->getTypeSpecStartLoc(), decl->getTypeSpecEndLoc()), "Particle__PACKED" + (ptrs.length() > 0 ? " " + ptrs : "") + (refs.length() > 0 ? " " + refs : ""));
+        return true;
+      }
+    };
+
+    class ReadAccessRewriter : public ASTConsumer, public RecursiveASTVisitor<ReadAccessRewriter> {
+    private:
+      Rewriter &R;
+      CompilerInstance &CI;
+
+    public:
+      explicit ReadAccessRewriter(Rewriter &R, CompilerInstance &CI) : R(R), CI(CI) {}
+
+      void HandleTranslationUnit(ASTContext &Context) override {
+        TranslationUnitDecl *D = Context.getTranslationUnitDecl();
+        TraverseDecl(D);
+      }
+
+      bool VisitMemberExpr(MemberExpr *expr) {
+        auto *memberDecl = expr->getMemberDecl();
+        if (!llvm::isa<FieldDecl>(memberDecl)) return true;
+        auto *fieldDecl = llvm::cast<FieldDecl>(memberDecl);
+        if (fieldDecl == nullptr) return true;
+        if (fieldDecl->getParent()->getNameAsString() != "Particle") return true;
+
+        auto parents =
+            CI.getASTContext().getParentMapContext().getParents(*expr);
+        if (parents.size() != 1) {
+          llvm::outs() << "Multiple parents of MemberExpr\n";
+          return false;
+        }
+
+        std::string varName = R.getRewrittenText(SourceRange(expr->getBeginLoc(), expr->getMemberLoc().getLocWithOffset(-1)));
+
+        auto parent = parents[0];
+        auto parentNodeKind = parent.getNodeKind();
+        if (parentNodeKind.KindId ==
+            ASTNodeKind::NodeKindId::NKI_ImplicitCastExpr) {
+          auto *implicitCast = parent.get<ImplicitCastExpr>();
+          if (implicitCast->getCastKind() != CastKind::CK_LValueToRValue)
+            return true;
+          // value is read here, we know by the implicit lvalue to rvalue cast
+
+          if (fieldDecl->getNameAsString() == "x") {
+            std::string source = "((" + varName + "__table[0] & 1) >> 0)";
+            R.ReplaceText(SourceRange(expr->getBeginLoc(), expr->getEndLoc()),
+                           source);
+            return true;
+          }
+
+          if (fieldDecl->getNameAsString() == "y") {
+            std::string source = "((" + varName + "__table[0] & 2) >> 1)";
+            R.ReplaceText(SourceRange(expr->getBeginLoc(), expr->getEndLoc()),
+                           source);
+            return true;
+          }
+        }
+        return true;
+      }
+    };
+
+    class WriteAccessRewriter : public ASTConsumer, public RecursiveASTVisitor<WriteAccessRewriter> {
+    private:
+      Rewriter &R;
+      CompilerInstance &CI;
+
+    public:
+      explicit WriteAccessRewriter(Rewriter &R, CompilerInstance &CI) : R(R), CI(CI) {}
+
+      void HandleTranslationUnit(ASTContext &Context) override {
+        TranslationUnitDecl *D = Context.getTranslationUnitDecl();
+        TraverseDecl(D);
+      }
+
+      bool VisitMemberExpr(MemberExpr *expr) {
+        auto *memberDecl = expr->getMemberDecl();
+        if (!llvm::isa<FieldDecl>(memberDecl)) return true;
+        auto *fieldDecl = llvm::cast<FieldDecl>(memberDecl);
+        if (fieldDecl == nullptr) return true;
+        if (fieldDecl->getParent()->getNameAsString() != "Particle") return true;
+
+        auto parents =
+            CI.getASTContext().getParentMapContext().getParents(*expr);
+        if (parents.size() != 1) {
+          llvm::outs() << "Multiple parents of MemberExpr\n";
+          return false;
+        }
+
+        auto parent = parents[0];
+        auto parentNodeKind = parent.getNodeKind();
+        if (parentNodeKind.KindId == ASTNodeKind::NKI_BinaryOperator) {
+          // simple value assignment, e.g p.x = 1;
+          auto *binaryOp = parent.get<BinaryOperator>();
+          if (binaryOp->getOpcode() != clang::BO_Assign) return true;
+          if (binaryOp->getLHS() != expr || RewriterASTConsumer::containsSubExpr(binaryOp->getRHS(), expr)) {
+            llvm::outs() << "Expr is both read and written to?\n";
+            return true;
+          }
+
+          std::string varName = R.getRewrittenText(SourceRange(expr->getBeginLoc(), expr->getMemberLoc().getLocWithOffset(-1)));
+
+          if (fieldDecl->getNameAsString() == "x") {
+            std::string lhsSource = varName + "__table[0]";
+            R.ReplaceText(binaryOp->getLHS()->getSourceRange(), lhsSource);
+//            auto rhsCurrentExpr = Lexer::getSourceText(CharSourceRange::getTokenRange(binaryOp->getRHS()->getSourceRange()), CI.getSourceManager(), CI.getLangOpts()).str();
+            auto rhsCurrentExpr = R.getRewrittenText(binaryOp->getRHS()->getSourceRange());
+            std::string rhsSource = "( (" + varName + "__table[0] & ~1) | ( (" + rhsCurrentExpr + ") << 0 ) )";
+            R.ReplaceText(binaryOp->getRHS()->getSourceRange(), rhsSource);
+            return true;
+          }
+
+          if (fieldDecl->getNameAsString() == "y") {
+            std::string lhsSource = varName + "__table[0]";
+            R.ReplaceText(binaryOp->getLHS()->getSourceRange(), lhsSource);
+//            auto rhsCurrentExpr = Lexer::getSourceText(CharSourceRange::getTokenRange(binaryOp->getRHS()->getSourceRange()), CI.getSourceManager(), CI.getLangOpts()).str();
+            auto rhsCurrentExpr = R.getRewrittenText(binaryOp->getRHS()->getSourceRange());
+            std::string rhsSource = "( (" + varName + "__table[0] & ~2) | ( (" + rhsCurrentExpr + ") << 1 ) )";
+            R.ReplaceText(binaryOp->getRHS()->getSourceRange(), rhsSource);
+            return true;
+          }
+
+        } else if (parentNodeKind.KindId == ASTNodeKind::NKI_CompoundAssignOperator) {
+          llvm::outs() << "To be implemented\n";
+        }
+        return true;
+      }
+    };
 
   public:
-    RewriterASTConsumer(CompilerInstance &CI) : CI(CI), R(CI.getSourceManager().getRewriter()) {}
+    RewriterASTConsumer(CompilerInstance &CI) : CI(CI), R(*CI.getSourceManager().getRewriter()) {}
 
     void HandleTranslationUnit(ASTContext &Context) override {
-      TranslationUnitDecl *D = Context.getTranslationUnitDecl();
-      TraverseDecl(D);
+      NewStructAdder(R).HandleTranslationUnit(Context);
+      VarDeclUpdater(R).HandleTranslationUnit(Context);
+      ReadAccessRewriter(R, CI).HandleTranslationUnit(Context);
+      WriteAccessRewriter(R, CI).HandleTranslationUnit(Context);
     }
 
-    bool VisitIntegerLiteral(IntegerLiteral *IntegerLiteral) {
-      if (IntegerLiteral->getValue().getSExtValue() != 1111) return true;
-      R->ReplaceText(IntegerLiteral->getSourceRange(), llvm::StringRef("77"));
-      return true;
-    }
   };
 
   class ASTPrinter : public ASTConsumer,
