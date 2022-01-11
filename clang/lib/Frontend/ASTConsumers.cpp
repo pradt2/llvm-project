@@ -94,9 +94,34 @@ namespace {
       }
     };
 
+    class SourceCodeGen {
+    public:
+      std::string getXGetter(std::string varAccessor) {
+        std::string source = "((" + varAccessor + "__table[0] & 1) >> 0)";
+        return source;
+      }
+
+      std::string getYGetter(std::string varAccessor) {
+        std::string source = "((" + varAccessor + "__table[0] & 2) >> 1)";
+        return source;
+      }
+
+      void getXSetter(std::string varAccessor, std::string rhsCurrentExpr, std::string (&vals)[2]) {
+        vals[0] = varAccessor + "__table[0]";
+        vals[1] = "( (" + varAccessor + "__table[0] & ~1) | ( (" + rhsCurrentExpr + ") << 0 ) )";
+      }
+
+      void getYSetter(std::string varAccessor, std::string rhsCurrentExpr, std::string (&vals)[2]) {
+        vals[0] = varAccessor + "__table[0]";
+        vals[1] = "( (" + varAccessor + "__table[0] & ~2) | ( (" + rhsCurrentExpr + ") << 1 ) )";
+      }
+
+    };
+
     class NewStructAdder : public ASTConsumer, public RecursiveASTVisitor<NewStructAdder> {
     private:
       Rewriter &R;
+      SourceCodeGen CG;
     public:
       explicit NewStructAdder(Rewriter &R) : R(R) {}
 
@@ -107,8 +132,26 @@ namespace {
 
       bool VisitCXXRecordDecl(CXXRecordDecl *decl) {
         if (!RewriterASTConsumer::isParticleRecordDecl(decl)) return true;
-        std::string rewrittenSource = "struct Particle__PACKED { char __table[1]; };\n";
-        R.InsertTextBefore(decl->getBeginLoc(), rewrittenSource);
+        std::string xSources[2];
+        CG.getXSetter("this->", "p.x", xSources);
+        std::string ySources[2];
+        CG.getYSetter("this->", "p.y", ySources);
+        std::string x2Sources[2];
+        CG.getXSetter("this->", "x", x2Sources);
+        std::string y2Sources[2];
+        CG.getYSetter("this->", "y", y2Sources);
+        std::string rewrittenSource = ";\nstruct Particle__PACKED { "
+                                      "char __table[1]; "
+                                      "Particle__PACKED(Particle &&p) { " +
+                                      xSources[0] + " = " + xSources[1] + "; " +
+                                      ySources[0] + " = " + ySources[1] + "; "
+                                      "}; "
+//                                      "Particle__PACKED(bool x, bool y) { " +
+//                                      x2Sources[0] + " = " + x2Sources[1] + "; " +
+//                                      y2Sources[0] + " = " + y2Sources[1] + "; "
+//                                      "}; "
+                                      "}";
+        R.InsertTextAfterToken(decl->getEndLoc(), rewrittenSource);
         return true;
       }
     };
@@ -117,6 +160,19 @@ namespace {
     static bool containsSubExprOfType(Expr *parent) {
       ExprClass *child = SubExprOfTypeFinder<ExprClass>().containsSubExpr(parent);
       return child;
+    }
+
+    static QualType getTypeFromIndirectType(QualType type, std::string &ptrs) {
+      while (type->isReferenceType() || type->isAnyPointerType()) {
+        if (type->isReferenceType()) {
+          type = type.getNonReferenceType();
+          ptrs += "&";
+        } else if (type->isAnyPointerType()) {
+          type = type->getPointeeType();
+          ptrs += "*";
+        }
+      }
+      return type;
     }
 
     class VarDeclUpdater : public ASTConsumer, public RecursiveASTVisitor<VarDeclUpdater> {
@@ -132,20 +188,41 @@ namespace {
 
       bool VisitVarDecl(VarDecl *decl) {
         std::string ptrs = "";
-        auto type = decl->getType();
-        while (type->isReferenceType() || type->isAnyPointerType()) {
-          if (type->isReferenceType()) {
-            type = type.getNonReferenceType();
-            ptrs += "&";
-          } else if (type->isAnyPointerType()) {
-            type = type->getPointeeType();
-            ptrs += "*";
-          }
-        }
+        auto type = RewriterASTConsumer::getTypeFromIndirectType(decl->getType(), ptrs);
         if (!type->isRecordType()) return true;
         auto *record = type->getAsRecordDecl();
         if (!RewriterASTConsumer::isParticleRecordDecl(record)) return true;
         R.ReplaceText(SourceRange(decl->getTypeSpecStartLoc(), decl->getTypeSpecEndLoc()), "Particle__PACKED" + (ptrs.length() > 0 ? " " + ptrs : ""));
+        if (!decl->hasInit()) return true;
+        Expr *initExpr = decl->getInit();
+        if (decl->getInitStyle() == VarDecl::InitializationStyle::ListInit) {
+          InitListExpr *initListExpr = llvm::cast<InitListExpr>(initExpr);
+          R.InsertTextBefore(initListExpr->getBeginLoc(), "(");
+          R.InsertTextAfterToken(initListExpr->getEndLoc(), ")");
+        }
+        return true;
+      }
+    };
+
+    class FunctionReturnTypeUpdater : public ASTConsumer, public RecursiveASTVisitor<FunctionReturnTypeUpdater> {
+    private:
+      Rewriter &R;
+    public:
+      explicit FunctionReturnTypeUpdater(Rewriter &R) : R(R) {}
+
+      void HandleTranslationUnit(ASTContext &Context) override {
+        TranslationUnitDecl *D = Context.getTranslationUnitDecl();
+        TraverseDecl(D);
+      }
+
+      bool VisitFunctionDecl(FunctionDecl *decl) {
+        std::string ptrs = "";
+        auto returnIndirectType = decl->getReturnType();
+        auto returnType = RewriterASTConsumer::getTypeFromIndirectType(returnIndirectType, ptrs);
+        if (!returnType->isRecordType()) return true;
+        auto *record = returnType->getAsRecordDecl();
+        if (!RewriterASTConsumer::isParticleRecordDecl(record)) return true;
+        R.ReplaceText(decl->getReturnTypeSourceRange(), "Particle__PACKED" + (ptrs.length() > 0 ? " " + ptrs : ""));
         return true;
       }
     };
@@ -154,6 +231,7 @@ namespace {
     private:
       Rewriter &R;
       CompilerInstance &CI;
+      SourceCodeGen CG;
 
     public:
       explicit ReadAccessRewriter(Rewriter &R, CompilerInstance &CI) : R(R), CI(CI) {}
@@ -189,14 +267,14 @@ namespace {
           // value is read here, we know by the implicit lvalue to rvalue cast
 
           if (fieldDecl->getNameAsString() == "x") {
-            std::string source = "((" + varName + "__table[0] & 1) >> 0)";
+            std::string source = CG.getXGetter(varName);
             R.ReplaceText(SourceRange(expr->getBeginLoc(), expr->getEndLoc()),
                            source);
             return true;
           }
 
           if (fieldDecl->getNameAsString() == "y") {
-            std::string source = "((" + varName + "__table[0] & 2) >> 1)";
+            std::string source = CG.getYGetter(varName);
             R.ReplaceText(SourceRange(expr->getBeginLoc(), expr->getEndLoc()),
                            source);
             return true;
@@ -210,6 +288,7 @@ namespace {
     private:
       Rewriter &R;
       CompilerInstance &CI;
+      SourceCodeGen CG;
 
     public:
       explicit WriteAccessRewriter(Rewriter &R, CompilerInstance &CI) : R(R), CI(CI) {}
@@ -247,21 +326,25 @@ namespace {
           std::string varName = R.getRewrittenText(SourceRange(expr->getBeginLoc(), expr->getMemberLoc().getLocWithOffset(-1)));
 
           if (fieldDecl->getNameAsString() == "x") {
-            std::string lhsSource = varName + "__table[0]";
+            std::string sources[2];
+            auto rhsCurrentExpr = R.getRewrittenText(binaryOp->getRHS()->getSourceRange());
+            CG.getXSetter(varName, rhsCurrentExpr, sources);
+            std::string lhsSource = sources[0];
             R.ReplaceText(binaryOp->getLHS()->getSourceRange(), lhsSource);
 //            auto rhsCurrentExpr = Lexer::getSourceText(CharSourceRange::getTokenRange(binaryOp->getRHS()->getSourceRange()), CI.getSourceManager(), CI.getLangOpts()).str();
-            auto rhsCurrentExpr = R.getRewrittenText(binaryOp->getRHS()->getSourceRange());
-            std::string rhsSource = "( (" + varName + "__table[0] & ~1) | ( (" + rhsCurrentExpr + ") << 0 ) )";
+            std::string rhsSource = sources[1];
             R.ReplaceText(binaryOp->getRHS()->getSourceRange(), rhsSource);
             return true;
           }
 
           if (fieldDecl->getNameAsString() == "y") {
-            std::string lhsSource = varName + "__table[0]";
+            std::string sources[2];
+            auto rhsCurrentExpr = R.getRewrittenText(binaryOp->getRHS()->getSourceRange());
+            CG.getYSetter(varName, rhsCurrentExpr, sources);
+            std::string lhsSource = sources[0];
             R.ReplaceText(binaryOp->getLHS()->getSourceRange(), lhsSource);
 //            auto rhsCurrentExpr = Lexer::getSourceText(CharSourceRange::getTokenRange(binaryOp->getRHS()->getSourceRange()), CI.getSourceManager(), CI.getLangOpts()).str();
-            auto rhsCurrentExpr = R.getRewrittenText(binaryOp->getRHS()->getSourceRange());
-            std::string rhsSource = "( (" + varName + "__table[0] & ~2) | ( (" + rhsCurrentExpr + ") << 1 ) )";
+            std::string rhsSource = sources[1];
             R.ReplaceText(binaryOp->getRHS()->getSourceRange(), rhsSource);
             return true;
           }
@@ -279,6 +362,7 @@ namespace {
     void HandleTranslationUnit(ASTContext &Context) override {
       NewStructAdder(R).HandleTranslationUnit(Context);
       VarDeclUpdater(R).HandleTranslationUnit(Context);
+      FunctionReturnTypeUpdater(R).HandleTranslationUnit(Context);
       ReadAccessRewriter(R, CI).HandleTranslationUnit(Context);
       WriteAccessRewriter(R, CI).HandleTranslationUnit(Context);
     }
