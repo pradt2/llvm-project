@@ -69,7 +69,6 @@ namespace {
         for (auto *fieldAttr : field->attrs()) {
           if (fieldAttr->getKind() != clang::attr::Annotate) continue;
           auto *annotateAttr = llvm::cast<AnnotateAttr>(fieldAttr);
-          llvm::outs() << annotateAttr->getAnnotation().str() << "\n";
           if (annotateAttr->getAnnotation().str() == "compressed ") return true;
         }
       }
@@ -132,13 +131,12 @@ namespace {
       }
 
       bool VisitVarDecl(VarDecl *decl) {
-        std::string refs = "";
         std::string ptrs = "";
         auto type = decl->getType();
         while (type->isReferenceType() || type->isAnyPointerType()) {
           if (type->isReferenceType()) {
             type = type.getNonReferenceType();
-            refs += "&";
+            ptrs += "&";
           } else if (type->isAnyPointerType()) {
             type = type->getPointeeType();
             ptrs += "*";
@@ -147,7 +145,7 @@ namespace {
         if (!type->isRecordType()) return true;
         auto *record = type->getAsRecordDecl();
         if (!RewriterASTConsumer::isParticleRecordDecl(record)) return true;
-        R.ReplaceText(SourceRange(decl->getTypeSpecStartLoc(), decl->getTypeSpecEndLoc()), "Particle__PACKED" + (ptrs.length() > 0 ? " " + ptrs : "") + (refs.length() > 0 ? " " + refs : ""));
+        R.ReplaceText(SourceRange(decl->getTypeSpecStartLoc(), decl->getTypeSpecEndLoc()), "Particle__PACKED" + (ptrs.length() > 0 ? " " + ptrs : ""));
         return true;
       }
     };
