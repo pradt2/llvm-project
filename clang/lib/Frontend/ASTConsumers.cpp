@@ -63,7 +63,18 @@ namespace {
       bool contains = SubExprFinder().containsSubExpr(parent, child);
       return contains;
     }
-    // ------
+
+    static bool isParticleRecordDecl(RecordDecl *recordDecl) {
+      for (auto *field : recordDecl->fields()) {
+        for (auto *fieldAttr : field->attrs()) {
+          if (fieldAttr->getKind() != clang::attr::Annotate) continue;
+          auto *annotateAttr = llvm::cast<AnnotateAttr>(fieldAttr);
+          llvm::outs() << annotateAttr->getAnnotation().str() << "\n";
+          if (annotateAttr->getAnnotation().str() == "compressed ") return true;
+        }
+      }
+      return false;
+    }
 
     template<class ExprClass>
     class SubExprOfTypeFinder : public ASTConsumer,
@@ -96,7 +107,7 @@ namespace {
       }
 
       bool VisitCXXRecordDecl(CXXRecordDecl *decl) {
-        if (decl->getNameAsString() != "Particle") return true;
+        if (!RewriterASTConsumer::isParticleRecordDecl(decl)) return true;
         std::string rewrittenSource = "struct Particle__PACKED { char __table[1]; };\n";
         R.InsertTextBefore(decl->getBeginLoc(), rewrittenSource);
         return true;
@@ -135,7 +146,7 @@ namespace {
         }
         if (!type->isRecordType()) return true;
         auto *record = type->getAsRecordDecl();
-        if (record->getNameAsString() != "Particle") return true;
+        if (!RewriterASTConsumer::isParticleRecordDecl(record)) return true;
         R.ReplaceText(SourceRange(decl->getTypeSpecStartLoc(), decl->getTypeSpecEndLoc()), "Particle__PACKED" + (ptrs.length() > 0 ? " " + ptrs : "") + (refs.length() > 0 ? " " + refs : ""));
         return true;
       }
@@ -159,7 +170,7 @@ namespace {
         if (!llvm::isa<FieldDecl>(memberDecl)) return true;
         auto *fieldDecl = llvm::cast<FieldDecl>(memberDecl);
         if (fieldDecl == nullptr) return true;
-        if (fieldDecl->getParent()->getNameAsString() != "Particle") return true;
+        if (!RewriterASTConsumer::isParticleRecordDecl(fieldDecl->getParent())) return true;
 
         auto parents =
             CI.getASTContext().getParentMapContext().getParents(*expr);
@@ -215,7 +226,7 @@ namespace {
         if (!llvm::isa<FieldDecl>(memberDecl)) return true;
         auto *fieldDecl = llvm::cast<FieldDecl>(memberDecl);
         if (fieldDecl == nullptr) return true;
-        if (fieldDecl->getParent()->getNameAsString() != "Particle") return true;
+        if (!RewriterASTConsumer::isParticleRecordDecl(fieldDecl->getParent())) return true;
 
         auto parents =
             CI.getASTContext().getParentMapContext().getParents(*expr);

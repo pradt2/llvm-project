@@ -1,7 +1,8 @@
-#include <stdio.h>
-//void printf(const char *x, unsigned long y, char a, char b) {}
+//#include <stdio.h>
+void printf(const char *x) {} void printf(const char *x, unsigned long y, char a, char b) {}
 
 struct Particle {
+  #pragma dastgen compressed
   bool x, y;
 };
 
