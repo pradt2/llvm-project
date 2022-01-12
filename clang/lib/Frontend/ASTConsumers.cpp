@@ -152,6 +152,8 @@ namespace {
 //                                      "}; "
                                       "}";
         R.InsertTextAfterToken(decl->getEndLoc(), rewrittenSource);
+        R.InsertTextBefore(decl->getBeginLoc(), "struct Particle__PACKED;\n");
+        R.InsertTextAfter(decl->getEndLoc(), "Particle() {}; Particle(bool x, bool y) { this->x = x; this->y = y; }; Particle(struct Particle__PACKED &p) {}; Particle(struct Particle__PACKED &&p) {}; ");
         return true;
       }
     };
@@ -195,11 +197,48 @@ namespace {
         R.ReplaceText(SourceRange(decl->getTypeSpecStartLoc(), decl->getTypeSpecEndLoc()), "Particle__PACKED" + (ptrs.length() > 0 ? " " + ptrs : ""));
         if (!decl->hasInit()) return true;
         Expr *initExpr = decl->getInit();
-        if (decl->getInitStyle() == VarDecl::InitializationStyle::ListInit) {
+        if (decl->getInitStyle() == VarDecl::InitializationStyle::ListInit) { // TODO move to its own ASTConsumer?
           InitListExpr *initListExpr = llvm::cast<InitListExpr>(initExpr);
+          std::string source = "{";
+          for (unsigned int i = 0; i < initListExpr->getNumInits(); i++) {
+            auto *initExpr = initListExpr->getInit(i);
+            source += R.getRewrittenText(initExpr->getSourceRange()) + ", ";
+          }
+          source.pop_back();
+          source.pop_back();
+          source += "}";
+          R.ReplaceText(initListExpr->getSourceRange(), source);
           R.InsertTextBefore(initListExpr->getBeginLoc(), "(");
           R.InsertTextAfterToken(initListExpr->getEndLoc(), ")");
         }
+        else if (decl->getInitStyle() == VarDecl::CInit) {
+          // nothing to do, handled by constructor invocation rewrite
+          return true;
+        }
+        return true;
+      }
+    };
+
+    class ConstructorExprRewriter : public ASTConsumer, public RecursiveASTVisitor<ConstructorExprRewriter> {
+    private:
+      Rewriter &R;
+    public:
+      explicit ConstructorExprRewriter(Rewriter &R) : R(R) {}
+
+      void HandleTranslationUnit(ASTContext &Context) override {
+        TranslationUnitDecl *D = Context.getTranslationUnitDecl();
+        TraverseDecl(D);
+      }
+
+      bool VisitCXXConstructExpr(CXXConstructExpr *decl) {
+        if (decl->isElidable()) return true;
+        std::string ptrs;
+        auto constructType = RewriterASTConsumer::getTypeFromIndirectType(decl->getType(), ptrs);
+        if (!constructType->isRecordType()) return true;
+        auto *constructDecl = constructType->getAsRecordDecl();
+        if (!RewriterASTConsumer::isParticleRecordDecl(constructDecl)) return true;
+        R.InsertTextBefore(decl->getBeginLoc(), "Particle__PACKED(");
+        R.InsertTextAfterToken(decl->getEndLoc(), ")");
         return true;
       }
     };
@@ -362,6 +401,7 @@ namespace {
     void HandleTranslationUnit(ASTContext &Context) override {
       NewStructAdder(R).HandleTranslationUnit(Context);
       VarDeclUpdater(R).HandleTranslationUnit(Context);
+      ConstructorExprRewriter(R).HandleTranslationUnit(Context);
       FunctionReturnTypeUpdater(R).HandleTranslationUnit(Context);
       ReadAccessRewriter(R, CI).HandleTranslationUnit(Context);
       WriteAccessRewriter(R, CI).HandleTranslationUnit(Context);
