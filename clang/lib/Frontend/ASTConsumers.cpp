@@ -24,6 +24,8 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Timer.h"
 #include "llvm/Support/raw_ostream.h"
+#include "./CompressionCodeGen.h"
+
 using namespace clang;
 
 //===----------------------------------------------------------------------===//
@@ -94,36 +96,12 @@ namespace {
       }
     };
 
-    class SourceCodeGen {
-    public:
-      std::string getXGetter(std::string varAccessor) {
-        std::string source = "((" + varAccessor + "__table[0] & 1) >> 0)";
-        return source;
-      }
-
-      std::string getYGetter(std::string varAccessor) {
-        std::string source = "((" + varAccessor + "__table[0] & 2) >> 1)";
-        return source;
-      }
-
-      void getXSetter(std::string varAccessor, std::string rhsCurrentExpr, std::string (&vals)[2]) {
-        vals[0] = varAccessor + "__table[0]";
-        vals[1] = "( (" + varAccessor + "__table[0] & ~1) | ( (" + rhsCurrentExpr + ") << 0 ) )";
-      }
-
-      void getYSetter(std::string varAccessor, std::string rhsCurrentExpr, std::string (&vals)[2]) {
-        vals[0] = varAccessor + "__table[0]";
-        vals[1] = "( (" + varAccessor + "__table[0] & ~2) | ( (" + rhsCurrentExpr + ") << 1 ) )";
-      }
-
-    };
-
     class NewStructAdder : public ASTConsumer, public RecursiveASTVisitor<NewStructAdder> {
     private:
       Rewriter &R;
-      SourceCodeGen CG;
+      CompilerInstance &CI;
     public:
-      explicit NewStructAdder(Rewriter &R) : R(R) {}
+      explicit NewStructAdder(Rewriter &R, CompilerInstance &CI) : R(R), CI(CI) {}
 
       void HandleTranslationUnit(ASTContext &Context) override {
         TranslationUnitDecl *D = Context.getTranslationUnitDecl();
@@ -132,28 +110,9 @@ namespace {
 
       bool VisitCXXRecordDecl(CXXRecordDecl *decl) {
         if (!RewriterASTConsumer::isParticleRecordDecl(decl)) return true;
-        std::string xSources[2];
-        CG.getXSetter("this->", "p.x", xSources);
-        std::string ySources[2];
-        CG.getYSetter("this->", "p.y", ySources);
-        std::string x2Sources[2];
-        CG.getXSetter("this->", "x", x2Sources);
-        std::string y2Sources[2];
-        CG.getYSetter("this->", "y", y2Sources);
-        std::string rewrittenSource = ";\nstruct Particle__PACKED { "
-                                      "char __table[1]; "
-                                      "Particle__PACKED(Particle &&p) { " +
-                                      xSources[0] + " = " + xSources[1] + "; " +
-                                      ySources[0] + " = " + ySources[1] + "; "
-                                      "}; "
-//                                      "Particle__PACKED(bool x, bool y) { " +
-//                                      x2Sources[0] + " = " + x2Sources[1] + "; " +
-//                                      y2Sources[0] + " = " + y2Sources[1] + "; "
-//                                      "}; "
-                                      "}";
-        R.InsertTextAfterToken(decl->getEndLoc(), rewrittenSource);
-        R.InsertTextBefore(decl->getBeginLoc(), "struct Particle__PACKED;\n");
-        R.InsertTextAfter(decl->getEndLoc(), "Particle() {}; Particle(bool x, bool y) { this->x = x; this->y = y; }; Particle(struct Particle__PACKED &p) {}; Particle(struct Particle__PACKED &&p) {}; ");
+        auto compressionCodeGen = CompressionCodeGen(decl, CI);
+        std::string compressedStructDef = compressionCodeGen.getCompressedStructDef();
+        R.InsertTextAfterToken(decl->getEndLoc(), ";\n" + compressedStructDef);
         return true;
       }
     };
@@ -270,7 +229,6 @@ namespace {
     private:
       Rewriter &R;
       CompilerInstance &CI;
-      SourceCodeGen CG;
 
     public:
       explicit ReadAccessRewriter(Rewriter &R, CompilerInstance &CI) : R(R), CI(CI) {}
@@ -305,19 +263,9 @@ namespace {
             return true;
           // value is read here, we know by the implicit lvalue to rvalue cast
 
-          if (fieldDecl->getNameAsString() == "x") {
-            std::string source = CG.getXGetter(varName);
-            R.ReplaceText(SourceRange(expr->getBeginLoc(), expr->getEndLoc()),
-                           source);
-            return true;
-          }
-
-          if (fieldDecl->getNameAsString() == "y") {
-            std::string source = CG.getYGetter(varName);
-            R.ReplaceText(SourceRange(expr->getBeginLoc(), expr->getEndLoc()),
-                           source);
-            return true;
-          }
+          std::string source = CompressionCodeGen(fieldDecl->getParent(), CI).getGetterExpr(fieldDecl, varName);
+          R.ReplaceText(SourceRange(expr->getBeginLoc(), expr->getEndLoc()),
+                        source);
         }
         return true;
       }
@@ -327,7 +275,6 @@ namespace {
     private:
       Rewriter &R;
       CompilerInstance &CI;
-      SourceCodeGen CG;
 
     public:
       explicit WriteAccessRewriter(Rewriter &R, CompilerInstance &CI) : R(R), CI(CI) {}
@@ -364,30 +311,9 @@ namespace {
 
           std::string varName = R.getRewrittenText(SourceRange(expr->getBeginLoc(), expr->getMemberLoc().getLocWithOffset(-1)));
 
-          if (fieldDecl->getNameAsString() == "x") {
-            std::string sources[2];
-            auto rhsCurrentExpr = R.getRewrittenText(binaryOp->getRHS()->getSourceRange());
-            CG.getXSetter(varName, rhsCurrentExpr, sources);
-            std::string lhsSource = sources[0];
-            R.ReplaceText(binaryOp->getLHS()->getSourceRange(), lhsSource);
-//            auto rhsCurrentExpr = Lexer::getSourceText(CharSourceRange::getTokenRange(binaryOp->getRHS()->getSourceRange()), CI.getSourceManager(), CI.getLangOpts()).str();
-            std::string rhsSource = sources[1];
-            R.ReplaceText(binaryOp->getRHS()->getSourceRange(), rhsSource);
-            return true;
-          }
-
-          if (fieldDecl->getNameAsString() == "y") {
-            std::string sources[2];
-            auto rhsCurrentExpr = R.getRewrittenText(binaryOp->getRHS()->getSourceRange());
-            CG.getYSetter(varName, rhsCurrentExpr, sources);
-            std::string lhsSource = sources[0];
-            R.ReplaceText(binaryOp->getLHS()->getSourceRange(), lhsSource);
-//            auto rhsCurrentExpr = Lexer::getSourceText(CharSourceRange::getTokenRange(binaryOp->getRHS()->getSourceRange()), CI.getSourceManager(), CI.getLangOpts()).str();
-            std::string rhsSource = sources[1];
-            R.ReplaceText(binaryOp->getRHS()->getSourceRange(), rhsSource);
-            return true;
-          }
-
+          auto rhsCurrentExpr = R.getRewrittenText(binaryOp->getRHS()->getSourceRange());
+          std::string source = CompressionCodeGen(fieldDecl->getParent(), CI).getSetterExpr(fieldDecl, varName, rhsCurrentExpr);
+          R.ReplaceText(binaryOp->getSourceRange(), source);
         } else if (parentNodeKind.KindId == ASTNodeKind::NKI_CompoundAssignOperator) {
           llvm::outs() << "To be implemented\n";
         }
@@ -399,7 +325,7 @@ namespace {
     RewriterASTConsumer(CompilerInstance &CI) : CI(CI), R(*CI.getSourceManager().getRewriter()) {}
 
     void HandleTranslationUnit(ASTContext &Context) override {
-      NewStructAdder(R).HandleTranslationUnit(Context);
+      NewStructAdder(R, CI).HandleTranslationUnit(Context);
       VarDeclUpdater(R).HandleTranslationUnit(Context);
       ConstructorExprRewriter(R).HandleTranslationUnit(Context);
       FunctionReturnTypeUpdater(R).HandleTranslationUnit(Context);
