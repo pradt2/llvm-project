@@ -1,5 +1,5 @@
-//#include <stdio.h>
-void printf(const char *x) {} void printf(const char *x, unsigned long y, char a, char b) {}
+#include <stdio.h>
+//void printf(const char *x) {} void printf(const char *x, unsigned long y, char a, char b) {}
 
 struct Particle {
   #pragma dastgen compressed
@@ -41,6 +41,7 @@ int main() {
   Particle p2 { .y = true, .x = false};
   Particle p4 = Particle(p2);
   Particle p5 = createParticle();
+  Particle *p6 = new Particle();
   printParticle(p1);
   p1.x = false;
   p1.y = !p1.x;
