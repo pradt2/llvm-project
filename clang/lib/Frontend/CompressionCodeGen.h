@@ -134,9 +134,6 @@ class CompressionCodeGen {
 
   // 1111___compressed_type_size_as_0s___111111
   unsigned int getBeforeStoreMask(FieldDecl *fieldDecl) {
-    unsigned int rightMargin = getBitsMarginToRightTableViewEdge(fieldDecl);
-    unsigned int leftMargin = getBitsMarginToLeftTableViewEdge(fieldDecl);
-    unsigned int compressedTypeSize = getCompressedTypeWidth(fieldDecl);
     unsigned int afterFetchMask = getAfterFetchMask(fieldDecl);
     unsigned int tableViewSize = getTableViewWidthForField(fieldDecl);
     unsigned int mask = (1 << tableViewSize) - 1;
