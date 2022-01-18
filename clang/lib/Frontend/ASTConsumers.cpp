@@ -161,6 +161,7 @@ namespace {
           std::string source = "{";
           for (unsigned int i = 0; i < initListExpr->getNumInits(); i++) {
             auto *initExpr = initListExpr->getInit(i);
+            if (initExpr->getSourceRange().isInvalid()) continue;
             source += R.getRewrittenText(initExpr->getSourceRange()) + ", ";
           }
           source.pop_back();

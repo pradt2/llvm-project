@@ -23,14 +23,23 @@ class CompressionCodeGen {
   RecordDecl *decl;
   CompilerInstance &CI;
 
-  std::string getTypeForTableViewExpr() {
-    switch (tableCellSize) {
-      case 8: return "unsigned char";
-      case 16: return "unsigned short";
-      case 32: return "unsigned int";
-      case 64: return "unsigned long";
-    }
+  std::string getTypeForTableViewExpr(FieldDecl *fieldDecl) {
+    unsigned int tableViewSize = getTableViewWidthForField(fieldDecl);
+    if (tableViewSize <= 8) return "unsigned char";
+    if (tableViewSize <= 16) return "unsigned short";
+    if (tableViewSize <= 32) return "unsigned int";
+    if (tableViewSize <= 64) return "unsigned long";
     return "<invalid type>";
+  }
+
+  unsigned int getTableViewWidthForField(FieldDecl *fieldDecl) {
+      unsigned int bitsMarginLeft = getBitsMarginToLeftTableViewEdge(fieldDecl);
+      unsigned int originalSize = getCompressedTypeWidth(fieldDecl);
+      unsigned int minWindowSize = bitsMarginLeft + originalSize;
+      if (minWindowSize <= 8) return 8;
+      if (minWindowSize <= 16) return 16;
+      if (minWindowSize <= 32) return 32;
+      return 64;
   }
 
   std::string typeToString(QualType type) {
@@ -38,98 +47,115 @@ class CompressionCodeGen {
     return "bool";
   }
 
-  int getOriginalTypeWidth(QualType type) {
+  unsigned getOriginalTypeWidth(QualType type) {
     if (type->isBooleanType()) return 8;
     if (type->isEnumeralType()) {
       return getOriginalTypeWidth(type->getAs<EnumType>()->getDecl()->getIntegerType());
     }
-    if (!type->isIntegerType()) return -999999999;
+    if (!type->isIntegerType()) return 64;
     return CI.getASTContext().getIntWidth(type);
   }
 
-  int getCompressedTypeWidth(QualType type) {
+  unsigned int getCompressedTypeWidth(FieldDecl *fieldDecl) {
+    auto type = fieldDecl->getType();
     if (type->isBooleanType()) return 1;
     if (type->isEnumeralType()) {
       return getEnumTypeWidth(const_cast<EnumDecl *>(type->getAs<EnumType>()->getDecl()));
     }
-    if (!type->isIntegerType()) return -999999999;
-    return 1;
+    for (auto *attr : fieldDecl->attrs()) {
+      if (attr->getKind() != clang::attr::CompressRange) continue;
+      auto *compressRangeAttr = llvm::cast<CompressRangeAttr>(attr);
+      int minValue = compressRangeAttr->getMinValue();
+      int maxValue = compressRangeAttr->getMaxValue();
+      unsigned int valueRange = abs(maxValue - minValue);
+      if (valueRange == 1) return 1;
+      unsigned size = ceil(log2(valueRange));
+      return size;
+    }
+    return 64;
   }
 
-  int getEnumTypeWidth(EnumDecl *enumDecl) {
-    int counter = 0;
+  unsigned int getEnumTypeWidth(EnumDecl *enumDecl) {
+    unsigned int counter = 0;
     for (auto *x : enumDecl->enumerators()) counter++;
-    int bitsWidth = ceil(log2(counter));
+    if (counter == 0) return 0;
+    unsigned int bitsWidth = ceil(log2(counter));
     return bitsWidth;
   }
 
-  int getFieldOffset(FieldDecl *fieldDecl) {
-    int offset = 0;
+  unsigned int getFieldOffset(FieldDecl *fieldDecl) {
+    unsigned int offset = 0;
     for (auto *field : decl->fields()) {
       if (field == fieldDecl) break;
-      auto type = field->getType();
-      int width = getCompressedTypeWidth(type);
+      unsigned int width = getCompressedTypeWidth(field);
       offset += width;
     }
     return offset;
   }
 
-  int getTableCellStartingIndex(FieldDecl *fieldDecl) {
-    int offset = getFieldOffset(fieldDecl);
+  unsigned getTableCellStartingIndex(FieldDecl *fieldDecl) {
+    unsigned int offset = getFieldOffset(fieldDecl);
     return floor(offset / tableCellSize);
   }
 
-  int getBitsMarginToLeftTableViewEdge(FieldDecl *fieldDecl) {
-    int bitsToLeftEdge = getTableCellStartingIndex(fieldDecl) * tableCellSize;
-    int offset = getFieldOffset(fieldDecl);
-    int bitsMarginLeft = offset - bitsToLeftEdge;
+  unsigned getBitsMarginToLeftTableViewEdge(FieldDecl *fieldDecl) {
+    unsigned int bitsToLeftEdge = getTableCellStartingIndex(fieldDecl) * tableCellSize;
+    unsigned int offset = getFieldOffset(fieldDecl);
+    unsigned int bitsMarginLeft = offset - bitsToLeftEdge;
     return bitsMarginLeft;
   }
 
-  int getBitsMarginToRightTableViewEdge(FieldDecl *fieldDecl) {
-    int bitsToRightEdge = (getTableCellStartingIndex(fieldDecl) + 1) * tableCellSize;
-    int offset = getFieldOffset(fieldDecl);
-    int compressedSize = getCompressedTypeWidth(fieldDecl->getType());
-    int bitsMarginRight = bitsToRightEdge - offset - compressedSize;
+  unsigned int getBitsMarginToRightTableViewEdge(FieldDecl *fieldDecl) {
+    unsigned int tableViewSize = getTableViewWidthForField(fieldDecl);
+    unsigned int bitsMarginLeft = getBitsMarginToLeftTableViewEdge(fieldDecl);
+    unsigned int compressedSize = getCompressedTypeWidth(fieldDecl);
+    unsigned bitsMarginRight = tableViewSize - bitsMarginLeft - compressedSize;
     return bitsMarginRight;
   }
 
   std::string getTableViewExpr(FieldDecl *fieldDecl, std::string thisAccessor) {
     int tableIndex = getTableCellStartingIndex(fieldDecl);
-    std::string tableViewExpr = "reinterpret_cast<" + getTypeForTableViewExpr() + "&>(" + thisAccessor + tableName + "[" + std::to_string(tableIndex) + "])";
+    std::string tableViewExpr = "reinterpret_cast<" + getTypeForTableViewExpr(fieldDecl) + "&>(" + thisAccessor + tableName + "[" + std::to_string(tableIndex) + "])";
     return tableViewExpr;
   }
 
   // 00000___compressed_type_size_as_1s___00000
-  int getAfterFetchMask(FieldDecl *fieldDecl) {
-    int compressedTypeSize = getCompressedTypeWidth(fieldDecl->getType());
-    int rightMargin = getBitsMarginToRightTableViewEdge(fieldDecl);
-    int mask = (1 << compressedTypeSize) - 1;
-    mask = mask << rightMargin;
+  unsigned int getAfterFetchMask(FieldDecl *fieldDecl) {
+    unsigned int compressedTypeSize = getCompressedTypeWidth(fieldDecl);
+    unsigned int leftMargin = getBitsMarginToLeftTableViewEdge(fieldDecl);
+    unsigned int mask = (1 << compressedTypeSize) - 1;
+    mask = mask << leftMargin;
     return mask;
   }
 
   // 1111___compressed_type_size_as_0s___111111
-  int getBeforeStoreMask(FieldDecl *fieldDecl) {
-    int rightMargin = getBitsMarginToRightTableViewEdge(fieldDecl);
-    int leftMargin = getBitsMarginToLeftTableViewEdge(fieldDecl);
-    int compressedTypeSize = getCompressedTypeWidth(fieldDecl->getType());
-    int afterFetchMask = getAfterFetchMask(fieldDecl);
-    int mask = (1 << tableCellSize) - 1;
+  unsigned int getBeforeStoreMask(FieldDecl *fieldDecl) {
+    unsigned int rightMargin = getBitsMarginToRightTableViewEdge(fieldDecl);
+    unsigned int leftMargin = getBitsMarginToLeftTableViewEdge(fieldDecl);
+    unsigned int compressedTypeSize = getCompressedTypeWidth(fieldDecl);
+    unsigned int afterFetchMask = getAfterFetchMask(fieldDecl);
+    unsigned int tableViewSize = getTableViewWidthForField(fieldDecl);
+    unsigned int mask = (1 << tableViewSize) - 1;
     mask -= afterFetchMask;
     return mask;
   }
 
   int getCompressionConstant(FieldDecl *fieldDecl) {
+    for (auto *attr : fieldDecl->attrs()) {
+      if (attr->getKind() != clang::attr::CompressRange) continue;
+      auto *compressRangeAttr = llvm::cast<CompressRangeAttr>(attr);
+      int minValue = compressRangeAttr->getMinValue();
+      return minValue;
+    }
     return 0;
   }
 
-  int getTableCellsNeeded() {
+  unsigned int getTableCellsNeeded() {
     double bitCounter = 0;
     for (auto *field : decl->fields()) {
-      bitCounter += getCompressedTypeWidth(field->getType());
+      bitCounter += getCompressedTypeWidth(field);
     }
-    int cellsNeeded = ceil(bitCounter / tableCellSize);
+    unsigned int cellsNeeded = ceil(bitCounter / tableCellSize);
     return cellsNeeded;
   }
 
@@ -183,11 +209,11 @@ public:
 
   std::string getGetterExpr(FieldDecl *fieldDecl, std::string thisAccessor) {
     std::string tableView = getTableViewExpr(fieldDecl, thisAccessor);
-    std::string afterFetchMask = std::to_string(getAfterFetchMask(fieldDecl));
-    std::string bitshiftAgainstRightMargin = std::to_string(getBitsMarginToRightTableViewEdge(fieldDecl));
+    std::string afterFetchMask = std::to_string(getAfterFetchMask(fieldDecl)) + "U";
+    std::string bitshiftAgainstLeftMargin = std::to_string(getBitsMarginToLeftTableViewEdge(fieldDecl)) + "U";
     std::string compressionConstant = std::to_string(getCompressionConstant(fieldDecl));
     std::string getter = "(" + tableView + " & " + afterFetchMask + ")";
-    getter = "(" + getter + " >> " + bitshiftAgainstRightMargin + ")";
+    getter = "(" + getter + " >> " + bitshiftAgainstLeftMargin + ")";
     getter = "(" + getter + " + " + compressionConstant + ")";
     getter = "((" + typeToString(fieldDecl->getType()) + ") " + getter + ")";
     return getter;
@@ -195,11 +221,13 @@ public:
 
   std::string getSetterExpr(FieldDecl *fieldDecl, std::string thisAccessor, std::string toBeSetValue) {
     std::string tableView = getTableViewExpr(fieldDecl, thisAccessor);
-    std::string beforeStoreMask = std::to_string(getBeforeStoreMask(fieldDecl));
-    std::string bitshiftAgainstRightMargin = std::to_string(getBitsMarginToRightTableViewEdge(fieldDecl));
+    std::string afterFetchMask = std::to_string(getAfterFetchMask(fieldDecl)) + "U";
+    std::string beforeStoreMask = std::to_string(getBeforeStoreMask(fieldDecl)) + "U";
+    std::string bitshiftAgainstLeftMargin = std::to_string(getBitsMarginToLeftTableViewEdge(fieldDecl)) + "U";
     std::string compressionConstant = std::to_string(getCompressionConstant(fieldDecl));
     toBeSetValue = "(" + toBeSetValue + " - " + compressionConstant + ")";
-    toBeSetValue = "(" + toBeSetValue + " << " + bitshiftAgainstRightMargin + ")";
+    toBeSetValue = "(" + toBeSetValue + " << " + bitshiftAgainstLeftMargin + ")";
+    toBeSetValue = "(" + toBeSetValue + " & " + afterFetchMask + ")"; // makes sure overflown values do not impact other fields
     std::string valueExpr = "(" + tableView + " & " + beforeStoreMask + ")";
     valueExpr = "(" + valueExpr + " | " + toBeSetValue + ")";
     std::string setterStmt = tableView + " = " + valueExpr;
