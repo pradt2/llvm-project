@@ -76,10 +76,14 @@ class CompressionCodeGen {
   }
 
   unsigned int getEnumTypeWidth(EnumDecl *enumDecl) {
-    unsigned int counter = 0;
-    for (auto *x : enumDecl->enumerators()) counter++;
-    if (counter == 0) return 0;
-    unsigned int bitsWidth = ceil(log2(counter));
+    long minValue = LONG_MAX;
+    long maxValue = LONG_MIN;
+    for (auto *x : enumDecl->enumerators()) {
+      long enumConstantValue = x->getInitVal().getSExtValue();
+      if (enumConstantValue < minValue) minValue = enumConstantValue;
+      if (enumConstantValue > maxValue) maxValue = enumConstantValue;
+    }
+    unsigned int bitsWidth = ceil(log2(maxValue - minValue + 1));
     return bitsWidth;
   }
 
@@ -147,7 +151,13 @@ class CompressionCodeGen {
       int minValue = compressRangeAttr->getMinValue();
       return minValue;
     }
-    return 0;
+    if (!fieldDecl->getType()->isEnumeralType()) return 0;
+    long minValue = LONG_MAX;
+    for (auto *x : fieldDecl->getType()->getAs<EnumType>()->getDecl()->enumerators()) {
+      long enumConstantValue = x->getInitVal().getSExtValue();
+      if (enumConstantValue < minValue) minValue = enumConstantValue;
+    }
+    return minValue == LONG_MAX ? 0 : minValue;
   }
 
   unsigned int getTableCellsNeeded() {
