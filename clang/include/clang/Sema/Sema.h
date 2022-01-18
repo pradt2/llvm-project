@@ -10160,6 +10160,10 @@ public:
   void AddAnnotationAttr(Decl *D, const AttributeCommonInfo &CI,
                          StringRef Annot, MutableArrayRef<Expr *> Args);
 
+  void AddCompressAttr(Decl *D, const AttributeCommonInfo &CI);
+
+  void AddCompressRangeAttr(Decl *D, const AttributeCommonInfo &CI, Expr *minValue, Expr *maxValue);
+
   /// AddLaunchBoundsAttr - Adds a launch_bounds attribute to a particular
   /// declaration.
   void AddLaunchBoundsAttr(Decl *D, const AttributeCommonInfo &CI,

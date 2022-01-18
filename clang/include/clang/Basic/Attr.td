@@ -787,6 +787,19 @@ def Annotate : InheritableParamAttr {
   let Documentation = [Undocumented];
 }
 
+def Compress : InheritableParamAttr {
+  let Spellings = [Clang<"compress">];
+  let Subjects = SubjectList<[Field]>;
+  let Documentation = [Undocumented];
+}
+
+def CompressRange : InheritableParamAttr {
+    let Spellings = [Clang<"compress_range">];
+    let Args = [DefaultIntArgument<"MinValue", 0>, IntArgument<"MaxValue">];
+    let Subjects = SubjectList<[Field]>;
+    let Documentation = [Undocumented];
+}
+
 def ARMInterrupt : InheritableAttr, TargetSpecificAttr<TargetARM> {
   // NOTE: If you add any additional spellings, M68kInterrupt's,
   // MSP430Interrupt's, MipsInterrupt's and AnyX86Interrupt's spellings
