@@ -894,6 +894,19 @@ def Annotate : InheritableParamAttr {
   let Documentation = [Undocumented];
 }
 
+def Compress : InheritableParamAttr {
+  let Spellings = [Clang<"compress">];
+  let Subjects = SubjectList<[Field]>;
+  let Documentation = [Undocumented];
+}
+
+def CompressRange : InheritableParamAttr {
+    let Spellings = [Clang<"compress_range">];
+    let Args = [DefaultIntArgument<"MinValue", 0>, IntArgument<"MaxValue">];
+    let Subjects = SubjectList<[Field]>;
+    let Documentation = [Undocumented];
+}
+
 def AnnotateType : TypeAttr {
   let Spellings = [CXX11<"clang", "annotate_type">, C23<"clang", "annotate_type">];
   let Args = [StringArgument<"Annotation">, VariadicExprArgument<"Args">];

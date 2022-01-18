@@ -4338,6 +4338,75 @@ static void handleAnnotateAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   S.AddAnnotationAttr(D, AL, Str, Args);
 }
 
+void Sema::AddCompressAttr(Decl *D, const AttributeCommonInfo &CI) {
+  auto *CompressAttr = clang::CompressAttr::Create(Context, CI);
+  D->addAttr(CompressAttr);
+}
+
+static void handleCompressAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
+  S.AddCompressAttr(D, AL);
+}
+
+void Sema::AddCompressRangeAttr(Decl *D, const AttributeCommonInfo &CI, Expr *minValue, Expr *maxValue) {
+  llvm::SmallVector<PartialDiagnosticAt, 8> Notes;
+  Expr::EvalResult Eval;
+  Notes.clear();
+  Eval.Diag = &Notes;
+  int minValueInt = 0;
+  if (minValue != nullptr) {
+    bool Result =
+        minValue->EvaluateAsConstantExpr(Eval, Context);
+
+    /// Result means the expression can be folded to a constant.
+    /// Note.empty() means the expression is a valid constant expression in the
+    /// current language mode.
+    if (!Result || !Notes.empty()) {
+      Diag(minValue->getBeginLoc(), diag::err_attribute_argument_n_type)
+          << CI << (0) << AANT_ArgumentConstantExpr;
+      for (auto &Note : Notes)
+        Diag(Note.first, Note.second);
+      return;
+    }
+    assert(Eval.Val.hasValue());
+    minValueInt = Eval.Val.getInt().getSExtValue();
+  }
+
+  Notes.clear();
+  Eval.Diag = &Notes;
+
+  bool Result =
+      maxValue->EvaluateAsConstantExpr(Eval, Context);
+
+  /// Result means the expression can be folded to a constant.
+  /// Note.empty() means the expression is a valid constant expression in the
+  /// current language mode.
+  if (!Result || !Notes.empty()) {
+    Diag(minValue->getBeginLoc(), diag::err_attribute_argument_n_type)
+        << CI << (0) << AANT_ArgumentConstantExpr;
+    for (auto &Note : Notes)
+      Diag(Note.first, Note.second);
+    return;
+  }
+  assert(Eval.Val.hasValue());
+  int maxValueInt = Eval.Val.getInt().getSExtValue();
+
+  auto *CompressRangeAttr = clang::CompressRangeAttr::Create(Context, minValueInt, maxValueInt, CI);
+  D->addAttr(CompressRangeAttr);
+}
+
+static void handleCompressRangeAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
+  if (AL.getNumArgs() == 0 || AL.getNumArgs() > 2) return;
+  Expr *minValue = nullptr;
+  Expr *maxValue = nullptr;
+  if (AL.getNumArgs() == 2) {
+    minValue = AL.getArgAsExpr(0);
+    maxValue = AL.getArgAsExpr(1);
+  } else {
+    maxValue = AL.getArgAsExpr(0);
+  }
+  S.AddCompressRangeAttr(D, AL, minValue, maxValue);
+}
+
 static void handleAlignValueAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   S.AddAlignValueAttr(D, AL, AL.getArgAsExpr(0));
 }
@@ -9229,6 +9298,11 @@ ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D, const ParsedAttr &AL,
     break;
   case ParsedAttr::AT_Annotate:
     handleAnnotateAttr(S, D, AL);
+    break;
+  case ParsedAttr::AT_Compress:
+    handleCompressAttr(S, D, AL);
+  case ParsedAttr::AT_CompressRange:
+    handleCompressRangeAttr(S, D, AL);
     break;
   case ParsedAttr::AT_Availability:
     handleAvailabilityAttr(S, D, AL);

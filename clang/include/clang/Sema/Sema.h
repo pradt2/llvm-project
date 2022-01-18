@@ -11176,6 +11176,10 @@ public:
   void AddAnnotationAttr(Decl *D, const AttributeCommonInfo &CI,
                          StringRef Annot, MutableArrayRef<Expr *> Args);
 
+  void AddCompressAttr(Decl *D, const AttributeCommonInfo &CI);
+
+  void AddCompressRangeAttr(Decl *D, const AttributeCommonInfo &CI, Expr *minValue, Expr *maxValue);
+
   /// ConstantFoldAttrArgs - Folds attribute arguments into ConstantExprs
   /// (unless they are value dependent or type dependent). Returns false
   /// and emits a diagnostic if one or more of the arguments could not be
