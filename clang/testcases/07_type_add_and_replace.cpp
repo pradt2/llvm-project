@@ -1,11 +1,13 @@
 #include <stdio.h>
 //void printf(const char *x) {} void printf(const char *x, unsigned long y, char a, char b, char c) {}
 
-enum X {
-  a, b
-};
+#define PARTICLE_RANGE 128
+#define ENUM_MIN_VAL 1023
+#define ENUM_MAX_VAL 1024
 
-#define PARTICLE_RANGE 512
+enum X {
+  a = ENUM_MIN_VAL, b = ENUM_MAX_VAL
+};
 
 struct Particle {
   #pragma dastgen compressed
@@ -21,7 +23,7 @@ void printParticle(Particle p) {
 bool testParticle(Particle &p) {
   for (int i = 0; i < PARTICLE_RANGE; i++) {
     for (int j = 0; j < PARTICLE_RANGE; j++) {
-      for (int k = 0; k < 2; k++) {
+      for (int k = ENUM_MIN_VAL; k <= ENUM_MAX_VAL; k++) {
         p.x = i;
         p.y = j;
         p.z = (X) k;
