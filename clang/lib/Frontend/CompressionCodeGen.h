@@ -255,7 +255,7 @@ public:
     std::string emptyConstructor = getEmptyConstructor();
     std::string fromOriginalConstructor = getFromOriginalTypeConstructor();
     std::string typeCastToOriginal = getTypeCastToOriginal();
-    std::string structDef = "struct " + structName + " { " + fieldsDecl + "; " + emptyConstructor + "; " + fromOriginalConstructor + "; " + typeCastToOriginal + "; };";
+    std::string structDef = "\n#pragma pack(push, 1)\nstruct " + structName + " { " + fieldsDecl + "; " + emptyConstructor + "; " + fromOriginalConstructor + "; " + typeCastToOriginal + "; };\n#pragma pack(pop)\n";
     return structDef;
   }
 
