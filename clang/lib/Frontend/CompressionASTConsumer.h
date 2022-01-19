@@ -65,21 +65,6 @@ static QualType getTypeFromIndirectType(QualType type, std::string &ptrs) {
   return type;
 }
 
-static bool isCompressionCandidate(RecordDecl *recordDecl) {
-  for (auto *field : recordDecl->fields()) {
-    for (auto *fieldAttr : field->attrs()) {
-      switch (fieldAttr->getKind()) {
-      case clang::attr::Compress:
-      case clang::attr::CompressRange:
-        return true;
-      default:
-        break;
-      }
-    }
-  }
-  return false;
-}
-
 class RewriterASTConsumer : public ASTConsumer,
                             public RecursiveASTVisitor<RewriterASTConsumer> {
   typedef RecursiveASTVisitor<RewriterASTConsumer> base;
@@ -225,7 +210,7 @@ private:
       if (!llvm::isa<FieldDecl>(memberDecl)) return true;
       auto *fieldDecl = llvm::cast<FieldDecl>(memberDecl);
       if (fieldDecl == nullptr) return true;
-      if (!isCompressionCandidate(fieldDecl->getParent())) return true;
+      if (!isCompressionCandidate(fieldDecl)) return true;
 
       auto parents =
           CI.getASTContext().getParentMapContext().getParents(*expr);
@@ -271,7 +256,7 @@ private:
       if (!llvm::isa<FieldDecl>(memberDecl)) return true;
       auto *fieldDecl = llvm::cast<FieldDecl>(memberDecl);
       if (fieldDecl == nullptr) return true;
-      if (!isCompressionCandidate(fieldDecl->getParent())) return true;
+      if (!isCompressionCandidate(fieldDecl)) return true;
 
       auto parents =
           CI.getASTContext().getParentMapContext().getParents(*expr);
