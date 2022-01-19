@@ -108,6 +108,38 @@ private:
       TraverseDecl(D);
     }
 
+    bool VisitFieldDecl(FieldDecl *decl) {
+      std::string ptrs = "";
+      auto type = getTypeFromIndirectType(decl->getType(), ptrs);
+      if (!type->isRecordType()) return true;
+      auto *record = type->getAsRecordDecl();
+      if (!isCompressionCandidate(record)) return true;
+      auto compressionCodeGen = CompressionCodeGen(record, CI);
+      R.ReplaceText(SourceRange(decl->getTypeSpecStartLoc(), decl->getTypeSpecEndLoc()), compressionCodeGen.getCompressedStructName() + (ptrs.length() > 0 ? " " + ptrs : ""));
+      if (!decl->hasInClassInitializer()) return true;
+      Expr *initExpr = decl->getInClassInitializer();
+      if (decl->getInClassInitStyle() == InClassInitStyle::ICIS_ListInit) { // TODO move to its own ASTConsumer?
+        InitListExpr *initListExpr = llvm::cast<InitListExpr>(initExpr);
+        std::string source = "{";
+        for (unsigned int i = 0; i < initListExpr->getNumInits(); i++) {
+          auto *initExpr = initListExpr->getInit(i);
+          if (initExpr->getSourceRange().isInvalid()) continue;
+          source += R.getRewrittenText(initExpr->getSourceRange()) + ", ";
+        }
+        source.pop_back();
+        source.pop_back();
+        source += "}";
+        R.ReplaceText(initListExpr->getSourceRange(), source);
+        R.InsertTextBefore(initListExpr->getBeginLoc(), "(");
+        R.InsertTextAfterToken(initListExpr->getEndLoc(), ")");
+      }
+      else if (decl->getInClassInitStyle() == InClassInitStyle::ICIS_CopyInit) {
+        // nothing to do, handled by constructor invocation rewrite
+        return true;
+      }
+      return true;
+    }
+
     bool VisitVarDecl(VarDecl *decl) {
       std::string ptrs = "";
       auto type = getTypeFromIndirectType(decl->getType(), ptrs);

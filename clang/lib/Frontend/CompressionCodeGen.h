@@ -214,7 +214,12 @@ class CompressionCodeGen {
     std::string localVarName = "__arg0";
     constructor += " (" + getOriginalStructName() + " &&" + localVarName + ") { ";
     for (auto *field : decl->fields()) {
-      constructor += getSetterExpr(field, "this->", localVarName + "." + field->getNameAsString()) + "; ";
+      if (isCompressionCandidate(field)) {
+        constructor += getSetterExpr(field, "this->", localVarName + "." + field->getNameAsString()) + "; ";
+      }
+      else {
+        constructor += "this->" + field->getNameAsString() + " = " + localVarName + "." + field->getNameAsString() + "; ";
+      }
     }
     constructor += "} ";
     return constructor;
@@ -236,8 +241,10 @@ class CompressionCodeGen {
       if (isCompressionCandidate(field)) continue;
        nonCompressedFields += CI.getSourceManager().getRewriter()->getRewrittenText(field->getSourceRange()) + "; ";
     }
-    nonCompressedFields.pop_back();
-    nonCompressedFields.pop_back();
+    if (nonCompressedFields.length() > 2) {
+      nonCompressedFields.pop_back();
+      nonCompressedFields.pop_back();
+    }
     return tableDefinition + nonCompressedFields;
   }
 
