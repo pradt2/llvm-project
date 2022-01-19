@@ -19,6 +19,34 @@
 
 using namespace clang;
 
+static bool isCompressionCandidate(RecordDecl *recordDecl) {
+  for (auto *field : recordDecl->fields()) {
+    for (auto *fieldAttr : field->attrs()) {
+      switch (fieldAttr->getKind()) {
+      case clang::attr::Compress:
+      case clang::attr::CompressRange:
+        return true;
+      default:
+        break;
+      }
+    }
+  }
+  return false;
+}
+
+static bool isCompressionCandidate(FieldDecl *fieldDecl) {
+  for (auto *fieldAttr : fieldDecl->attrs()) {
+    switch (fieldAttr->getKind()) {
+    case clang::attr::Compress:
+    case clang::attr::CompressRange:
+      return true;
+    default:
+      break;
+    }
+  }
+  return false;
+}
+
 class CompressionCodeGen {
   const std::string tableName = "__table";
   const int tableCellSize = 8;
@@ -94,6 +122,7 @@ class CompressionCodeGen {
     unsigned int offset = 0;
     for (auto *field : decl->fields()) {
       if (field == fieldDecl) break;
+      if (!isCompressionCandidate(field)) continue;
       unsigned int width = getCompressedTypeWidth(field);
       offset += width;
     }
@@ -163,6 +192,7 @@ class CompressionCodeGen {
   unsigned int getTableCellsNeeded() {
     double bitCounter = 0;
     for (auto *field : decl->fields()) {
+      if (!isCompressionCandidate(field)) continue;
       bitCounter += getCompressedTypeWidth(field);
     }
     unsigned int cellsNeeded = ceil(bitCounter / tableCellSize);
@@ -199,10 +229,21 @@ class CompressionCodeGen {
     return typeCast;
   }
 
+  std::string getFieldsDecl() {
+    std::string tableDefinition = tableCellType + " " + tableName + "[" + std::to_string(getTableCellsNeeded()) + "]; ";
+    std::string nonCompressedFields;
+    for (auto *field : decl->fields()) {
+      if (isCompressionCandidate(field)) continue;
+       nonCompressedFields += CI.getSourceManager().getRewriter()->getRewrittenText(field->getSourceRange()) + "; ";
+    }
+    nonCompressedFields.pop_back();
+    nonCompressedFields.pop_back();
+    return tableDefinition + nonCompressedFields;
+  }
+
 public:
 
   explicit CompressionCodeGen(RecordDecl *d, CompilerInstance &CI) : decl(d), CI(CI) {}
-
 
   std::string getCompressedStructName() {
     return getOriginalStructName() + "__PACKED";
@@ -210,11 +251,11 @@ public:
 
   std::string getCompressedStructDef() {
     std::string structName = getCompressedStructName();
-    std::string tableDefinition = tableCellType + " " + tableName + "[" + std::to_string(getTableCellsNeeded()) + "]";
+    std::string fieldsDecl = getFieldsDecl();
     std::string emptyConstructor = getEmptyConstructor();
     std::string fromOriginalConstructor = getFromOriginalTypeConstructor();
     std::string typeCastToOriginal = getTypeCastToOriginal();
-    std::string structDef = "struct " + structName + " { " + tableDefinition + "; " + emptyConstructor + "; " + fromOriginalConstructor + "; " + typeCastToOriginal + "; };";
+    std::string structDef = "struct " + structName + " { " + fieldsDecl + "; " + emptyConstructor + "; " + fromOriginalConstructor + "; " + typeCastToOriginal + "; };";
     return structDef;
   }
 
