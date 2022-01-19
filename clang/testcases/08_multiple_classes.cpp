@@ -10,14 +10,13 @@ struct ParticleA {
 };
 
 struct ParticleB {
-  short id;
-
   [[clang::compress_range(0, 16)]]
   char particleBSpeed;
   [[clang::compress_range(0, 16)]]
   char particleBAge;
-};
 
+  short id;
+};
 
 void printParticle(ParticleA &p) { printf("Particle A(size=%lu, speed=%d, age=%d, id=%d)\n", sizeof p, p.particleASpeed, p.particleAAge, p.id); }
 void printParticle(ParticleB &p) { printf("Particle B(size=%lu, speed=%d, age=%d, id=%d)\n", sizeof p, p.particleBSpeed, p.particleBAge, p.id); }
