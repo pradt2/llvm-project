@@ -1,7 +1,7 @@
 #include <stdio.h>
 //void printf(const char *x) {} void printf(const char *x, unsigned long y, char a, char b, char c) {}
 
-#define PARTICLE_RANGE 128
+#define PARTICLE_RANGE 64
 #define ENUM_MIN_VAL 1023
 #define ENUM_MAX_VAL 1024
 
@@ -10,10 +10,14 @@ enum X {
 };
 
 struct Particle {
-  #pragma dastgen compressed
   [[clang::compress_range(0, PARTICLE_RANGE)]]
   short x, y;
+  [[clang::compress]]
   X z;
+};
+
+struct ParticleHolder {
+  Particle p;
 };
 
 void printParticle(Particle p) {
@@ -40,7 +44,7 @@ bool testParticle(Particle &p) {
 }
 
 void printParticle(Particle *p) {
-  printf("Particle size in memory (bytes): %lu | Particle(x=%d, y=%d, z=%d)\n", sizeof *p, p->x, p->y, p->z);
+  printf("Particle size in memory (bytes): %3lu | Particle(x=%4d, y=%4d, z=%4d)\n", sizeof *p, p->x, p->y, p->z);
 }
 
 void printParticle(Particle **p) {
@@ -50,7 +54,7 @@ void printParticle(Particle **p) {
 Particle createParticle() { return Particle(); }
 
 int main() {
-  Particle p1 {1, 0, X::b};
+  Particle p1 {1, 0, X::a};
   printParticle(p1);
   Particle p2 { .y = 1, .x = 0, .z = X::a};
   printParticle(p2);
@@ -67,4 +71,6 @@ int main() {
   printParticle(&p2);
   Particle &p3 = p2;
   printParticle(&p3);
+  ParticleHolder ph {p3};
+  printParticle(ph.p);
 }
