@@ -1,3 +1,6 @@
+#ifndef CLANG_COMPRESSIONCODEGEN_H
+#define CLANG_COMPRESSIONCODEGEN_H
+
 #include "clang/Frontend/ASTConsumers.h"
 #include "clang/AST/AST.h"
 #include "clang/AST/ASTConsumer.h"
@@ -170,10 +173,6 @@ class CompressionCodeGen {
     return decl->getNameAsString();
   }
 
-  std::string getCompressedStructName() {
-      return getOriginalStructName() + "__PACKED";
-  }
-
   std::string getEmptyConstructor() {
     std::string constructor = getCompressedStructName();
     constructor += "() {}";
@@ -203,6 +202,11 @@ class CompressionCodeGen {
 public:
 
   explicit CompressionCodeGen(RecordDecl *d, CompilerInstance &CI) : decl(d), CI(CI) {}
+
+
+  std::string getCompressedStructName() {
+    return getOriginalStructName() + "__PACKED";
+  }
 
   std::string getCompressedStructDef() {
     std::string structName = getCompressedStructName();
@@ -242,3 +246,5 @@ public:
   }
 
 };
+
+#endif

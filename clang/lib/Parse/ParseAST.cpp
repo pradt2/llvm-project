@@ -33,66 +33,6 @@ using namespace clang;
 
 namespace {
 
-using FieldMap = std::map<FieldDecl *, unsigned int>;
-using PackedFieldType = std::tuple<clang::CanQualType, unsigned int>;
-
-FieldMap getFieldsMap(RecordDecl *recordDecl) {
-  std::map<FieldDecl*, unsigned int> fieldsMap;
-  int index = 0;
-  for (auto *field : recordDecl->fields()) {
-    auto type = field->getType();
-    if (!type->isBooleanType()) continue;
-    fieldsMap[field] = index;
-    index++;
-  }
-  return fieldsMap;
-}
-
-Expr *getGetterExpr(FieldMap fieldMap, FieldDecl *oldField, MemberExpr *packedField, PackedFieldType packedFieldType, QualType targetType) {
-  auto &astContext = oldField->getASTContext();
-
- int index = fieldMap[oldField];
- clang::CanQualType packedType = std::get<clang::CanQualType>(packedFieldType);
- unsigned int packedTypeWidth = std::get<unsigned int>(packedFieldType);
- auto *readPackedFieldExpr = ImplicitCastExpr::Create(astContext, packedType, clang::CastKind::CK_LValueToRValue, packedField, nullptr, clang::ExprValueKind::VK_PRValue, clang::FPOptionsOverride());
-
- int maskValue = 1 << index;
- auto *maskLiteralExpr = IntegerLiteral::Create(astContext, llvm::APInt(packedTypeWidth, maskValue), packedType, SourceLocation());
- auto *indexLiteralExpr = IntegerLiteral::Create(astContext, llvm::APInt(packedTypeWidth, index), packedType, SourceLocation());
- auto *maskBinOp = clang::BinaryOperator::Create(astContext, readPackedFieldExpr, maskLiteralExpr, clang::BinaryOperator::Opcode::BO_And, packedType, ExprValueKind::VK_PRValue, ExprObjectKind::OK_Ordinary, SourceLocation(), FPOptionsOverride());
- auto *bitshiftOp = clang::BinaryOperator::Create(astContext, maskBinOp, indexLiteralExpr, clang::BinaryOperator::Opcode::BO_Shr, packedType, clang::ExprValueKind::VK_PRValue, clang::ExprObjectKind::OK_Ordinary, SourceLocation(), FPOptionsOverride());
- auto *outputCast = ImplicitCastExpr::Create(astContext, targetType, clang::CastKind::CK_IntegralToBoolean, bitshiftOp, nullptr, clang::ExprValueKind::VK_PRValue, FPOptionsOverride());
- return outputCast;
-}
-
-Expr *getSetterExpr(FieldMap fieldMap, FieldDecl *oldField, MemberExpr *packedField, PackedFieldType packedFieldType, Expr *value) {
-  auto &astContext = oldField->getASTContext();
-
-  int index = fieldMap[oldField];
-  clang::CanQualType packedType = std::get<clang::CanQualType>(packedFieldType);
-  unsigned int packedTypeWidth = std::get<unsigned int>(packedFieldType);
-  auto *readPackedFieldExpr = ImplicitCastExpr::Create(astContext, packedType, clang::CastKind::CK_LValueToRValue, packedField, nullptr, clang::ExprValueKind::VK_PRValue, clang::FPOptionsOverride());
-
-  int maskValue = ~(1 << index);
-  auto *maskLiteralExpr = IntegerLiteral::Create(astContext, llvm::APInt(packedTypeWidth, maskValue), packedType, SourceLocation());
-  auto *indexLiteralExpr = IntegerLiteral::Create(astContext, llvm::APInt(packedTypeWidth, index), packedType, SourceLocation());
-  auto *maskBinOp = clang::BinaryOperator::Create(astContext, readPackedFieldExpr, maskLiteralExpr, clang::BinaryOperator::Opcode::BO_And, packedType, ExprValueKind::VK_PRValue, ExprObjectKind::OK_Ordinary, SourceLocation(), FPOptionsOverride());
-  auto *inputImplicitCast = ImplicitCastExpr::Create(astContext, packedType, clang::CastKind::CK_IntegralCast, value, nullptr, clang::ExprValueKind::VK_PRValue, FPOptionsOverride());
-  auto *bitshiftOp = BinaryOperator::Create(astContext, inputImplicitCast, indexLiteralExpr, clang::BinaryOperator::Opcode::BO_Shl, packedType, clang::ExprValueKind::VK_PRValue, clang::ExprObjectKind::OK_Ordinary, SourceLocation(), FPOptionsOverride());
-  auto *bitwiseOrOp = BinaryOperator::Create(astContext, bitshiftOp, maskBinOp, clang::BinaryOperator::Opcode::BO_Or, packedType, clang::ExprValueKind::VK_PRValue, clang::ExprObjectKind::OK_Ordinary, SourceLocation(), FPOptionsOverride());
-  auto *assignOp = BinaryOperator::Create(astContext, packedField, bitwiseOrOp, clang::BinaryOperator::Opcode::BO_Assign, packedType, clang::ExprValueKind::VK_PRValue, clang::ExprObjectKind::OK_Ordinary, SourceLocation(), FPOptionsOverride());
-  return assignOp;
-}
-
-PackedFieldType getPackedType(FieldMap fieldMap, clang::ASTContext &astContext) {
-  if (fieldMap.size() <= 8) return PackedFieldType(astContext.UnsignedCharTy, 8);
-  if (fieldMap.size() <= 16) return PackedFieldType(astContext.UnsignedShortTy, 16);
-  if (fieldMap.size() <= 32) return PackedFieldType(astContext.UnsignedIntTy, 32);
-  if (fieldMap.size() <= 64) return PackedFieldType(astContext.UnsignedLongTy, 64);
-  if (fieldMap.size() <= 128) return PackedFieldType(astContext.UnsignedInt128Ty, 128);
-}
-
-
 /// Resets LLVM's pretty stack state so that stack traces are printed correctly
 /// when there are nested CrashRecoveryContexts and the inner one recovers from
 /// a crash.
@@ -258,4 +198,3 @@ void clang::ParseAST(Sema &S, bool PrintStats, bool SkipFunctionBodies) {
     Consumer->PrintStats();
   }
 }
-
