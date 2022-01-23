@@ -1,0 +1,10 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="clang - 02_global_func_decl - AST dump" type="CMakeRunConfiguration" factoryName="Application" PROGRAM_PARAMS="-cc1 -ast-dump ../../testcases/02_global_func_decl.cpp" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="Clang" TARGET_NAME="clang" CONFIG_NAME="Clang Debug" RUN_TARGET_PROJECT_NAME="Clang" RUN_TARGET_NAME="clang">
+    <envs>
+      <env name="LLVM_SYMBOLIZER_PATH" value="/usr/bin/llvm-symbolizer-14" />
+    </envs>
+    <method v="2">
+      <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+    </method>
+  </configuration>
+</component>
