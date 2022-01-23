@@ -800,6 +800,15 @@ def CompressRange : InheritableParamAttr {
     let Documentation = [Undocumented];
 }
 
+def CompressionMethod : InheritableParamAttr {
+    let Spellings = [Clang<"compression_method">];
+    let Args = [EnumArgument<"CompressionMethod", "CompressionMethodType",
+                ["bitshift", "bitpack"],
+                ["Bitshift", "Bitpack"]>];
+    let Subjects = SubjectList<[CXXRecord]>;
+    let Documentation = [Undocumented];
+}
+
 def ARMInterrupt : InheritableAttr, TargetSpecificAttr<TargetARM> {
   // NOTE: If you add any additional spellings, M68kInterrupt's,
   // MSP430Interrupt's, MipsInterrupt's and AnyX86Interrupt's spellings

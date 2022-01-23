@@ -10164,6 +10164,8 @@ public:
 
   void AddCompressRangeAttr(Decl *D, const AttributeCommonInfo &CI, Expr *minValue, Expr *maxValue);
 
+  void AddCompressionMethodAttr(Decl *D, const AttributeCommonInfo &CI, CompressionMethodAttr::CompressionMethodType type);
+
   /// AddLaunchBoundsAttr - Adds a launch_bounds attribute to a particular
   /// declaration.
   void AddLaunchBoundsAttr(Decl *D, const AttributeCommonInfo &CI,
