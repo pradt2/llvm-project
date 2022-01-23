@@ -164,7 +164,7 @@ namespace {
 
 std::unique_ptr<ASTConsumer>
 clang::CreateRewriterASTConsumer(clang::CompilerInstance &CI) {
-    return std::make_unique<RewriterASTConsumer>(CI);
+    return std::make_unique<CompressionASTConsumer>(CI);
 }
 
 std::unique_ptr<ASTConsumer>
