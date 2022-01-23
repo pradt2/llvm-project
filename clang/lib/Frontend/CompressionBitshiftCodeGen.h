@@ -1,5 +1,5 @@
-#ifndef CLANG_COMPRESSIONCODEGEN_H
-#define CLANG_COMPRESSIONCODEGEN_H
+#ifndef CLANG_COMPRESSIONBITSHIFTCODEGEN_H
+#define CLANG_COMPRESSIONBITSHIFTCODEGEN_H
 
 #include "clang/Frontend/ASTConsumers.h"
 #include "clang/AST/AST.h"
@@ -16,6 +16,8 @@
 #include "llvm/Support/Timer.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cmath>
+
+#include "./CompressionICodeGen.h"
 
 using namespace clang;
 
@@ -47,7 +49,7 @@ static bool isCompressionCandidate(FieldDecl *fieldDecl) {
   return false;
 }
 
-class CompressionCodeGen {
+class CompressionBitshiftCodeGen : public CompressionICodeGen {
   const std::string tableName = "__table";
   const int tableCellSize = 8;
   const std::string tableCellType = "unsigned char";
@@ -250,13 +252,13 @@ class CompressionCodeGen {
 
 public:
 
-  explicit CompressionCodeGen(RecordDecl *d, CompilerInstance &CI) : decl(d), CI(CI) {}
+  explicit CompressionBitshiftCodeGen(RecordDecl *d, CompilerInstance &CI) : decl(d), CI(CI) {}
 
-  std::string getCompressedStructName() {
+  std::string getCompressedStructName() override {
     return getOriginalStructName() + "__PACKED";
   }
 
-  std::string getCompressedStructDef() {
+  std::string getCompressedStructDef() override {
     std::string structName = getCompressedStructName();
     std::string fieldsDecl = getFieldsDecl();
     std::string emptyConstructor = getEmptyConstructor();
@@ -266,7 +268,7 @@ public:
     return structDef;
   }
 
-  std::string getGetterExpr(FieldDecl *fieldDecl, std::string thisAccessor) {
+  std::string getGetterExpr(FieldDecl *fieldDecl, std::string thisAccessor) override {
     std::string tableView = getTableViewExpr(fieldDecl, thisAccessor);
     std::string afterFetchMask = std::to_string(getAfterFetchMask(fieldDecl)) + "U";
     std::string bitshiftAgainstLeftMargin = std::to_string(getBitsMarginToLeftTableViewEdge(fieldDecl)) + "U";
@@ -278,7 +280,7 @@ public:
     return getter;
   }
 
-  std::string getSetterExpr(FieldDecl *fieldDecl, std::string thisAccessor, std::string toBeSetValue) {
+  std::string getSetterExpr(FieldDecl *fieldDecl, std::string thisAccessor, std::string toBeSetValue) override {
     std::string tableView = getTableViewExpr(fieldDecl, thisAccessor);
     std::string afterFetchMask = std::to_string(getAfterFetchMask(fieldDecl)) + "U";
     std::string beforeStoreMask = std::to_string(getBeforeStoreMask(fieldDecl)) + "U";
