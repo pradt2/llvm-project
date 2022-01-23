@@ -4407,6 +4407,22 @@ static void handleCompressRangeAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   S.AddCompressRangeAttr(D, AL, minValue, maxValue);
 }
 
+void Sema::AddCompressionMethodAttr(Decl *D, const AttributeCommonInfo &CI, CompressionMethodAttr::CompressionMethodType type) {
+  auto *CompressionMethodAttr  = clang::CompressionMethodAttr::Create(Context, type, CI);
+  D->addAttr(CompressionMethodAttr);
+}
+
+static void handleCompressionMethodAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
+  if (AL.getNumArgs() != 1) return;
+  auto *arg = AL.getArgAsIdent(0);
+  auto compressionTypeStr = arg->Ident->getName();
+  if (compressionTypeStr == "bitshift") {
+    S.AddCompressionMethodAttr(D, AL, CompressionMethodAttr::Bitshift);
+  } else if (compressionTypeStr == "bitpack") {
+    S.AddCompressionMethodAttr(D, AL, CompressionMethodAttr::Bitpack);
+  }
+}
+
 static void handleAlignValueAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   S.AddAlignValueAttr(D, AL, AL.getArgAsExpr(0));
 }
@@ -9301,8 +9317,12 @@ ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D, const ParsedAttr &AL,
     break;
   case ParsedAttr::AT_Compress:
     handleCompressAttr(S, D, AL);
+    break;
   case ParsedAttr::AT_CompressRange:
     handleCompressRangeAttr(S, D, AL);
+    break;
+  case ParsedAttr::AT_CompressionMethod:
+    handleCompressionMethodAttr(S, D, AL);
     break;
   case ParsedAttr::AT_Availability:
     handleAvailabilityAttr(S, D, AL);

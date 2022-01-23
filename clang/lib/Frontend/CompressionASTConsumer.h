@@ -1,7 +1,7 @@
 #ifndef CLANG_COMPRESSIONASTCONSUMER_H
 #define CLANG_COMPRESSIONASTCONSUMER_H
 
-#include "./CompressionCodeGen.h"
+#include "./CompressionCodeGenResolver.h"
 
 class SubExprFinder : public ASTConsumer,
                       public RecursiveASTVisitor<SubExprFinder> {
@@ -65,13 +65,10 @@ static QualType getTypeFromIndirectType(QualType type, std::string &ptrs) {
   return type;
 }
 
-class RewriterASTConsumer : public ASTConsumer,
-                            public RecursiveASTVisitor<RewriterASTConsumer> {
-  typedef RecursiveASTVisitor<RewriterASTConsumer> base;
-
+class CompressionASTConsumer : public ASTConsumer,
+                               public RecursiveASTVisitor<CompressionASTConsumer> {
   CompilerInstance &CI;
   Rewriter &R;
-
 
 private:
 
@@ -89,7 +86,7 @@ private:
 
     bool VisitCXXRecordDecl(CXXRecordDecl *decl) {
       if (!isCompressionCandidate(decl)) return true;
-      auto compressionCodeGen = CompressionCodeGen(decl, CI);
+      auto compressionCodeGen = CompressionCodeGenResolver(decl, CI);
       std::string compressedStructDef = compressionCodeGen.getCompressedStructDef();
       R.InsertTextAfterToken(decl->getEndLoc(), ";\n" + compressedStructDef);
       return true;
@@ -114,7 +111,7 @@ private:
       if (!type->isRecordType()) return true;
       auto *record = type->getAsRecordDecl();
       if (!isCompressionCandidate(record)) return true;
-      auto compressionCodeGen = CompressionCodeGen(record, CI);
+      auto compressionCodeGen = CompressionCodeGenResolver(record, CI);
       R.ReplaceText(SourceRange(decl->getTypeSpecStartLoc(), decl->getTypeSpecEndLoc()), compressionCodeGen.getCompressedStructName() + (ptrs.length() > 0 ? " " + ptrs : ""));
       if (!decl->hasInClassInitializer()) return true;
       Expr *initExpr = decl->getInClassInitializer();
@@ -146,7 +143,7 @@ private:
       if (!type->isRecordType()) return true;
       auto *record = type->getAsRecordDecl();
       if (!isCompressionCandidate(record)) return true;
-      auto compressionCodeGen = CompressionCodeGen(record, CI);
+      auto compressionCodeGen = CompressionCodeGenResolver(record, CI);
       R.ReplaceText(SourceRange(decl->getTypeSpecStartLoc(), decl->getTypeSpecEndLoc()), compressionCodeGen.getCompressedStructName() + (ptrs.length() > 0 ? " " + ptrs : ""));
       if (!decl->hasInit()) return true;
       Expr *initExpr = decl->getInit();
@@ -192,7 +189,7 @@ private:
       if (!constructType->isRecordType()) return true;
       auto *constructDecl = constructType->getAsRecordDecl();
       if (!isCompressionCandidate(constructDecl)) return true;
-      auto compressionCodeGen = CompressionCodeGen(constructDecl, CI);
+      auto compressionCodeGen = CompressionCodeGenResolver(constructDecl, CI);
       R.InsertTextBefore(decl->getBeginLoc(), compressionCodeGen.getCompressedStructName() + "(");
       R.InsertTextAfterToken(decl->getEndLoc(), ")");
       return true;
@@ -218,7 +215,7 @@ private:
       if (!returnType->isRecordType()) return true;
       auto *record = returnType->getAsRecordDecl();
       if (!isCompressionCandidate(record)) return true;
-      auto compressionCodeGen = CompressionCodeGen(record, CI);
+      auto compressionCodeGen = CompressionCodeGenResolver(record, CI);
       R.ReplaceText(decl->getReturnTypeSourceRange(), compressionCodeGen.getCompressedStructName() + (ptrs.length() > 0 ? " " + ptrs : ""));
       return true;
     }
@@ -262,7 +259,8 @@ private:
           return true;
         // value is read here, we know by the implicit lvalue to rvalue cast
 
-        std::string source = CompressionCodeGen(fieldDecl->getParent(), CI).getGetterExpr(fieldDecl, varName);
+        std::string source =
+            CompressionCodeGenResolver(fieldDecl->getParent(), CI).getGetterExpr(fieldDecl, varName);
         R.ReplaceText(SourceRange(expr->getBeginLoc(), expr->getEndLoc()),
                       source);
       }
@@ -311,7 +309,8 @@ private:
         std::string varName = R.getRewrittenText(SourceRange(expr->getBeginLoc(), expr->getMemberLoc().getLocWithOffset(-1)));
 
         auto rhsCurrentExpr = R.getRewrittenText(binaryOp->getRHS()->getSourceRange());
-        std::string source = CompressionCodeGen(fieldDecl->getParent(), CI).getSetterExpr(fieldDecl, varName, rhsCurrentExpr);
+        std::string source =
+            CompressionCodeGenResolver(fieldDecl->getParent(), CI).getSetterExpr(fieldDecl, varName, rhsCurrentExpr);
         R.ReplaceText(binaryOp->getSourceRange(), source);
       } else if (parentNodeKind.KindId == ASTNodeKind::NKI_CompoundAssignOperator) {
         llvm::outs() << "To be implemented\n";
@@ -321,7 +320,7 @@ private:
   };
 
 public:
-  RewriterASTConsumer(CompilerInstance &CI) : CI(CI), R(*CI.getSourceManager().getRewriter()) {}
+  CompressionASTConsumer(CompilerInstance &CI) : CI(CI), R(*CI.getSourceManager().getRewriter()) {}
 
   void HandleTranslationUnit(ASTContext &Context) override {
     NewStructAdder(R, CI).HandleTranslationUnit(Context);

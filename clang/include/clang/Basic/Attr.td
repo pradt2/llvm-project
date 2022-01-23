@@ -907,6 +907,15 @@ def CompressRange : InheritableParamAttr {
     let Documentation = [Undocumented];
 }
 
+def CompressionMethod : InheritableParamAttr {
+    let Spellings = [Clang<"compression_method">];
+    let Args = [EnumArgument<"CompressionMethod", "CompressionMethodType",
+                ["bitshift", "bitpack"],
+                ["Bitshift", "Bitpack"]>];
+    let Subjects = SubjectList<[CXXRecord]>;
+    let Documentation = [Undocumented];
+}
+
 def AnnotateType : TypeAttr {
   let Spellings = [CXX11<"clang", "annotate_type">, C23<"clang", "annotate_type">];
   let Args = [StringArgument<"Annotation">, VariadicExprArgument<"Args">];
