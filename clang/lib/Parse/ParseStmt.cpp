@@ -192,6 +192,12 @@ Retry:
     Actions.CodeCompleteOrdinaryName(getCurScope(), Sema::PCC_Statement);
     return StmtError();
 
+  case tok::annot_pragma_dastgen: {
+    ConsumeAnnotationToken();
+    // TODO save annotation tokens
+    return ParseStatementOrDeclarationAfterAttributes(Stmts, StmtCtx, TrailingElseLoc, Attrs);
+  }
+
   case tok::identifier:
   ParseIdentifier: {
     Token Next = NextToken();
@@ -229,11 +235,6 @@ Retry:
     // Fall through
     [[fallthrough]];
   }
-
-  case tok::annot_pragma_dastgen:
-    ConsumeAnnotationToken();
-    // TODO save annotation tokens
-    return ParseStatementOrDeclarationAfterAttributes(Stmts, StmtCtx, TrailingElseLoc, Attrs);
 
   default: {
     bool HaveAttrs = !CXX11Attrs.empty() || !GNUAttrs.empty();
