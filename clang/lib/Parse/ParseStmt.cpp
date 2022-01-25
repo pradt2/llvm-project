@@ -181,6 +181,12 @@ Retry:
     Actions.CodeCompleteOrdinaryName(getCurScope(), Sema::PCC_Statement);
     return StmtError();
 
+  case tok::annot_pragma_dastgen: {
+    ConsumeAnnotationToken();
+    // TODO save annotation tokens
+    return ParseStatementOrDeclarationAfterAttributes(Stmts, StmtCtx, TrailingElseLoc, Attrs);
+  }
+
   case tok::identifier: {
     Token Next = NextToken();
     if (Next.is(tok::colon)) { // C99 6.8.1: labeled-statement
@@ -211,11 +217,6 @@ Retry:
     // Fall through
     LLVM_FALLTHROUGH;
   }
-
-  case tok::annot_pragma_dastgen:
-    ConsumeAnnotationToken();
-    // TODO save annotation tokens
-    return ParseStatementOrDeclarationAfterAttributes(Stmts, StmtCtx, TrailingElseLoc, Attrs);
 
   default: {
     if ((getLangOpts().CPlusPlus || getLangOpts().MicrosoftExt ||

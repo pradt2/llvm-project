@@ -56,13 +56,15 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
   RecordDecl *decl;
   CompilerInstance &CI;
 
-  std::string getTypeForTableViewExpr(FieldDecl *fieldDecl) {
+  std::string getTypeForTableViewExpr(FieldDecl *fieldDecl, bool isConst = true) {
     unsigned int tableViewSize = getTableViewWidthForField(fieldDecl);
-    if (tableViewSize <= 8) return "unsigned char";
-    if (tableViewSize <= 16) return "unsigned short";
-    if (tableViewSize <= 32) return "unsigned int";
-    if (tableViewSize <= 64) return "unsigned long";
-    return "<invalid type>";
+    std::string type = isConst ? "const " : "";
+    if (tableViewSize <= 8) type += "unsigned char";
+    else if (tableViewSize <= 16) type += "unsigned short";
+    else if (tableViewSize <= 32) type += "unsigned int";
+    else if (tableViewSize <= 64) type += "unsigned long";
+    else type += "<invalid type>";
+    return type;
   }
 
   unsigned int getTableViewWidthForField(FieldDecl *fieldDecl) {
@@ -151,9 +153,9 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
     return bitsMarginRight;
   }
 
-  std::string getTableViewExpr(FieldDecl *fieldDecl, std::string thisAccessor) {
+  std::string getTableViewExpr(FieldDecl *fieldDecl, std::string thisAccessor, bool isConst = true) {
     int tableIndex = getTableCellStartingIndex(fieldDecl);
-    std::string tableViewExpr = "reinterpret_cast<" + getTypeForTableViewExpr(fieldDecl) + "&>(" + thisAccessor + tableName + "[" + std::to_string(tableIndex) + "])";
+    std::string tableViewExpr = "reinterpret_cast<" + getTypeForTableViewExpr(fieldDecl, isConst) + "&>(" + thisAccessor + tableName + "[" + std::to_string(tableIndex) + "])";
     return tableViewExpr;
   }
 
@@ -281,7 +283,7 @@ public:
   }
 
   std::string getSetterExpr(FieldDecl *fieldDecl, std::string thisAccessor, std::string toBeSetValue) override {
-    std::string tableView = getTableViewExpr(fieldDecl, thisAccessor);
+    std::string tableView = getTableViewExpr(fieldDecl, thisAccessor, false);
     std::string afterFetchMask = std::to_string(getAfterFetchMask(fieldDecl)) + "U";
     std::string beforeStoreMask = std::to_string(getBeforeStoreMask(fieldDecl)) + "U";
     std::string bitshiftAgainstLeftMargin = std::to_string(getBitsMarginToLeftTableViewEdge(fieldDecl)) + "U";
