@@ -123,6 +123,10 @@ if (MSVC AND ENABLE_SHARED AND ENABLE_STATIC)
   unset(ENABLE_STATIC)
 endif()
 
+if (LIBCLANG_BUILD_STATIC_ONLY)
+  unset(ENABLE_SHARED)
+endif()
+
 if(MSVC)
   set(output_name "libclang")
 else()
