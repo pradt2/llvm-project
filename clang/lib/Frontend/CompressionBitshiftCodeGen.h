@@ -82,7 +82,7 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
     return "bool";
   }
 
-  unsigned getOriginalTypeWidth(QualType type) {
+  unsigned int getOriginalTypeWidth(QualType type) {
     if (type->isBooleanType()) return 8;
     if (type->isEnumeralType()) {
       return getOriginalTypeWidth(type->getAs<EnumType>()->getDecl()->getIntegerType());
@@ -288,6 +288,10 @@ public:
     std::string beforeStoreMask = std::to_string(getBeforeStoreMask(fieldDecl)) + "U";
     std::string bitshiftAgainstLeftMargin = std::to_string(getBitsMarginToLeftTableViewEdge(fieldDecl)) + "U";
     std::string compressionConstant = std::to_string(getCompressionConstant(fieldDecl));
+    if (fieldDecl->getType()->isEnumeralType()) {
+      std::string intTypeStr = fieldDecl->getType()->getAs<EnumType>()->getDecl()->getIntegerType().getAsString();
+      toBeSetValue = "(" + intTypeStr + ") " + toBeSetValue;
+    }
     toBeSetValue = "(" + toBeSetValue + " - " + compressionConstant + ")";
     toBeSetValue = "(" + toBeSetValue + " << " + bitshiftAgainstLeftMargin + ")";
     toBeSetValue = "(" + toBeSetValue + " & " + afterFetchMask + ")"; // makes sure overflown values do not impact other fields
