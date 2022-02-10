@@ -18,12 +18,12 @@ struct [[clang::compression_method(bitpack)]] Sb {
 };
 
 struct Sc {
-  X a : 1;
-  X b : 1;
+  X a : 2; //TODO assign bitpacked structs at min 2 bits
+  X b : 2;
 };
 
 int main() {
-  S s = {};
+  Sc s = {};
   s.b = X::B;
   printf("A=%d, B=%d, a=%d, b=%d\n", X::A, X::B, s.a, s.b);
 }
