@@ -907,6 +907,13 @@ def CompressRange : InheritableParamAttr {
     let Documentation = [Undocumented];
 }
 
+def CompressTruncateMantissa : InheritableParamAttr {
+    let Spellings = [Clang<"compress_truncate_mantissa">];
+    let Args = [IntArgument<"MantissaSize">];
+    let Subjects = SubjectList<[Field]>;
+    let Documentation = [Undocumented];
+}
+
 def CompressionMethod : InheritableParamAttr {
     let Spellings = [Clang<"compression_method">];
     let Args = [EnumArgument<"CompressionMethod", "CompressionMethodType",

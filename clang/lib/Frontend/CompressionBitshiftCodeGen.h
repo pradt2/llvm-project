@@ -21,30 +21,23 @@
 
 using namespace clang;
 
-static bool isCompressionCandidate(RecordDecl *recordDecl) {
-  for (auto *field : recordDecl->fields()) {
-    for (auto *fieldAttr : field->attrs()) {
-      switch (fieldAttr->getKind()) {
-      case clang::attr::Compress:
-      case clang::attr::CompressRange:
-        return true;
-      default:
-        break;
-      }
-    }
-  }
-  return false;
-}
-
 static bool isCompressionCandidate(FieldDecl *fieldDecl) {
   for (auto *fieldAttr : fieldDecl->attrs()) {
     switch (fieldAttr->getKind()) {
     case clang::attr::Compress:
     case clang::attr::CompressRange:
+    case clang::attr::CompressTruncateMantissa:
       return true;
     default:
       break;
     }
+  }
+  return false;
+}
+
+static bool isCompressionCandidate(RecordDecl *recordDecl) {
+  for (auto *field : recordDecl->fields()) {
+    if (isCompressionCandidate(field)) return true;
   }
   return false;
 }
@@ -56,14 +49,20 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
   RecordDecl *decl;
   CompilerInstance &CI;
 
+  std::string getIntegerTypeForSize(int size, bool isConst = true) {
+    std::string type = isConst ? "const " : "";
+    if (size <= 8) type += "unsigned char";
+    else if (size <= 16) type += "unsigned short";
+    else if (size <= 32) type += "unsigned int";
+    else if (size <= 64) type += "unsigned long";
+    else if (size <= 128) type += "unsigned long long";
+    else type += "<invalid type>";
+    return type;
+  }
+
   std::string getTypeForTableViewExpr(FieldDecl *fieldDecl, bool isConst = true) {
     unsigned int tableViewSize = getTableViewWidthForField(fieldDecl);
-    std::string type = isConst ? "const " : "";
-    if (tableViewSize <= 8) type += "unsigned char";
-    else if (tableViewSize <= 16) type += "unsigned short";
-    else if (tableViewSize <= 32) type += "unsigned int";
-    else if (tableViewSize <= 64) type += "unsigned long";
-    else type += "<invalid type>";
+    std::string type = getIntegerTypeForSize(tableViewSize, isConst);
     return type;
   }
 
@@ -74,7 +73,8 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
       if (minWindowSize <= 8) return 8;
       if (minWindowSize <= 16) return 16;
       if (minWindowSize <= 32) return 32;
-      return 64;
+      if (minWindowSize <= 64) return 64;
+      return 128;
   }
 
   std::string typeToString(QualType type) {
@@ -87,8 +87,15 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
     if (type->isEnumeralType()) {
       return getOriginalTypeWidth(type->getAs<EnumType>()->getDecl()->getIntegerType());
     }
-    if (!type->isIntegerType()) return 64;
-    return CI.getASTContext().getIntWidth(type);
+    if (type->isIntegerType()) return CI.getASTContext().getIntWidth(type);
+    if (type->isFloatingType()) {
+      switch (type->getAs<BuiltinType>()->getKind()) {
+      case BuiltinType::Float : return 32;
+      case BuiltinType::Double : return 64;
+      default: llvm::outs() << "Unsupported floating point type for compression\n";
+      }
+    }
+    return 64;
   }
 
   unsigned int getCompressedTypeWidth(FieldDecl *fieldDecl) {
@@ -106,6 +113,25 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
       if (valueRange == 1) return 1;
       unsigned size = ceil(log2(valueRange));
       return size;
+    }
+    for (auto *attr : fieldDecl->attrs()) {
+      if (!fieldDecl->getType()->isFloatingType()) break;
+      if (attr->getKind() != clang::attr::CompressTruncateMantissa) continue;
+      auto *compressMantissaAttr = llvm::cast<CompressTruncateMantissaAttr>(attr);
+      int mantissaSize = compressMantissaAttr->getMantissaSize();
+      int exponentSize;
+      switch (fieldDecl->getType()->getAs<BuiltinType>()->getKind()) {
+      case BuiltinType::Float:
+        exponentSize = 8;
+        break;
+      case BuiltinType::Double:
+        exponentSize = 11;
+        break;
+      default:
+        llvm::errs() << "Unsupported floating point type for compression\n";
+        exponentSize = 11;
+      }
+      return 1 + exponentSize + mantissaSize;
     }
     return 64;
   }
@@ -160,19 +186,19 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
   }
 
   // 00000___compressed_type_size_as_1s___00000
-  unsigned int getAfterFetchMask(FieldDecl *fieldDecl) {
-    unsigned int compressedTypeSize = getCompressedTypeWidth(fieldDecl);
-    unsigned int leftMargin = getBitsMarginToLeftTableViewEdge(fieldDecl);
-    unsigned int mask = (1 << compressedTypeSize) - 1;
+  unsigned long getAfterFetchMask(FieldDecl *fieldDecl) {
+    unsigned long compressedTypeSize = getCompressedTypeWidth(fieldDecl);
+    unsigned long leftMargin = getBitsMarginToLeftTableViewEdge(fieldDecl);
+    unsigned long mask = (1UL << compressedTypeSize) - 1;
     mask = mask << leftMargin;
     return mask;
   }
 
   // 1111___compressed_type_size_as_0s___111111
-  unsigned int getBeforeStoreMask(FieldDecl *fieldDecl) {
-    unsigned int afterFetchMask = getAfterFetchMask(fieldDecl);
-    unsigned int tableViewSize = getTableViewWidthForField(fieldDecl);
-    unsigned int mask = (1 << tableViewSize) - 1;
+  unsigned long getBeforeStoreMask(FieldDecl *fieldDecl) {
+    unsigned long afterFetchMask = getAfterFetchMask(fieldDecl);
+    unsigned long tableViewSize = getTableViewWidthForField(fieldDecl);
+    unsigned long mask = (1 << tableViewSize) - 1;
     mask -= afterFetchMask;
     return mask;
   }
@@ -238,6 +264,23 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
     return typeCast;
   }
 
+  std::string getConversionStructs() {
+    std::string structs = "";
+    for (auto *field : decl->fields()) {
+      if (!isCompressionCandidate(field)) continue;
+      if (!field->getType()->isFloatingType()) continue;
+      if (field->getType()->getAs<BuiltinType>()->getKind() != BuiltinType::Float) continue;
+      structs += "union conv_float { unsigned int i; float fp; conv_float(unsigned int i) { this->i = i; }; conv_float(float f) { this->fp = f; }; }; ";
+    }
+    for (auto *field : decl->fields()) {
+      if (!isCompressionCandidate(field)) continue;
+      if (!field->getType()->isFloatingType()) continue;
+      if (field->getType()->getAs<BuiltinType>()->getKind() != BuiltinType::Float) continue;
+      structs += "union conv_double { unsigned long i; double fp; conv_double(unsigned long i) { this->i = i; }; conv_double(double d) { this->fp = d; }; }; ";
+    }
+    return structs;
+  }
+
   std::string getFieldsDecl() {
     std::string tableDefinition = tableCellType + " " + tableName + "[" + std::to_string(getTableCellsNeeded()) + "]; ";
     std::string nonCompressedFields;
@@ -252,25 +295,8 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
     return tableDefinition + nonCompressedFields;
   }
 
-public:
 
-  explicit CompressionBitshiftCodeGen(RecordDecl *d, CompilerInstance &CI) : decl(d), CI(CI) {}
-
-  std::string getCompressedStructName() override {
-    return getOriginalStructName() + "__PACKED";
-  }
-
-  std::string getCompressedStructDef() override {
-    std::string structName = getCompressedStructName();
-    std::string fieldsDecl = getFieldsDecl();
-    std::string emptyConstructor = getEmptyConstructor();
-    std::string fromOriginalConstructor = getFromOriginalTypeConstructor();
-    std::string typeCastToOriginal = getTypeCastToOriginal();
-    std::string structDef = "\n#pragma pack(push, 1)\nstruct " + structName + " { " + fieldsDecl + "; " + emptyConstructor + "; " + fromOriginalConstructor + "; " + typeCastToOriginal + "; };\n#pragma pack(pop)\n";
-    return structDef;
-  }
-
-  std::string getGetterExpr(FieldDecl *fieldDecl, std::string thisAccessor) override {
+  std::string getGetterExprIntLikeType(FieldDecl *fieldDecl, std::string thisAccessor) {
     std::string tableView = getTableViewExpr(fieldDecl, thisAccessor);
     std::string afterFetchMask = std::to_string(getAfterFetchMask(fieldDecl)) + "U";
     std::string bitshiftAgainstLeftMargin = std::to_string(getBitsMarginToLeftTableViewEdge(fieldDecl)) + "U";
@@ -282,12 +308,13 @@ public:
     return getter;
   }
 
-  std::string getSetterExpr(FieldDecl *fieldDecl, std::string thisAccessor, std::string toBeSetValue) override {
+  std::string getSetterExprIntLikeType(FieldDecl *fieldDecl, std::string thisAccessor, std::string toBeSetValue) {
     std::string tableView = getTableViewExpr(fieldDecl, thisAccessor, false);
     std::string afterFetchMask = std::to_string(getAfterFetchMask(fieldDecl)) + "U";
     std::string beforeStoreMask = std::to_string(getBeforeStoreMask(fieldDecl)) + "U";
     std::string bitshiftAgainstLeftMargin = std::to_string(getBitsMarginToLeftTableViewEdge(fieldDecl)) + "U";
     std::string compressionConstant = std::to_string(getCompressionConstant(fieldDecl));
+    toBeSetValue = "(" + toBeSetValue + ")";
     if (fieldDecl->getType()->isEnumeralType()) {
       std::string intTypeStr = fieldDecl->getType()->getAs<EnumType>()->getDecl()->getIntegerType().getAsString();
       toBeSetValue = "(" + intTypeStr + ") " + toBeSetValue;
@@ -299,6 +326,87 @@ public:
     valueExpr = "(" + valueExpr + " | " + toBeSetValue + ")";
     std::string setterStmt = tableView + " = " + valueExpr;
     return setterStmt;
+  }
+
+  std::string getGetterExprFloatLikeType(FieldDecl *fieldDecl, std::string thisAccessor) {
+    std::string tableView = getTableViewExpr(fieldDecl, thisAccessor);
+    std::string afterFetchMask = std::to_string(getAfterFetchMask(fieldDecl)) + "U";
+    std::string bitshiftAgainstLeftMargin = std::to_string(getBitsMarginToLeftTableViewEdge(fieldDecl)) + "U";
+    std::string getter = "(" + tableView + " & " + afterFetchMask + ")";
+    std::string originalTypeName = typeToString(fieldDecl->getType());
+    std::string intType = getIntegerTypeForSize(getOriginalTypeWidth(fieldDecl->getType()), false);
+    std::string truncatedBits = std::to_string(getOriginalTypeWidth(fieldDecl->getType()) - getCompressedTypeWidth(fieldDecl)) + "U";
+    getter = "(" + getter + " >> " + bitshiftAgainstLeftMargin + ")";
+    getter = "((" + intType + ") " + getter + ")";
+    getter = "(" + getter + " << " + truncatedBits + ")";
+    getter = getCompressedStructName() + "::conv_" + originalTypeName + "(" + getter + ").fp";
+    return getter;
+  }
+
+  std::string getSetterExprFloatLikeType(FieldDecl *fieldDecl, std::string thisAccessor, std::string toBeSetValue) {
+    std::string tableView = getTableViewExpr(fieldDecl, thisAccessor, false);
+    std::string afterFetchMask = std::to_string(getAfterFetchMask(fieldDecl)) + "U";
+    std::string beforeStoreMask = std::to_string(getBeforeStoreMask(fieldDecl)) + "U";
+    std::string bitshiftAgainstLeftMargin = std::to_string(getBitsMarginToLeftTableViewEdge(fieldDecl)) + "U";
+    std::string originalTypeName = typeToString(fieldDecl->getType());
+    std::string truncatedBits = std::to_string(getOriginalTypeWidth(fieldDecl->getType()) - getCompressedTypeWidth(fieldDecl)) + "U";
+    toBeSetValue = getCompressedStructName() + "::conv_" + originalTypeName + "(" + toBeSetValue + ").i";
+    toBeSetValue = "(" + toBeSetValue + " >> " + truncatedBits + ")";
+    toBeSetValue = "(" + toBeSetValue + " << " + bitshiftAgainstLeftMargin + ")";
+    toBeSetValue = "(" + toBeSetValue + " & " + afterFetchMask + ")"; // makes sure overflown values do not impact other fields
+    std::string valueExpr = "(" + tableView + " & " + beforeStoreMask + ")";
+    valueExpr = "(" + valueExpr + " | " + toBeSetValue + ")";
+    std::string setterStmt = tableView + " = " + valueExpr;
+    return setterStmt;
+  }
+
+public:
+
+  explicit CompressionBitshiftCodeGen(RecordDecl *d, CompilerInstance &CI) : decl(d), CI(CI) {}
+
+  std::string getCompressedStructName() override {
+    return getOriginalStructName() + "__COMPRESSED";
+  }
+
+  std::string getCompressedStructDef() override {
+    std::string structName = getCompressedStructName();
+    std::string fieldsDecl = getFieldsDecl();
+    std::string emptyConstructor = getEmptyConstructor();
+    std::string fromOriginalConstructor = getFromOriginalTypeConstructor();
+    std::string typeCastToOriginal = getTypeCastToOriginal();
+    std::string conversionStructs = getConversionStructs();
+    std::string structDef = std::string("\n#pragma pack(push, 1)\n")
+                            + "struct " + structName + " {\n"
+                            + fieldsDecl + ";\n"
+                            + emptyConstructor + ";\n"
+                            + fromOriginalConstructor + ";\n"
+                            + typeCastToOriginal + ";\n"
+                            + conversionStructs + ";\n"
+                            + "};\n"
+                            + "#pragma pack(pop)\n";
+    return structDef;
+  }
+
+  std::string getGetterExpr(FieldDecl *fieldDecl, std::string thisAccessor) override {
+    if (fieldDecl->getType()->isFixedPointOrIntegerType()) {
+      return this->getGetterExprIntLikeType(fieldDecl, thisAccessor);
+    }
+    if (fieldDecl->getType()->isFloatingType()) {
+      return this->getGetterExprFloatLikeType(fieldDecl, thisAccessor);
+    }
+    llvm::errs() << "Unsupported type for compression\n";
+    return "<cannot generate getter expr>";
+  }
+
+  std::string getSetterExpr(FieldDecl *fieldDecl, std::string thisAccessor, std::string toBeSetValue) override {
+    if (fieldDecl->getType()->isFixedPointOrIntegerType()) {
+      return this->getSetterExprIntLikeType(fieldDecl, thisAccessor, toBeSetValue);
+    }
+    if (fieldDecl->getType()->isFloatingType()) {
+      return this->getSetterExprFloatLikeType(fieldDecl, thisAccessor, toBeSetValue);
+    }
+    llvm::errs() << "Unsupported type for compression\n";
+    return "<cannot generate setter expr>";
   }
 
 };

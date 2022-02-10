@@ -4394,6 +4394,34 @@ void Sema::AddCompressRangeAttr(Decl *D, const AttributeCommonInfo &CI, Expr *mi
   D->addAttr(CompressRangeAttr);
 }
 
+void Sema::AddCompressTruncateMantissaAttr(Decl *D, const AttributeCommonInfo &CI, Expr *mantissaSize) {
+  llvm::SmallVector<PartialDiagnosticAt, 8> Notes;
+  Expr::EvalResult Eval;
+  Notes.clear();
+  Eval.Diag = &Notes;
+  int mantissaSizeInt = 0;
+  if (mantissaSize != nullptr) {
+    bool Result =
+        mantissaSize->EvaluateAsConstantExpr(Eval, Context);
+
+    /// Result means the expression can be folded to a constant.
+    /// Note.empty() means the expression is a valid constant expression in the
+    /// current language mode.
+    if (!Result || !Notes.empty()) {
+      Diag(mantissaSize->getBeginLoc(), diag::err_attribute_argument_n_type)
+          << CI << (0) << AANT_ArgumentConstantExpr;
+      for (auto &Note : Notes)
+        Diag(Note.first, Note.second);
+      return;
+    }
+    assert(Eval.Val.hasValue());
+    mantissaSizeInt = Eval.Val.getInt().getSExtValue();
+  }
+
+  auto *CompressTruncateMantissaAttr = clang::CompressTruncateMantissaAttr::Create(Context, mantissaSizeInt, CI);
+  D->addAttr(CompressTruncateMantissaAttr);
+}
+
 static void handleCompressRangeAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   if (AL.getNumArgs() == 0 || AL.getNumArgs() > 2) return;
   Expr *minValue = nullptr;
@@ -4405,6 +4433,12 @@ static void handleCompressRangeAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
     maxValue = AL.getArgAsExpr(0);
   }
   S.AddCompressRangeAttr(D, AL, minValue, maxValue);
+}
+
+static void handleCompressTruncateMantissaAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
+  if (AL.getNumArgs() != 1) return;
+  Expr *mantissaSize = AL.getArgAsExpr(0);
+  S.AddCompressTruncateMantissaAttr(D, AL, mantissaSize);
 }
 
 void Sema::AddCompressionMethodAttr(Decl *D, const AttributeCommonInfo &CI, CompressionMethodAttr::CompressionMethodType type) {
@@ -9320,6 +9354,9 @@ ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D, const ParsedAttr &AL,
     break;
   case ParsedAttr::AT_CompressRange:
     handleCompressRangeAttr(S, D, AL);
+    break;
+  case ParsedAttr::AT_CompressTruncateMantissa:
+    handleCompressTruncateMantissaAttr(S, D, AL);
     break;
   case ParsedAttr::AT_CompressionMethod:
     handleCompressionMethodAttr(S, D, AL);
