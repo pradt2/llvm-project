@@ -275,7 +275,7 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
     for (auto *field : decl->fields()) {
       if (!isCompressionCandidate(field)) continue;
       if (!field->getType()->isFloatingType()) continue;
-      if (field->getType()->getAs<BuiltinType>()->getKind() != BuiltinType::Float) continue;
+      if (field->getType()->getAs<BuiltinType>()->getKind() != BuiltinType::Double) continue;
       structs += "union conv_double { unsigned long i; double fp; conv_double(unsigned long i) { this->i = i; }; conv_double(double d) { this->fp = d; }; }; ";
     }
     return structs;
