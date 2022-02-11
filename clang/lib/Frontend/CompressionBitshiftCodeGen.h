@@ -388,7 +388,7 @@ public:
   }
 
   std::string getGetterExpr(FieldDecl *fieldDecl, std::string thisAccessor) override {
-    if (fieldDecl->getType()->isFixedPointOrIntegerType()) {
+    if (fieldDecl->getType()->isIntegerType() || fieldDecl->getType()->isEnumeralType()) {
       return this->getGetterExprIntLikeType(fieldDecl, thisAccessor);
     }
     if (fieldDecl->getType()->isFloatingType()) {
@@ -399,7 +399,7 @@ public:
   }
 
   std::string getSetterExpr(FieldDecl *fieldDecl, std::string thisAccessor, std::string toBeSetValue) override {
-    if (fieldDecl->getType()->isFixedPointOrIntegerType()) {
+    if (fieldDecl->getType()->isFixedPointOrIntegerType() || fieldDecl->getType()->isEnumeralType()) {
       return this->getSetterExprIntLikeType(fieldDecl, thisAccessor, toBeSetValue);
     }
     if (fieldDecl->getType()->isFloatingType()) {
