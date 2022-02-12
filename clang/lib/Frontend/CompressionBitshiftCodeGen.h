@@ -109,8 +109,7 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
       auto *compressRangeAttr = llvm::cast<CompressRangeAttr>(attr);
       int minValue = compressRangeAttr->getMinValue();
       int maxValue = compressRangeAttr->getMaxValue();
-      unsigned int valueRange = abs(maxValue - minValue);
-      if (valueRange == 1) return 1;
+      unsigned int valueRange = abs(maxValue - minValue + 1);
       unsigned size = ceil(log2(valueRange));
       return size;
     }
