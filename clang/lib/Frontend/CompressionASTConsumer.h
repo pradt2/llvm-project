@@ -319,6 +319,48 @@ private:
     }
   };
 
+  class PragmaPackAdder : public ASTConsumer, public RecursiveASTVisitor<PragmaPackAdder> {
+  private:
+
+    class CompressibleTypeFieldsFinder : public ASTConsumer, public RecursiveASTVisitor<CompressibleTypeFieldsFinder> {
+      bool found;
+    public:
+      bool VisitFieldDecl(FieldDecl *d) {
+        if (!d->getType()->isRecordType()) return true;
+        auto *rd = d->getType()->getAsRecordDecl();
+        if (isCompressionCandidate(rd)) {
+          found = true;
+          return false;
+        }
+        return true;
+      }
+
+      bool doesContainCompressibleStructs(RecordDecl *rd) {
+        this->found = false;
+        this->TraverseDecl(rd);
+        return this->found;
+      }
+
+    } compressibleTypeFieldsFinder;
+
+    Rewriter &R;
+    CompilerInstance &CI;
+  public:
+    explicit PragmaPackAdder(Rewriter &R, CompilerInstance &CI) : R(R), CI(CI) {}
+
+    void HandleTranslationUnit(ASTContext &Context) override {
+      TranslationUnitDecl *D = Context.getTranslationUnitDecl();
+      TraverseDecl(D);
+    }
+
+    bool VisitRecordDecl(RecordDecl *d) {
+      if (!this->compressibleTypeFieldsFinder.doesContainCompressibleStructs(d)) return true;
+      R.InsertTextBefore(d->getBeginLoc(), "#pragma pack(push, 1)\n");
+      R.InsertTextAfterToken(d->getEndLoc(), ";\n#pragma pack(pop)\n");
+      return true;
+    }
+  };
+
 public:
   CompressionASTConsumer(CompilerInstance &CI) : CI(CI), R(*CI.getSourceManager().getRewriter()) {}
 
@@ -329,6 +371,7 @@ public:
     FunctionReturnTypeUpdater(R, CI).HandleTranslationUnit(Context);
     ReadAccessRewriter(R, CI).HandleTranslationUnit(Context);
     WriteAccessRewriter(R, CI).HandleTranslationUnit(Context);
+    PragmaPackAdder(R, CI).HandleTranslationUnit(Context);
   }
 
 };
