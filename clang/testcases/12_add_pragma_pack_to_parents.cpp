@@ -8,7 +8,7 @@ struct Child {
 struct Parent {
   // alignment 4
   int a;
-  // size should be 8 due to alignment
+  // size should be 8 due to alignment, 5 if opt is applied
   Child c;
 };
 
