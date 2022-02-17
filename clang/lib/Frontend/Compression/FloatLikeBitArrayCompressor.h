@@ -87,6 +87,10 @@ public:
     return getSetterExpr(thisAccessor, toBeSetVal) + ";";
   }
 
+  std::string getTypeCastToOriginalStmt(std::string thisAccessor, std::string retValFieldAccessor) override {
+    return retValFieldAccessor + " = " + getGetterExpr(thisAccessor) + ";";
+  }
+
   bool supports(FieldDecl *d) override {
     return supports(d->getType(), d->attrs());
   }

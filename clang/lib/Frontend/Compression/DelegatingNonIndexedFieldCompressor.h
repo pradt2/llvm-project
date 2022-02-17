@@ -37,6 +37,10 @@ public:
     return _delegate->getCopyConstructorStmt(thisAccessor, toBeSetVal);
   }
 
+  std::string getTypeCastToOriginalStmt(std::string thisAccessor, std::string retValFieldAccessor) override {
+    return _delegate->getTypeCastToOriginalStmt(thisAccessor, retValFieldAccessor);
+  }
+
   void setOffset(unsigned int offset) override {
     _delegate->setOffset(offset);
   }
