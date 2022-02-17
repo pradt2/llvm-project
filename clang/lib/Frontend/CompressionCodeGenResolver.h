@@ -46,6 +46,15 @@ public:
   std::string getSetterExpr(FieldDecl *fieldDecl, std::string thisAccessor, std::string toBeSetValue) override {
     return this->codeGen->getSetterExpr(fieldDecl, thisAccessor, toBeSetValue);
   }
+
+  std::string getGetterExpr(FieldDecl *fieldDecl, std::string thisAccessor, std::vector<std::string> idxs) override {
+    return this->codeGen->getGetterExpr(fieldDecl, thisAccessor, idxs);
+  }
+
+  std::string getSetterExpr(FieldDecl *fieldDecl, std::string thisAccessor, std::vector<std::string> idxs, std::string toBeSetValue) override {
+    return this->codeGen->getSetterExpr(fieldDecl, thisAccessor, idxs, toBeSetValue);
+  }
+
 };
 
 #endif // CLANG_COMPRESSIONCODEGENDELEGATE_H

@@ -1,19 +1,15 @@
-void printf(const char* s, int i, int b);
-#define ARR_SIZE 2
+#include <stdio.h>
+//void printf(const char* s, int i, int b);
 
 struct S {
 
   [[clang::compress]]
-  bool a[ARR_SIZE - 1][ARR_SIZE][ARR_SIZE + 1];
-
-  [[clang::compress]]
-  bool x;
+  bool aTable[4][4];
 
 };
 
 int main() {
   S s = {};
-  int idx = 0;
-  s.a[idx][idx][idx] = true;
-  printf("Size %lu, val: %d", sizeof(S), s.a[idx][idx][idx]);
+  s.aTable[1][2] = true;
+  printf("Size %lu, val: %d\n", sizeof(s), s.aTable[1][2]);
 }

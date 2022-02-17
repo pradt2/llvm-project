@@ -35,6 +35,16 @@ public:
     if (_indexedCompressor) return _indexedCompressor->getCopyConstructorStmt(thisAccessor, toBeSetVal);
   }
 
+  std::string getTypeCastToOriginalStmt(std::string thisAccessor, std::string retValFieldAccessor) {
+    if (_nonIndexedCompressor) return _nonIndexedCompressor->getTypeCastToOriginalStmt(thisAccessor, retValFieldAccessor);
+    if (_indexedCompressor) return _indexedCompressor->getCopyConstructorStmt(thisAccessor, retValFieldAccessor);
+  }
+
+  void setOffset(unsigned int offset) {
+    if (_nonIndexedCompressor) _nonIndexedCompressor->setOffset(offset);
+    if (_indexedCompressor) _indexedCompressor->setOffset(offset);
+  }
+
   bool supports(FieldDecl *fd) {
     return supports(fd->getType(), fd->attrs());
   }

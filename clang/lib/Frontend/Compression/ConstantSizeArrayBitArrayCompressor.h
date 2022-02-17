@@ -82,6 +82,7 @@ public:
   ConstantSizeArrayBitArrayCompressor(unsigned int tableCellSize, std::string tableName, std::string fieldName, std::string structName, QualType type, Attrs attrs)
       : AbstractBitArrayCompressor(tableCellSize, tableName, type.getAsString()), _fieldName(fieldName), _structName(structName) {
     auto *arrType = llvm::cast<ConstantArrayType>(type->getAsArrayTypeUnsafe());
+    populateDimensions(arrType);
     auto elementType = getElementType(arrType);
     _elementCompressor = std::make_unique<DelegatingNonIndexedFieldCompressor>(tableCellSize, tableName, structName, elementType, attrs);
   }
@@ -107,7 +108,7 @@ public:
     method += "switch (linearIdx) {\n";
     unsigned int totalSize = getTotalElements();
     for (unsigned int i = 0; i < totalSize; i++) {
-      "case " + std::to_string(i) + ": return " + getElementGetter("this->", i) + ";\n";
+      method += "case " + std::to_string(i) + ": return " + getElementGetter("this->", i) + ";\n";
     }
     method += "default: return (" + _elementCompressor->getTypeName() + ") 0;\n";
     method += "}\n"; // close switch
@@ -123,13 +124,12 @@ public:
       idxs.push_back(idx);
       method += "unsigned int " + idx + ", ";
     }
-    method += _elementCompressor->getTypeName() + "val";
-    method += ") {\n";
+    method += _elementCompressor->getTypeName() + " val) {\n";
     method += "unsigned int linearIdx = " + getLinearItemIndex(idxs) + ";\n";
     method += "switch (linearIdx) {\n";
     unsigned int totalSize = getTotalElements();
     for (unsigned int i = 0; i < totalSize; i++) {
-      "case " + std::to_string(i) + ": " + getElementSetter("this->", i, "val") + "; break;\n";
+      method += "case " + std::to_string(i) + ": " + getElementSetter("this->", i, "val") + "; break;\n";
     }
     method += "default: break;\n";
     method += "}\n"; // close switch
@@ -149,7 +149,7 @@ public:
   }
 
   std::string getSetterExpr(std::string thisAccessor, std::vector<std::string> idxExprs, std::string toBeSetValue) {
-    std::string methodInvocation = thisAccessor + "get__" + _fieldName + "(";
+    std::string methodInvocation = thisAccessor + "set__" + _fieldName + "(";
     for (unsigned int i = 0; i < idxExprs.size(); i++) {
       methodInvocation += idxExprs[i] + ", ";
     }
@@ -158,7 +158,15 @@ public:
     return methodInvocation;
   }
 
+  void setOffset(unsigned int offset) {
+      this->_offset = offset;
+  };
+
   std::string getCopyConstructorStmt(std::string thisAccessor, std::string toBeSetVal) {
+    return "/** TODO to be implemented **/";
+  }
+
+  std::string getTypeCastToOriginalStmt(std::string thisAccessor, std::string retValFieldAccessor) {
     return "/** TODO to be implemented **/";
   }
 

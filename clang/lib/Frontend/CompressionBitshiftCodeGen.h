@@ -78,27 +78,31 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
     constructor += " (" + getOriginalStructName() + " &&" + localVarName + ") { ";
     for (auto *field : decl->fields()) {
       if (isCompressionCandidate(field)) {
-        constructor += DelegatingFieldCompressor(tableCellSize, tableName, getCompressedStructName(), field).getCopyConstructorStmt("this->", localVarName + "." + field->getNameAsString());
-//        constructor += getSetterExpr(field, "this->", localVarName + "." + field->getNameAsString()) + "; ";
+        auto compressor = DelegatingFieldCompressor(tableCellSize, tableName, getCompressedStructName(), field);
+        compressor.setOffset(getFieldOffset(field));
+        constructor += compressor.getCopyConstructorStmt("this->", localVarName + "." + field->getNameAsString()) + "\n";
       }
       else {
         constructor += "this->" + field->getNameAsString() + " = " + localVarName + "." + field->getNameAsString() + "; ";
       }
     }
-    constructor += "} ";
+    constructor += "}";
     return constructor;
   }
 
   std::string getTypeCastToOriginal() {
-    std::string typeCast = "operator " + getOriginalStructName() + "() { return { ";
+    std::string typeCast = "operator " + getOriginalStructName() + "() { " + getOriginalStructName() + " val ;\n";
     for (auto *field : decl->fields()) {
       if (isCompressionCandidate(field)) {
-        typeCast += getGetterExpr(field, "this->") + ", ";
+        auto compressor = DelegatingFieldCompressor(tableCellSize, tableName, getCompressedStructName(), field);
+        compressor.setOffset(getFieldOffset(field));
+        typeCast += compressor.getTypeCastToOriginalStmt("this->", "val." + field->getNameAsString()) + "\n";
       } else {
-        typeCast += "this->" + field->getNameAsString() + ", ";
+        typeCast += "val." + field->getNameAsString() + " = this->" + field->getNameAsString() + ";\n";
       }
     }
-    typeCast += " }; }";
+    typeCast += "return val;\n";
+    typeCast += "}";
     return typeCast;
   }
 
@@ -119,6 +123,22 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
       break;
     }
     return structs;
+  }
+
+  std::string getConstSizeArrCompressionMethods() {
+    std::string methods;
+    for (auto *field : decl->fields()) {
+      if (!ConstantSizeArrayBitArrayCompressor().supports(field)) continue;
+      auto compressor = ConstantSizeArrayBitArrayCompressor(tableCellSize, tableName, getCompressedStructName(), field);
+      compressor.setOffset(getFieldOffset(field));
+      methods += compressor.getGetterMethod() + ";\n";
+      methods += compressor.getSetterMethod() + ";\n";
+    }
+    if (methods.size() > 2) {
+      methods.pop_back();
+      methods.pop_back();
+    }
+    return methods;
   }
 
   std::string getFieldsDecl() {
@@ -150,6 +170,7 @@ public:
     std::string fromOriginalConstructor = getFromOriginalTypeConstructor();
     std::string typeCastToOriginal = getTypeCastToOriginal();
     std::string conversionStructs = getConversionStructs();
+    std::string constSizeArrCompressionMethods = getConstSizeArrCompressionMethods();
     std::string structDef = std::string("\n#pragma pack(push, 1)\n")
                             + "struct " + structName + " {\n"
                             + fieldsDecl + ";\n"
@@ -157,6 +178,7 @@ public:
                             + fromOriginalConstructor + ";\n"
                             + typeCastToOriginal + ";\n"
                             + conversionStructs + ";\n"
+                            + constSizeArrCompressionMethods + ";\n"
                             + "};\n"
                             + "#pragma pack(pop)\n";
     return structDef;
@@ -174,6 +196,16 @@ public:
     return delegate.getSetterExpr(thisAccessor, toBeSetValue);
   }
 
+  std::string getGetterExpr(FieldDecl *fieldDecl, std::string thisAccessor, std::vector<std::string> idxs) override {
+    auto delegate = ConstantSizeArrayBitArrayCompressor(tableCellSize, tableName, getCompressedStructName(), fieldDecl);
+    delegate.setOffset(getFieldOffset(fieldDecl));
+    return delegate.getGetterExpr(thisAccessor, idxs);
+  }
+  std::string getSetterExpr(FieldDecl *fieldDecl, std::string thisAccessor, std::vector<std::string> idxs, std::string toBeSetValue) override {
+   auto delegate = ConstantSizeArrayBitArrayCompressor(tableCellSize, tableName, getCompressedStructName(), fieldDecl);
+   delegate.setOffset(getFieldOffset(fieldDecl));
+   return delegate.getSetterExpr(thisAccessor, idxs, toBeSetValue);
+  }
 };
 
 #endif
