@@ -11,6 +11,8 @@ class AbstractBitArrayCompressor {
 
 public:
 
+  virtual ~AbstractBitArrayCompressor() = default;
+
   virtual unsigned int getCompressedTypeWidth() = 0;
 
 protected:

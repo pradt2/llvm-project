@@ -144,6 +144,16 @@ public:
     std::string setterStmt = thisAccessor + fieldDecl->getNameAsString() + " = ((" + toBeSetValue + ") - " + std::to_string(compressionConstant) + ")";
     return setterStmt;
   }
+
+  std::string getGetterExpr(FieldDecl *fieldDecl, std::string thisAccessor,
+                            std::vector<std::string> idxs) override {
+    return "/** to be implemented **/";
+  }
+  std::string getSetterExpr(FieldDecl *fieldDecl, std::string thisAccessor,
+                            std::vector<std::string> idxs,
+                            std::string toBeSetValue) override {
+    return "/** to be implemented **/";
+  }
 };
 
 #endif // CLANG_COMPRESSIONBITPACKCODEGEN_H
