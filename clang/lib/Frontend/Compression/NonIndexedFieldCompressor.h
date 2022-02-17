@@ -18,6 +18,7 @@ public:
   virtual std::string getGetterExpr(std::string thisAccessor) = 0;
   virtual std::string getSetterExpr(std::string thisAccessor, std::string toBeSetValue) = 0;
   virtual std::string getCopyConstructorStmt(std::string thisAccessor, std::string toBeSetVal) = 0;
+  virtual std::string getTypeCastToOriginalStmt(std::string thisAccessor, std::string retValFieldAccessor) = 0;
 };
 
 #endif // CLANG_NONINDEXEDFIELDCOMPRESSOR_H

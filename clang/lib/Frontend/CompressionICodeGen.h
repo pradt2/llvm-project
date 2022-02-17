@@ -10,6 +10,8 @@ using namespace clang;
 class CompressionICodeGen {
 
 public:
+  virtual ~CompressionICodeGen() = default;
+
   virtual std::string getCompressedStructName() = 0;
 
   virtual std::string getCompressedStructDef() = 0;
@@ -17,6 +19,10 @@ public:
   virtual std::string getGetterExpr(FieldDecl *fieldDecl, std::string thisAccessor) = 0;
 
   virtual std::string getSetterExpr(FieldDecl *fieldDecl, std::string thisAccessor, std::string toBeSetValue) = 0;
+
+  virtual std::string getGetterExpr(FieldDecl *fieldDecl, std::string thisAccessor, std::vector<std::string> idxs) = 0;
+
+  virtual std::string getSetterExpr(FieldDecl *fieldDecl, std::string thisAccessor, std::vector<std::string> idxs, std::string toBeSetValue) = 0;
 
 };
 
