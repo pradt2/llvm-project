@@ -23,6 +23,16 @@
 
 using namespace clang;
 
+static bool isNonIndexAccessCompressionCandidate(FieldDecl *fd) {
+  if (DelegatingNonIndexedFieldCompressor().supports(fd)) return true;
+  return false;
+}
+
+static bool isIndexAccessCompressionCandidate(FieldDecl *fd) {
+  if (ConstantSizeArrayBitArrayCompressor().supports(fd)) return true;
+  return false;
+}
+
 static bool isCompressionCandidate(FieldDecl *fieldDecl) {
   if (DelegatingFieldCompressor().supports(fieldDecl)) return true;
   return false;
