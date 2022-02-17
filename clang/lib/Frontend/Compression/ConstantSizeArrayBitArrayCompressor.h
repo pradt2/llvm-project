@@ -95,7 +95,7 @@ public:
 
   std::string getGetterMethod() {
     std::vector<std::string> idxs;
-    std::string method = _elementCompressor->getTypeName() + " get__" + _fieldName + "(";
+    std::string method = "const " + _elementCompressor->getTypeName() + " get__" + _fieldName + "(";
     for (unsigned int i = 0; i < _dimensions.size(); i++) {
       std::string idx = "idx" + std::to_string(i);
       idxs.push_back(idx);
