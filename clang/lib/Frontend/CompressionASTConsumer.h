@@ -2,6 +2,7 @@
 #define CLANG_COMPRESSIONASTCONSUMER_H
 
 #include "./CompressionCodeGenResolver.h"
+#include "./MPI/MPISupportAdder.h"
 
 class SubExprFinder : public ASTConsumer,
                       public RecursiveASTVisitor<SubExprFinder> {
