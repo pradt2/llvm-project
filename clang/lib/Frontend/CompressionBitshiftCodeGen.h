@@ -21,6 +21,8 @@
 #include "./Compression/DelegatingNonIndexedFieldCompressor.h"
 #include "./Compression/DelegatingFieldCompressor.h"
 
+#include "./MPI/MPISupportAdder.h"
+
 using namespace clang;
 
 static bool isNonIndexAccessCompressionCandidate(FieldDecl *fd) {
@@ -181,6 +183,9 @@ public:
     std::string typeCastToOriginal = getTypeCastToOriginal();
     std::string conversionStructs = getConversionStructs();
     std::string constSizeArrCompressionMethods = getConstSizeArrCompressionMethods();
+
+    MPISupportCode code = MPISupportAdder().getMPISupport(structName, decl);
+
     std::string structDef = std::string("\n#pragma pack(push, 1)\n")
                             + "struct " + structName + " {\n"
                             + fieldsDecl + ";\n"
@@ -189,8 +194,10 @@ public:
                             + typeCastToOriginal + ";\n"
                             + conversionStructs + ";\n"
                             + constSizeArrCompressionMethods + ";\n"
+                            + code.insideStructCode + "\n"
                             + "};\n"
-                            + "#pragma pack(pop)\n";
+                            + "#pragma pack(pop)\n"
+                            + code.outsideStructCode + "\n";
     return structDef;
   }
 
