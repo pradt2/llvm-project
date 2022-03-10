@@ -50,9 +50,7 @@ class ConstantSizeArrayBitArrayCompressor : public AbstractBitArrayCompressor {
     QualType elementType;
     while (true) {
       if (arrType->getElementType()->isConstantArrayType()) {
-        llvm::outs() << "ARR element type " << arrType->getElementType().getAsString() << "\n";
         arrType = llvm::cast<ConstantArrayType>(arrType->getElementType()->getAsArrayTypeUnsafe());
-        if (arrType == NULL) llvm::errs() << "ARR TYPE NULL "  << __FILE_NAME__ << ":" << __LINE__ << "\n";
       } else {
         elementType = arrType->getElementType();
         break;
