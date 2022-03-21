@@ -168,8 +168,8 @@ class MPISupportAdder {
 
     nitems = blocklengths.size();
 
-    sourceCode += "static MPI_Datatype *__initMPIDatatype() {\n"
-                  "    MPI_Datatype *outDatatype = new MPI_Datatype;\n"
+    sourceCode += "static void __initMpiDatatype() {\n"
+                  "    Datatype = new MPI_Datatype;\n"
                   "    int blocklengths[" + std::to_string(nitems) + "] = { ";
     for (auto blocklength : blocklengths) {
       sourceCode += std::to_string(blocklength) + ", ";
@@ -199,19 +199,23 @@ class MPISupportAdder {
       sourceCode.pop_back();
       sourceCode.pop_back();
     }
-    sourceCode += " };\n";
+    sourceCode += "\n    };\n";
 
-    sourceCode += "    MPI_Type_create_struct(" + std::to_string(nitems) + ", blocklengths, offsets, types, outDatatype);\n";
-    sourceCode += "    MPI_Type_commit(outDatatype);\n";
-    sourceCode += "    return outDatatype;\n";
+    sourceCode += "    MPI_Type_create_struct(" + std::to_string(nitems) + ", blocklengths, offsets, types, Datatype);\n";
+    sourceCode += "    MPI_Type_commit(Datatype);\n";
     sourceCode += "}\n\n";
+
+    sourceCode += "static MPI_Datatype getMpiDatatype() {\n"
+                  "    if (!Datatype) __initMpiDatatype();\n"
+                  "    return *Datatype;\n"
+                  "}\n\n";
 
     return sourceCode;
   }
 
   std::string getOutsideStructCode(std::vector<std::unique_ptr<SemaFieldDecl>> &fields) {
     std::string fcqn = fields[0]->parent->fullyQualifiedName;
-    return "MPI_Datatype *" + fcqn + "::Datatype = " + fcqn + "::__initMPIDatatype();\n";
+    return "MPI_Datatype *" + fcqn + "::Datatype = nullptr;";
   }
 
 public:
