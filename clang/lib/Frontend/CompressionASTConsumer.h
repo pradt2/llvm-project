@@ -1,7 +1,7 @@
 #ifndef CLANG_COMPRESSIONASTCONSUMER_H
 #define CLANG_COMPRESSIONASTCONSUMER_H
 
-#include "./CompressionCodeGenResolver.h"
+#include "Compression/CompressionCodeGenResolver.h"
 #include "./MPI/MPISupportAdder.h"
 
 class SubExprFinder : public ASTConsumer,

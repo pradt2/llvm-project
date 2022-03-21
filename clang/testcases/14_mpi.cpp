@@ -2,19 +2,13 @@
 #include <functional>
 #include <mpi.h>
 
-struct car {
+struct Car {
   [[clang::compress_range(255)]]
   int shifts;
   [[clang::compress_range(255)]]
   int topSpeed;
 
-  int getSenderRank() const;
-  static void send(const car &buffer, int destination, int tag, MPI_Comm communicator);
-  static void receive(car &buffer, int source, int tag, MPI_Comm communicator );
-  static void send(const car &buffer, int destination, int tag, std::function<void()> waitFunctor, MPI_Comm communicator );
-  static void receive(car &buffer, int source, int tag, std::function<void()> waitFunctor, MPI_Comm communicator );
-  static void shutdownDatatype();
-  static void initDatatype();
+  static MPI_Datatype getMpiDatatype() {};
 };
 
 int main(int argc, char** argv) {
@@ -32,25 +26,22 @@ int main(int argc, char** argv) {
 
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-  car::initDatatype();
-
   if (rank == 0) {
-    car send = {};
+    Car send = {};
     send.shifts = 5;
     send.topSpeed = 240;
-    car::send(send, 1, tag, MPI_COMM_WORLD);
+    MPI_Send(&send, 1, Car::getMpiDatatype(), 1, tag, MPI_COMM_WORLD);
 
     printf("Rank %d: TX: %d %d\n", rank, send.shifts, send.topSpeed);
   }
   if (rank == 1) {
 
-    car recv = {};
-    car::receive(recv, 0, tag, MPI_COMM_WORLD);
+    Car recv = {};
+    MPI_Recv(&recv, 1, Car::getMpiDatatype(), 0, tag, MPI_COMM_WORLD, nullptr);
 
-    printf("Rank %d: TX: %d %d\n", rank, recv.shifts, recv.topSpeed);
+    printf("Rank %d: RX: %d %d\n", rank, recv.shifts, recv.topSpeed);
   }
 
-  car::shutdownDatatype();
   MPI_Finalize();
 
   return 0;
