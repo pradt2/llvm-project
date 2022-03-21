@@ -5,6 +5,8 @@
 #ifndef CLANG_MPISUPPORTADDER_H
 #define CLANG_MPISUPPORTADDER_H
 
+#include "../SemaIR/SemaIR.h"
+
 struct MPISupportCode {
   std::string insideStructCode;
   std::string outsideStructCode;
@@ -18,33 +20,23 @@ class MPISupportAdder {
     std::vector<std::string> offsets;
   };
 
-  std::tuple<int, QualType> getArrSizeAndElemType(const ConstantArrayType *type) {
-    int size = type->getSize().getSExtValue();
-    while (type->getElementType()->isConstantArrayType()) {
-      type = llvm::cast<ConstantArrayType>(type->getElementType().getTypePtr()->getAsArrayTypeUnsafe());
-      size *= type->getSize().getSExtValue();
-    }
-    return std::make_tuple(size, type->getElementType());
+  MPIElement mapMpiElement(SemaFieldDecl &decl) {
+    std::string relativeElementOffset = "offsetof(" + decl.parent->fullyQualifiedName + ", " + decl.name + ")";
+    return mapMpiElement(*decl.type, relativeElementOffset);
   }
 
-  MPIElement mapMpiElement(FieldDecl *decl) {
-    std::string relativeElementOffset = "offsetof(" + decl->getParent()->getNameAsString() + ", " + decl->getNameAsString() + ")";
-    return mapMpiElement(decl->getType(), relativeElementOffset);
-  }
-
-  MPIElement mapMpiElement(QualType type, std::string relativeElementOffset) {
+  MPIElement mapMpiElement(SemaType &type, std::string relativeElementOffset) {
     MPIElement element;
-    auto *typePtr = type.getTypePtr();
 
-    if (typePtr->isEnumeralType()) {
-      typePtr = typePtr->castAs<EnumType>()->getDecl()->getIntegerType().getTypePtr(); // will be handled below as an int / long
+    if (type.isEnumType()) {
+      return mapMpiElement(((SemaEnumType&) type).integerType, relativeElementOffset);
     }
 
-    if (typePtr->isBuiltinType()) {
+    if (type.isPrimitiveType()) {
       element.blockLengths.push_back(1);
       element.offsets.push_back(relativeElementOffset);
-      auto *builtInType = typePtr->castAs<BuiltinType>();
-      switch (builtInType->getKind()) {
+      BuiltinType::Kind kind = ((SemaPrimitiveType&)type).typeKind;
+      switch (kind) {
       case BuiltinType::Kind::Float:
         element.types.push_back("MPI_FLOAT");
         break;
@@ -57,9 +49,11 @@ class MPISupportAdder {
       case BuiltinType::Kind::Bool:
         element.types.push_back("MPI_BYTE");
         break;
+      case BuiltinType::Kind::Char_S:
       case BuiltinType::Kind::SChar:
-        element.types.push_back("MPI_SIGNED_CHAR");
+        element.types.push_back("MPI_CHAR");
         break;
+      case BuiltinType::Kind::Char_U:
       case BuiltinType::Kind::UChar:
         element.types.push_back("MPI_UNSIGNED_CHAR");
         break;
@@ -92,19 +86,24 @@ class MPISupportAdder {
         element.types.push_back("MPI_UNSIGNED_LONG_LONG");
         break;
       default:
-        llvm::errs() << "Invalid builtin type for MPI mapping\n";
-        builtInType->dump();
+        llvm::errs() << "Invalid builtin type for MPI mapping " << std::to_string(kind) << "\n";
       }
     }
 
-    else if (typePtr->isConstantArrayType()) {
-      auto *constArr = llvm::cast<ConstantArrayType>(typePtr->getAsArrayTypeUnsafe());
+    else if (type.isConstSizeArrType()) {
+      SemaConstSizeArrType* constSizeArrType = (SemaConstSizeArrType*) &type;
+      int size = 1;
 
-      std::tuple<int, QualType> sizeAndElementType = getArrSizeAndElemType(constArr);
-      auto elementType = std::get<QualType>(sizeAndElementType);
+      while (true) {
+        size *= constSizeArrType->size;
+        if (!constSizeArrType->elementType->isConstSizeArrType()) break;
+        constSizeArrType = (SemaConstSizeArrType *) constSizeArrType->elementType.get();
+      }
 
-      if (elementType.getTypePtr()->isIntegralOrEnumerationType()) {
-        int size = std::get<int>(sizeAndElementType);
+      auto &elementType = *constSizeArrType->elementType.get();
+
+      if (elementType.isEnumType() || elementType.isPrimitiveType()) {
+
         MPIElement arrTypeElement = mapMpiElement(elementType, relativeElementOffset);
         for (auto blockLength : arrTypeElement.blockLengths) {
           element.blockLengths.push_back(blockLength * size);
@@ -115,10 +114,13 @@ class MPISupportAdder {
         for (auto offset : arrTypeElement.offsets) {
           element.offsets.push_back(offset);
         }
-      } else {
-        int size = constArr->getSize().getSExtValue();
 
-        MPIElement arrTypeElement = mapMpiElement(elementType, "0");
+      } else {
+
+        size = ((SemaConstSizeArrType*) &type)->size;
+
+        MPIElement arrTypeElement = mapMpiElement(*((SemaConstSizeArrType&) type).elementType, "0");
+
         for (int i = 0; i < size; i++) {
           for (auto blockLength : arrTypeElement.blockLengths) {
             element.blockLengths.push_back(blockLength);
@@ -127,13 +129,14 @@ class MPISupportAdder {
             element.types.push_back(typ);
           }
           for (auto offset : arrTypeElement.offsets) {
-            element.offsets.push_back(relativeElementOffset + " + " + "sizeof(" + elementType.getAsString() + ") * " + std::to_string(i) + " + " + offset);
+            element.offsets.push_back(relativeElementOffset + " + " + "sizeof(" + toSource(elementType) + ") * " + std::to_string(i) + " + " + offset);
           }
         }
+
       }
-    } else if (typePtr->isRecordType()) {
-      for (auto *field : typePtr->castAs<RecordType>()->getDecl()->fields()) {
-        MPIElement fieldElement = mapMpiElement(field);
+    } else if (type.isRecordType()) {
+      for (const auto &field : ((SemaRecordType&) type).recordDecl->fields) {
+        MPIElement fieldElement = mapMpiElement(*field);
         element.blockLengths.insert(element.blockLengths.end(), fieldElement.blockLengths.begin(), fieldElement.blockLengths.end());
         element.types.insert(element.types.end(), fieldElement.types.begin(), fieldElement.types.end());
         for (std::string offset : fieldElement.offsets) {
@@ -144,7 +147,9 @@ class MPISupportAdder {
     return element;
   }
 
-  std::string getInsideStructCode(std::string structName, RecordDecl *decl) {
+  std::string getInsideStructCode(std::vector<std::unique_ptr<SemaFieldDecl>> &fields) {
+    SemaRecordDecl& recordDecl = *fields[0]->parent;
+
     std::string sourceCode = "";
 
     sourceCode += "int _senderDestinationRank;\n\n";
@@ -155,17 +160,17 @@ class MPISupportAdder {
                   "   return _senderDestinationRank;\n"
                   "}\n\n";
 
-    sourceCode += "static void send(const " + structName + " &buffer, int destination, int tag, MPI_Comm communicator) {\n"
+    sourceCode += "static void send(const " + recordDecl.name + " &buffer, int destination, int tag, MPI_Comm communicator) {\n"
                   "    MPI_Send(&buffer, 1, Datatype, destination, tag, communicator);\n"
                   "}\n\n";
 
-    sourceCode += "static void receive(" + structName + " &buffer, int source, int tag, MPI_Comm communicator ) {\n"
+    sourceCode += "static void receive(" + recordDecl.name + " &buffer, int source, int tag, MPI_Comm communicator ) {\n"
                   "    MPI_Status status;\n"
                   "    MPI_Recv( &buffer, 1, Datatype, source, tag, communicator, &status);\n"
                   "    buffer._senderDestinationRank = status.MPI_SOURCE;\n"
                   "}\n\n";
 
-    sourceCode += "static void send(const " + structName + "&buffer, int destination, int tag, std::function<void()> waitFunctor, MPI_Comm communicator ) {\n"
+    sourceCode += "static void send(const " + recordDecl.name + " &buffer, int destination, int tag, std::function<void()> waitFunctor, MPI_Comm communicator ) {\n"
                   "    MPI_Request sendRequestHandle;\n"
                   "    int flag = 0;\n"
                   "    MPI_Isend( &buffer, 1, Datatype, destination, tag, communicator, &sendRequestHandle );\n"
@@ -176,7 +181,7 @@ class MPISupportAdder {
                   "    }\n"
                   "}\n\n";
 
-    sourceCode += "static void receive(" + structName + " &buffer, int source, int tag, std::function<void()> waitFunctor, MPI_Comm communicator ) {\n"
+    sourceCode += "static void receive(" + recordDecl.name + " &buffer, int source, int tag, std::function<void()> waitFunctor, MPI_Comm communicator ) {\n"
                   "    MPI_Status  status;\n"
                   "    MPI_Request receiveRequestHandle;\n"
                   "    int flag = 0;\n"
@@ -198,8 +203,8 @@ class MPISupportAdder {
     std::vector<std::string> types;
     std::vector<std::string> offsets;
 
-    for (auto *field : decl->fields()) {
-      MPIElement element = this->mapMpiElement(field->getType(), "offsetof(" + structName + ", " + field->getNameAsString() + ")");
+    for (const auto &field : recordDecl.fields) {
+      MPIElement element = this->mapMpiElement(*field->type, "offsetof(" + recordDecl.name + ", " + field->name + ")");
       blocklengths.insert(blocklengths.end(), element.blockLengths.begin(), element.blockLengths.end());
       types.insert(types.end(), element.types.begin(), element.types.end());
       offsets.insert(offsets.end(), element.offsets.begin(), element.offsets.end());
@@ -241,19 +246,79 @@ class MPISupportAdder {
 
     sourceCode += "    MPI_Type_create_struct(" + std::to_string(nitems) + ", blocklengths, offsets, types, &Datatype);\n";
     sourceCode += "    MPI_Type_commit(&Datatype);\n";
-    sourceCode += "}\n";
+    sourceCode += "}\n\n";
+
+    sourceCode += "static void sendAndPollDanglingMessages(const " + recordDecl.name + " &message, int destination, int tag, MPI_Comm communicator ) {\n"
+                  "  send(message, destination, tag, [&]() {\n"
+                  "    auto  timeOutWarning   = tarch::mpi::Rank::getInstance().getDeadlockWarningTimeStamp();\n"
+                  "    auto timeOutShutdown  = tarch::mpi::Rank::getInstance().getDeadlockTimeOutTimeStamp();\n"
+                  "    bool triggeredTimeoutWarning = false;\n"
+                  "    if (\n"
+                  "      tarch::mpi::Rank::getInstance().isTimeOutWarningEnabled() &&\n"
+                  "      (std::chrono::system_clock::now()>timeOutWarning) &&\n"
+                  "      (!triggeredTimeoutWarning)\n"
+                  "    ) {\n"
+                  "      tarch::mpi::Rank::getInstance().writeTimeOutWarning( \"" + recordDecl.name + "\", \"sendAndPollDanglingMessages()\", destination, tag );\n"
+                  "      triggeredTimeoutWarning = true;\n"
+                  "    }\n"
+                  "    if (\n"
+                  "      tarch::mpi::Rank::getInstance().isTimeOutDeadlockEnabled() &&\n"
+                  "      (std::chrono::system_clock::now()>timeOutShutdown)\n"
+                  "    ) {\n"
+                  "      tarch::mpi::Rank::getInstance().triggerDeadlockTimeOut( \"" + recordDecl.name + "\", \"sendAndPollDanglingMessages()\", destination, tag );\n"
+                  "    }\n"
+                  "    tarch::services::ServiceRepository::getInstance().receiveDanglingMessages();\n"
+                  "  },\n"
+                  "  communicator);\n"
+                  "}\n";
+
+    sourceCode += "static void receiveAndPollDanglingMessages(" + recordDecl.name + " &message, int source, int tag, MPI_Comm communicator ) {\n"
+                  "  receive(message, source, tag, [&]() {\n"
+                  "    auto timeOutWarning   = tarch::mpi::Rank::getInstance().getDeadlockWarningTimeStamp();\n"
+                  "    auto timeOutShutdown  = tarch::mpi::Rank::getInstance().getDeadlockTimeOutTimeStamp();\n"
+                  "    bool triggeredTimeoutWarning = false;\n"
+                  "    if (\n"
+                  "      tarch::mpi::Rank::getInstance().isTimeOutWarningEnabled() &&\n"
+                  "      (std::chrono::system_clock::now()>timeOutWarning) &&\n"
+                  "      (!triggeredTimeoutWarning)\n"
+                  "    ) {\n"
+                  "      tarch::mpi::Rank::getInstance().writeTimeOutWarning( \"" + recordDecl.name + "\", \"receiveAndPollDanglingMessages()\", source, tag );\n"
+                  "      triggeredTimeoutWarning = true;\n"
+                  "    }\n"
+                  "    if (\n"
+                  "      tarch::mpi::Rank::getInstance().isTimeOutDeadlockEnabled() &&\n"
+                  "      (std::chrono::system_clock::now()>timeOutShutdown)\n"
+                  "    ) {\n"
+                  "      tarch::mpi::Rank::getInstance().triggerDeadlockTimeOut( \"" + recordDecl.name + "\", \"receiveAndPollDanglingMessages()\", source, tag );\n"
+                  "    }\n"
+                  "    tarch::services::ServiceRepository::getInstance().receiveDanglingMessages();\n"
+                  "    \n"
+                  "  },\n"
+                  "  communicator);\n"
+                  "}";
+
     return sourceCode;
   }
 
-  std::string getOutsideStructCode(std::string structFqcn) {
-    return "MPI_Datatype " + structFqcn + "::Datatype;\n";
+  std::string getOutsideStructCode(std::vector<std::unique_ptr<SemaFieldDecl>> &fields) {
+    return "MPI_Datatype " + fields[0]->parent->fullyQualifiedName + "::Datatype;\n";
   }
 
 public:
   MPISupportCode getMPISupport(std::string structName, RecordDecl *decl) {
+      auto semaRecordDecl = fromRecordDecl(decl);
+      semaRecordDecl->name = structName;
+      return getMPISupport(*semaRecordDecl);
+  }
+
+  MPISupportCode getMPISupport(SemaRecordDecl &decl) {
+      return getMPISupport(decl.fields);
+  }
+
+  MPISupportCode getMPISupport(std::vector<std::unique_ptr<SemaFieldDecl>> &fields) {
     return {
-      this->getInsideStructCode(structName, decl),
-      this->getOutsideStructCode(structName)
+      this->getInsideStructCode(fields),
+      this->getOutsideStructCode(fields)
     };
   }
 

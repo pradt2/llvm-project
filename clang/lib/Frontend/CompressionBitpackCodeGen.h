@@ -109,12 +109,20 @@ class CompressionBitpackCodeGen : public CompressionICodeGen {
     return decl->getNameAsString();
   }
 
+  std::string getOriginalFullyQualifiedStructName() {
+    return decl->getQualifiedNameAsString();
+  }
+
 public:
   explicit CompressionBitpackCodeGen(RecordDecl *d, CompilerInstance &CI)
       : decl(d), CI(CI) {}
 
   std::string getCompressedStructName() override {
     return getOriginalStructName() + "__BITPACKED";
+  }
+
+  std::string getFullyQualifiedCompressedStructName() override {
+    return getOriginalFullyQualifiedStructName() + "__BITPACKED";
   }
 
   std::string getCompressedStructDef() override {
