@@ -21,6 +21,7 @@
 #include "./Compression/DelegatingNonIndexedFieldCompressor.h"
 #include "./Compression/DelegatingFieldCompressor.h"
 
+#include "./SemaIR/SemaIR.h"
 #include "./MPI/MPISupportAdder.h"
 
 using namespace clang;
@@ -50,9 +51,11 @@ static bool isCompressionCandidate(RecordDecl *recordDecl) {
 class CompressionBitshiftCodeGen : public CompressionICodeGen {
   const std::string tableName = "__table";
   unsigned int tableCellSize = 8;
-  const std::string tableCellType = "unsigned char";
+  SemaPrimitiveType tableCellSemaType = SemaPrimitiveType::getForKind(BuiltinType::Kind::Char_U);
   RecordDecl *decl;
   CompilerInstance &CI;
+
+
 
   unsigned int getTableCellsNeeded() {
     double bitCounter = 0;
@@ -76,6 +79,10 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
 
   std::string getOriginalStructName() {
     return decl->getNameAsString();
+  }
+
+  std::string getOriginalFullyQualifiedStructName() {
+      return decl->getQualifiedNameAsString();
   }
 
   std::string getEmptyConstructor() {
@@ -153,18 +160,29 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
     return methods;
   }
 
-  std::string getFieldsDecl() {
-    std::string tableDefinition = tableCellType + " " + tableName + "[" + std::to_string(getTableCellsNeeded()) + "]; ";
-    std::string nonCompressedFields;
+  std::vector<std::unique_ptr<SemaFieldDecl>> getFieldsDecl(SemaRecordDecl &record) {
+    std::unique_ptr<SemaPrimitiveType> elementType = std::make_unique<SemaPrimitiveType>();
+    elementType->typeKind = tableCellSemaType.typeKind;
+
+    std::unique_ptr<SemaConstSizeArrType> arrType = std::make_unique<SemaConstSizeArrType>();
+    arrType->size = getTableCellsNeeded();
+    arrType->elementType = std::move(elementType);
+
+    std::unique_ptr<SemaFieldDecl> tableFieldDecl = std::make_unique<SemaFieldDecl>();
+    tableFieldDecl->name = tableName;
+    tableFieldDecl->type = std::move(arrType);
+    tableFieldDecl->parent = &record;
+
+    std::vector<std::unique_ptr<SemaFieldDecl>> fields;
+    fields.push_back(std::move(tableFieldDecl));
+
     for (auto *field : decl->fields()) {
       if (isCompressionCandidate(field)) continue;
-       nonCompressedFields += CI.getSourceManager().getRewriter()->getRewrittenText(field->getSourceRange()) + "; ";
+       std::unique_ptr<SemaFieldDecl> fieldDecl = fromFieldDecl(record, field);
+       fields.push_back(std::move(fieldDecl));
     }
-    if (nonCompressedFields.length() > 2) {
-      nonCompressedFields.pop_back();
-      nonCompressedFields.pop_back();
-    }
-    return tableDefinition + nonCompressedFields;
+
+    return fields;
   }
 
 public:
@@ -175,16 +193,27 @@ public:
     return getOriginalStructName() + "__COMPRESSED";
   }
 
+  std::string getFullyQualifiedCompressedStructName() override {
+    return getOriginalFullyQualifiedStructName() + "__COMPRESSED";
+  }
+
   std::string getCompressedStructDef() override {
     std::string structName = getCompressedStructName();
-    std::string fieldsDecl = getFieldsDecl();
+    std::unique_ptr<SemaRecordDecl> recordDecl = std::make_unique<SemaRecordDecl>();
+    recordDecl->name = structName;
+    recordDecl->fullyQualifiedName = getFullyQualifiedCompressedStructName();
+    recordDecl->fields = getFieldsDecl(*recordDecl);
+    std::string fieldsDecl;
+    for (const auto &fieldDecl : recordDecl->fields) {
+      fieldsDecl += toSource(*fieldDecl) += ";\n";
+    }
     std::string emptyConstructor = getEmptyConstructor();
     std::string fromOriginalConstructor = getFromOriginalTypeConstructor();
     std::string typeCastToOriginal = getTypeCastToOriginal();
     std::string conversionStructs = getConversionStructs();
     std::string constSizeArrCompressionMethods = getConstSizeArrCompressionMethods();
 
-    MPISupportCode code = MPISupportAdder().getMPISupport(structName, decl);
+    MPISupportCode code = MPISupportAdder().getMPISupport(*recordDecl);
 
     std::string structDef = std::string("\n#pragma pack(push, 1)\n")
                             + "struct " + structName + " {\n"
