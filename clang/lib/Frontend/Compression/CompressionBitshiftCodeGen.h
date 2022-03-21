@@ -17,7 +17,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include <cmath>
 
-#include "./CompressionICodeGen.h"
+#include "Compression/CompressionICodeGen.h"
 #include "./Compression/DelegatingNonIndexedFieldCompressor.h"
 #include "./Compression/DelegatingFieldCompressor.h"
 
