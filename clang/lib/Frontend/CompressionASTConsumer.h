@@ -122,7 +122,7 @@ private:
       auto *record = type->getAsRecordDecl();
       if (!isCompressionCandidate(record)) return true;
       auto compressionCodeGen = CompressionCodeGenResolver(record, CI);
-      R.ReplaceText(SourceRange(decl->getTypeSpecStartLoc(), decl->getTypeSpecEndLoc()), compressionCodeGen.getCompressedStructName() + (ptrs.length() > 0 ? " " + ptrs : ""));
+      R.ReplaceText(SourceRange(decl->getTypeSpecStartLoc(), decl->getTypeSpecEndLoc()), compressionCodeGen.getFullyQualifiedCompressedStructName() + (ptrs.length() > 0 ? " " + ptrs : ""));
       if (!decl->hasInClassInitializer()) return true;
       Expr *initExpr = decl->getInClassInitializer();
       if (decl->getInClassInitStyle() == InClassInitStyle::ICIS_ListInit) { // TODO move to its own ASTConsumer?
@@ -147,14 +147,33 @@ private:
       return true;
     }
 
+    bool VisitCallExpr(CallExpr *expr) {
+      FunctionDecl *functionDecl = expr->getDirectCallee();
+      if (functionDecl == nullptr) return true;
+      if (!functionDecl->isStatic()) return true;
+      DeclContext *parentDecl = functionDecl->getParent();
+      if (!parentDecl->isRecord()) return true;
+      RecordDecl *recordDecl = llvm::cast<RecordDecl>(parentDecl);
+      if (!isCompressionCandidate(recordDecl)) return true;
+      SourceRange rangeToReplace = expr->getCallee()->getSourceRange();
+      CompressionCodeGenResolver compressionCodeGenResolver = CompressionCodeGenResolver(recordDecl, CI);
+      std::string newSource = compressionCodeGenResolver.getFullyQualifiedCompressedStructName() + "::" + functionDecl->getNameAsString();
+      R.ReplaceText(rangeToReplace, newSource);
+      return true;
+    }
+
     bool VisitVarDecl(VarDecl *decl) {
+      if (decl->getParentFunctionOrMethod() != nullptr && decl->getParentFunctionOrMethod()->getParent()->isRecord()) {
+        RecordDecl *recordDecl = llvm::cast<RecordDecl>(decl->getParentFunctionOrMethod()->getParent());
+        if (isCompressionCandidate(recordDecl)) return true; // do not change args of methods declared on the compressed type itself
+      }
       std::string ptrs = "";
       auto type = getTypeFromIndirectType(decl->getType(), ptrs);
       if (!type->isRecordType()) return true;
       auto *record = type->getAsRecordDecl();
       if (!isCompressionCandidate(record)) return true;
       auto compressionCodeGen = CompressionCodeGenResolver(record, CI);
-      R.ReplaceText(SourceRange(decl->getTypeSpecStartLoc(), decl->getTypeSpecEndLoc()), compressionCodeGen.getCompressedStructName() + (ptrs.length() > 0 ? " " + ptrs : ""));
+      R.ReplaceText(SourceRange(decl->getTypeSpecStartLoc(), decl->getTypeSpecEndLoc()), compressionCodeGen.getFullyQualifiedCompressedStructName() + (ptrs.length() > 0 ? " " + ptrs : ""));
       if (!decl->hasInit()) return true;
       Expr *initExpr = decl->getInit();
       if (decl->getInitStyle() == VarDecl::InitializationStyle::ListInit) { // TODO move to its own ASTConsumer?
@@ -200,7 +219,7 @@ private:
       auto *constructDecl = constructType->getAsRecordDecl();
       if (!isCompressionCandidate(constructDecl)) return true;
       auto compressionCodeGen = CompressionCodeGenResolver(constructDecl, CI);
-      R.InsertTextBefore(decl->getBeginLoc(), compressionCodeGen.getCompressedStructName() + "(");
+      R.InsertTextBefore(decl->getBeginLoc(), compressionCodeGen.getFullyQualifiedCompressedStructName() + "(");
       R.InsertTextAfterToken(decl->getEndLoc(), ")");
       return true;
     }
@@ -226,7 +245,7 @@ private:
       auto *record = returnType->getAsRecordDecl();
       if (!isCompressionCandidate(record)) return true;
       auto compressionCodeGen = CompressionCodeGenResolver(record, CI);
-      R.ReplaceText(decl->getReturnTypeSourceRange(), compressionCodeGen.getCompressedStructName() + (ptrs.length() > 0 ? " " + ptrs : ""));
+      R.ReplaceText(decl->getReturnTypeSourceRange(), compressionCodeGen.getFullyQualifiedCompressedStructName() + (ptrs.length() > 0 ? " " + ptrs : ""));
       return true;
     }
   };

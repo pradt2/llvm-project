@@ -1,26 +1,57 @@
-//#include <stdio.h>
-
-enum type: unsigned long {
-  audi, mercedes
-};
-
-struct Interior {
-  bool isCool;
-  int seats[2][2];
-  type type[2];
-};
+#include <stdio.h>
+#include <functional>
+#include <mpi.h>
 
 struct car {
-          [[clang::compress_range(255)]]
+  [[clang::compress_range(255)]]
   int shifts;
-  Interior interior[2];
-          [[clang::compress_range(255)]]
+  [[clang::compress_range(255)]]
   int topSpeed;
+
+  int getSenderRank() const;
+  static void send(const car &buffer, int destination, int tag, MPI_Comm communicator);
+  static void receive(car &buffer, int source, int tag, MPI_Comm communicator );
+  static void send(const car &buffer, int destination, int tag, std::function<void()> waitFunctor, MPI_Comm communicator );
+  static void receive(car &buffer, int source, int tag, std::function<void()> waitFunctor, MPI_Comm communicator );
+  static void shutdownDatatype();
+  static void initDatatype();
 };
 
-int main() {
-  car send = {};
-  send.shifts = 4;
-  send.topSpeed = 100;
-//  printf("%d %d\n", send.shifts, send.topSpeed);
+int main(int argc, char** argv) {
+
+  const int tag = 13;
+  int size, rank;
+
+  MPI_Init(&argc, &argv);
+  MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+  if (size < 2) {
+    fprintf(stderr,"Requires at least two processes.\n");
+    exit(-1);
+  }
+
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+  car::initDatatype();
+
+  if (rank == 0) {
+    car send = {};
+    send.shifts = 5;
+    send.topSpeed = 240;
+    car::send(send, 1, tag, MPI_COMM_WORLD);
+
+    printf("Rank %d: TX: %d %d\n", rank, send.shifts, send.topSpeed);
+  }
+  if (rank == 1) {
+
+    car recv = {};
+    car::receive(recv, 0, tag, MPI_COMM_WORLD);
+
+    printf("Rank %d: TX: %d %d\n", rank, recv.shifts, recv.topSpeed);
+  }
+
+  car::shutdownDatatype();
+  MPI_Finalize();
+
+  return 0;
 }

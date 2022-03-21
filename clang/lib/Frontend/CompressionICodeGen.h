@@ -14,6 +14,8 @@ public:
 
   virtual std::string getCompressedStructName() = 0;
 
+  virtual std::string getFullyQualifiedCompressedStructName() = 0;
+
   virtual std::string getCompressedStructDef() = 0;
 
   virtual std::string getGetterExpr(FieldDecl *fieldDecl, std::string thisAccessor) = 0;

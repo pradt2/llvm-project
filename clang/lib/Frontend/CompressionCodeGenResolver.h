@@ -35,6 +35,10 @@ public:
       return this->codeGen->getCompressedStructName();
   }
 
+  std::string getFullyQualifiedCompressedStructName() override {
+    return this->codeGen->getFullyQualifiedCompressedStructName();
+  }
+
   std::string getCompressedStructDef() override {
       return this->codeGen->getCompressedStructDef();
   }
