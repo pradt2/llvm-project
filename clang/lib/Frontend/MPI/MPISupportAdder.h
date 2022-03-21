@@ -152,51 +152,7 @@ class MPISupportAdder {
 
     std::string sourceCode = "";
 
-    sourceCode += "int _senderDestinationRank;\n\n";
-
-    sourceCode += "static MPI_Datatype Datatype;\n\n";
-
-    sourceCode += "int getSenderRank() const {\n"
-                  "   return _senderDestinationRank;\n"
-                  "}\n\n";
-
-    sourceCode += "static void send(const " + recordDecl.name + " &buffer, int destination, int tag, MPI_Comm communicator) {\n"
-                  "    MPI_Send(&buffer, 1, Datatype, destination, tag, communicator);\n"
-                  "}\n\n";
-
-    sourceCode += "static void receive(" + recordDecl.name + " &buffer, int source, int tag, MPI_Comm communicator ) {\n"
-                  "    MPI_Status status;\n"
-                  "    MPI_Recv( &buffer, 1, Datatype, source, tag, communicator, &status);\n"
-                  "    buffer._senderDestinationRank = status.MPI_SOURCE;\n"
-                  "}\n\n";
-
-    sourceCode += "static void send(const " + recordDecl.name + " &buffer, int destination, int tag, std::function<void()> waitFunctor, MPI_Comm communicator ) {\n"
-                  "    MPI_Request sendRequestHandle;\n"
-                  "    int flag = 0;\n"
-                  "    MPI_Isend( &buffer, 1, Datatype, destination, tag, communicator, &sendRequestHandle );\n"
-                  "    MPI_Test( &sendRequestHandle, &flag, MPI_STATUS_IGNORE );\n"
-                  "    while (!flag) {\n"
-                  "        waitFunctor();\n"
-                  "        MPI_Test( &sendRequestHandle, &flag, MPI_STATUS_IGNORE );\n"
-                  "    }\n"
-                  "}\n\n";
-
-    sourceCode += "static void receive(" + recordDecl.name + " &buffer, int source, int tag, std::function<void()> waitFunctor, MPI_Comm communicator ) {\n"
-                  "    MPI_Status  status;\n"
-                  "    MPI_Request receiveRequestHandle;\n"
-                  "    int flag = 0;\n"
-                  "    MPI_Irecv( &buffer, 1, Datatype, source, tag, communicator, &receiveRequestHandle );\n"
-                  "    MPI_Test( &receiveRequestHandle, &flag, &status );\n"
-                  "    while (!flag) {\n"
-                  "        waitFunctor();\n"
-                  "        MPI_Test( &receiveRequestHandle, &flag, &status );\n"
-                  "    }\n"
-                  "    buffer._senderDestinationRank = status.MPI_SOURCE;\n"
-                  "}\n\n";
-
-    sourceCode += "static void shutdownDatatype() {\n"
-                  "    MPI_Type_free( &Datatype );\n"
-                  "}\n\n";
+    sourceCode += "static MPI_Datatype *Datatype;\n\n";
 
     int nitems;
     std::vector<int> blocklengths;
@@ -212,7 +168,8 @@ class MPISupportAdder {
 
     nitems = blocklengths.size();
 
-    sourceCode += "static void initDatatype() {\n"
+    sourceCode += "static MPI_Datatype *__initMPIDatatype() {\n"
+                  "    MPI_Datatype *outDatatype = new MPI_Datatype;\n"
                   "    int blocklengths[" + std::to_string(nitems) + "] = { ";
     for (auto blocklength : blocklengths) {
       sourceCode += std::to_string(blocklength) + ", ";
@@ -244,64 +201,17 @@ class MPISupportAdder {
     }
     sourceCode += " };\n";
 
-    sourceCode += "    MPI_Type_create_struct(" + std::to_string(nitems) + ", blocklengths, offsets, types, &Datatype);\n";
-    sourceCode += "    MPI_Type_commit(&Datatype);\n";
+    sourceCode += "    MPI_Type_create_struct(" + std::to_string(nitems) + ", blocklengths, offsets, types, outDatatype);\n";
+    sourceCode += "    MPI_Type_commit(outDatatype);\n";
+    sourceCode += "    return outDatatype;\n";
     sourceCode += "}\n\n";
-
-    sourceCode += "static void sendAndPollDanglingMessages(const " + recordDecl.name + " &message, int destination, int tag, MPI_Comm communicator ) {\n"
-                  "  send(message, destination, tag, [&]() {\n"
-                  "    auto  timeOutWarning   = tarch::mpi::Rank::getInstance().getDeadlockWarningTimeStamp();\n"
-                  "    auto timeOutShutdown  = tarch::mpi::Rank::getInstance().getDeadlockTimeOutTimeStamp();\n"
-                  "    bool triggeredTimeoutWarning = false;\n"
-                  "    if (\n"
-                  "      tarch::mpi::Rank::getInstance().isTimeOutWarningEnabled() &&\n"
-                  "      (std::chrono::system_clock::now()>timeOutWarning) &&\n"
-                  "      (!triggeredTimeoutWarning)\n"
-                  "    ) {\n"
-                  "      tarch::mpi::Rank::getInstance().writeTimeOutWarning( \"" + recordDecl.name + "\", \"sendAndPollDanglingMessages()\", destination, tag );\n"
-                  "      triggeredTimeoutWarning = true;\n"
-                  "    }\n"
-                  "    if (\n"
-                  "      tarch::mpi::Rank::getInstance().isTimeOutDeadlockEnabled() &&\n"
-                  "      (std::chrono::system_clock::now()>timeOutShutdown)\n"
-                  "    ) {\n"
-                  "      tarch::mpi::Rank::getInstance().triggerDeadlockTimeOut( \"" + recordDecl.name + "\", \"sendAndPollDanglingMessages()\", destination, tag );\n"
-                  "    }\n"
-                  "    tarch::services::ServiceRepository::getInstance().receiveDanglingMessages();\n"
-                  "  },\n"
-                  "  communicator);\n"
-                  "}\n";
-
-    sourceCode += "static void receiveAndPollDanglingMessages(" + recordDecl.name + " &message, int source, int tag, MPI_Comm communicator ) {\n"
-                  "  receive(message, source, tag, [&]() {\n"
-                  "    auto timeOutWarning   = tarch::mpi::Rank::getInstance().getDeadlockWarningTimeStamp();\n"
-                  "    auto timeOutShutdown  = tarch::mpi::Rank::getInstance().getDeadlockTimeOutTimeStamp();\n"
-                  "    bool triggeredTimeoutWarning = false;\n"
-                  "    if (\n"
-                  "      tarch::mpi::Rank::getInstance().isTimeOutWarningEnabled() &&\n"
-                  "      (std::chrono::system_clock::now()>timeOutWarning) &&\n"
-                  "      (!triggeredTimeoutWarning)\n"
-                  "    ) {\n"
-                  "      tarch::mpi::Rank::getInstance().writeTimeOutWarning( \"" + recordDecl.name + "\", \"receiveAndPollDanglingMessages()\", source, tag );\n"
-                  "      triggeredTimeoutWarning = true;\n"
-                  "    }\n"
-                  "    if (\n"
-                  "      tarch::mpi::Rank::getInstance().isTimeOutDeadlockEnabled() &&\n"
-                  "      (std::chrono::system_clock::now()>timeOutShutdown)\n"
-                  "    ) {\n"
-                  "      tarch::mpi::Rank::getInstance().triggerDeadlockTimeOut( \"" + recordDecl.name + "\", \"receiveAndPollDanglingMessages()\", source, tag );\n"
-                  "    }\n"
-                  "    tarch::services::ServiceRepository::getInstance().receiveDanglingMessages();\n"
-                  "    \n"
-                  "  },\n"
-                  "  communicator);\n"
-                  "}";
 
     return sourceCode;
   }
 
   std::string getOutsideStructCode(std::vector<std::unique_ptr<SemaFieldDecl>> &fields) {
-    return "MPI_Datatype " + fields[0]->parent->fullyQualifiedName + "::Datatype;\n";
+    std::string fcqn = fields[0]->parent->fullyQualifiedName;
+    return "MPI_Datatype *" + fcqn + "::Datatype = " + fcqn + "::__initMPIDatatype();\n";
   }
 
 public:
