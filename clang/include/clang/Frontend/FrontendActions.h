@@ -58,7 +58,13 @@ public:
 //===----------------------------------------------------------------------===//
 // AST Consumer Actions
 //===----------------------------------------------------------------------===//
-class RewriteAction : public ASTFrontendAction {
+class CompressAction : public ASTFrontendAction {
+protected:
+  std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &CI,
+                                                 StringRef InFile) override;
+};
+
+class MapMpiDatatypesAction : public ASTFrontendAction {
 protected:
   std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &CI,
                                                  StringRef InFile) override;

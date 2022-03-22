@@ -1,8 +1,8 @@
 #ifndef CLANG_COMPRESSIONASTCONSUMER_H
 #define CLANG_COMPRESSIONASTCONSUMER_H
 
-#include "./Compression/CompressionCodeGenResolver.h"
-#include "./MPI/MpiMappingGenerator.h"
+#include "CompressionCodeGenResolver.h"
+#include "../MPI/MpiMappingGenerator.h"
 
 class SubExprFinder : public ASTConsumer,
                       public RecursiveASTVisitor<SubExprFinder> {
@@ -390,37 +390,6 @@ private:
     }
   };
 
-  class MpiSupportAdder : public ASTConsumer , public RecursiveASTVisitor<MpiSupportAdder> {
-  private:
-    Rewriter &R;
-    CompilerInstance &CI;
-
-  public:
-    explicit MpiSupportAdder(Rewriter &R, CompilerInstance &CI) : R(R), CI(CI) {}
-
-    void HandleTranslationUnit(ASTContext &Context) override {
-      TranslationUnitDecl *D = Context.getTranslationUnitDecl();
-      TraverseDecl(D);
-    }
-
-    bool VisitCXXMethodDecl(CXXMethodDecl *D) {
-      MpiMappingGenerator adder;
-      if (!adder.isMpiMappingCandidate(D)) return true;
-
-      auto code = adder.getMpiMappingMethodBody(D->getParent());
-
-      if (D->hasBody()) {
-        auto bodyRange = D->getBody()->getSourceRange();
-        R.ReplaceText(bodyRange, " {\n" + code + "\n}");
-      } else {
-        SourceLocation methodSigEndLoc = D->getEndLoc();
-        R.InsertTextAfterToken(methodSigEndLoc, " {\n" + code + "\n}");
-      }
-
-      return true;
-    }
-  };
-
   class ConstSizeArrReadAccessRewriter : public ASTConsumer, public RecursiveASTVisitor<ConstSizeArrReadAccessRewriter> {
   private:
     Rewriter &R;
@@ -595,7 +564,6 @@ public:
     WriteAccessRewriter(R, CI).HandleTranslationUnit(Context);
     ConstSizeArrWriteAccessRewriter(R, CI).HandleTranslationUnit(Context);
     PragmaPackAdder(R, CI).HandleTranslationUnit(Context);
-    MpiSupportAdder(R, CI).HandleTranslationUnit(Context);
   }
 
 };
