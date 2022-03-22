@@ -5,6 +5,8 @@
 #ifndef CLANG_SEMAIR_H
 #define CLANG_SEMAIR_H
 
+using namespace clang;
+
 struct SemaFieldDecl;
 struct SemaRecordDecl;
 std::unique_ptr<SemaRecordDecl> fromRecordDecl(RecordDecl *decl);
