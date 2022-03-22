@@ -185,6 +185,23 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
     return fields;
   }
 
+  CXXMethodDecl *getMpiMappingMethodDecl() {
+    if (!llvm::isa<CXXRecordDecl>(decl)) return nullptr;
+    auto *cxxDecl = llvm::cast<CXXRecordDecl>(decl);
+    for (auto *method : cxxDecl->methods()) {
+      if (!method->isStatic()) continue;
+      for (auto *attr : method->attrs()) {
+        if (llvm::isa<MapMpiDatatypeAttr>(attr)) return method;
+      }
+    }
+    return nullptr;
+  }
+
+  std::string getNewMpiMappingMethodDecl(CXXMethodDecl *methodDecl) {
+    std::string name = methodDecl->getNameAsString();
+    return "[[clang::map_mpi_datatype]]\nstatic MPI_Datatype " + name + " ();";
+  }
+
 public:
 
   explicit CompressionBitshiftCodeGen(RecordDecl *d, CompilerInstance &CI) : decl(d), CI(CI) {}
@@ -219,8 +236,8 @@ public:
     std::string constSizeArrCompressionMethods = getConstSizeArrCompressionMethods();
 
     std::string mpiMapping = "";
-    MpiMappingGenerator mappingGenerator;
-    if (mappingGenerator.isMpiMappingCandidate(decl)) mpiMapping =  mappingGenerator.getMpiMappingMethodDef(decl, *recordDecl);
+    CXXMethodDecl *mpiMappingMethod = getMpiMappingMethodDecl();
+    if (mpiMappingMethod) mpiMapping = getNewMpiMappingMethodDecl(mpiMappingMethod);
 
     std::string structDef = std::string("\n#pragma pack(push, 1)\n")
                             + "struct " + recordDecl->name + " {\n"

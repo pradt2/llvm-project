@@ -24,7 +24,8 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Timer.h"
 #include "llvm/Support/raw_ostream.h"
-#include "./CompressionASTConsumer.h"
+#include "Compression/CompressionASTConsumer.h"
+#include "MPI/MpiDatatypesMapperASTConsumer.h"
 
 using namespace clang;
 
@@ -162,8 +163,13 @@ namespace {
 } // end anonymous namespace
 
 std::unique_ptr<ASTConsumer>
-clang::CreateRewriterASTConsumer(clang::CompilerInstance &CI) {
+clang::CreateCompressionASTConsumer(clang::CompilerInstance &CI) {
     return std::make_unique<CompressionASTConsumer>(CI);
+}
+
+std::unique_ptr<ASTConsumer>
+clang::CreateMpiDatatypesMapperASTConsumer(CompilerInstance &CI) {
+    return std::make_unique<MpiDatatypesMapperASTConsumer>(CI);
 }
 
 std::unique_ptr<ASTConsumer>
