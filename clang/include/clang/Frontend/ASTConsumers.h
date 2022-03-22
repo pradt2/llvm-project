@@ -28,7 +28,9 @@ class LangOptions;
 class Preprocessor;
 class TargetOptions;
 
-std::unique_ptr<ASTConsumer> CreateRewriterASTConsumer(CompilerInstance &CI);
+std::unique_ptr<ASTConsumer> CreateCompressionASTConsumer(CompilerInstance &CI);
+
+std::unique_ptr<ASTConsumer> CreateMpiDatatypesMapperASTConsumer(CompilerInstance &CI);
 
 // AST pretty-printer: prints out the AST in a format that is close to the
 // original C code.  The output is intended to be in a format such that
