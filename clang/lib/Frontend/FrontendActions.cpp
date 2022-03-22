@@ -92,8 +92,13 @@ ReadPCHAndPreprocessAction::CreateASTConsumer(CompilerInstance &CI,
 // AST Consumer Actions
 //===----------------------------------------------------------------------===//
 std::unique_ptr<ASTConsumer>
-RewriteAction::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
-  return CreateRewriterASTConsumer(CI);
+CompressAction::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
+  return CreateCompressionASTConsumer(CI);
+}
+
+std::unique_ptr<ASTConsumer>
+MapMpiDatatypesAction::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
+  return CreateMpiDatatypesMapperASTConsumer(CI);
 }
 
 std::unique_ptr<ASTConsumer>
