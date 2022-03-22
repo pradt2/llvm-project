@@ -10168,6 +10168,8 @@ public:
 
   void AddCompressionMethodAttr(Decl *D, const AttributeCommonInfo &CI, CompressionMethodAttr::CompressionMethodType type);
 
+  void AddMapMpiDatatypeAttr(Decl *D, const AttributeCommonInfo &CI);
+
   /// AddLaunchBoundsAttr - Adds a launch_bounds attribute to a particular
   /// declaration.
   void AddLaunchBoundsAttr(Decl *D, const AttributeCommonInfo &CI,

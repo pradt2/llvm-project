@@ -5,7 +5,7 @@
 #ifndef CLANG_COMPRESSIONICODEGEN_H
 #define CLANG_COMPRESSIONICODEGEN_H
 
-using namespace clang;
+#include "../SemaIR/SemaIR.h"
 
 class CompressionICodeGen {
 
@@ -15,6 +15,8 @@ public:
   virtual std::string getCompressedStructName() = 0;
 
   virtual std::string getFullyQualifiedCompressedStructName() = 0;
+
+  virtual std::unique_ptr<SemaRecordDecl> getSemaRecordDecl() = 0;
 
   virtual std::string getCompressedStructDef() = 0;
 
