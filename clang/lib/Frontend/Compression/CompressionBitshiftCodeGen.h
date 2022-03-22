@@ -17,12 +17,12 @@
 #include "llvm/Support/raw_ostream.h"
 #include <cmath>
 
-#include "Compression/CompressionICodeGen.h"
+#include "./Compression/CompressionICodeGen.h"
 #include "./Compression/DelegatingNonIndexedFieldCompressor.h"
 #include "./Compression/DelegatingFieldCompressor.h"
 
 #include "./SemaIR/SemaIR.h"
-#include "./MPI/MPISupportAdder.h"
+#include "./MPI/MpiMappingGenerator.h"
 
 using namespace clang;
 
@@ -197,12 +197,17 @@ public:
     return getOriginalFullyQualifiedStructName() + "__COMPRESSED";
   }
 
-  std::string getCompressedStructDef() override {
+  std::unique_ptr<SemaRecordDecl> getSemaRecordDecl() override {
     std::string structName = getCompressedStructName();
     std::unique_ptr<SemaRecordDecl> recordDecl = std::make_unique<SemaRecordDecl>();
     recordDecl->name = structName;
     recordDecl->fullyQualifiedName = getFullyQualifiedCompressedStructName();
     recordDecl->fields = getFieldsDecl(*recordDecl);
+    return recordDecl;
+  }
+
+  std::string getCompressedStructDef() override {
+    std::unique_ptr<SemaRecordDecl> recordDecl = getSemaRecordDecl();
     std::string fieldsDecl;
     for (const auto &fieldDecl : recordDecl->fields) {
       fieldsDecl += toSource(*fieldDecl) += ";\n";
@@ -213,20 +218,22 @@ public:
     std::string conversionStructs = getConversionStructs();
     std::string constSizeArrCompressionMethods = getConstSizeArrCompressionMethods();
 
-    MPISupportCode code = MPISupportAdder().getMPISupport(*recordDecl);
+    std::string mpiMapping = "";
+    MpiMappingGenerator mappingGenerator;
+    if (mappingGenerator.isMpiMappingCandidate(decl)) mpiMapping =  mappingGenerator.getMpiMappingMethodDef(decl, *recordDecl);
 
     std::string structDef = std::string("\n#pragma pack(push, 1)\n")
-                            + "struct " + structName + " {\n"
+                            + "struct " + recordDecl->name + " {\n"
                             + fieldsDecl + ";\n"
                             + emptyConstructor + ";\n"
                             + fromOriginalConstructor + ";\n"
                             + typeCastToOriginal + ";\n"
                             + conversionStructs + ";\n"
                             + constSizeArrCompressionMethods + ";\n"
-                            + code.insideStructCode + "\n"
+                            + mpiMapping + "\n"
                             + "};\n"
                             + "#pragma pack(pop)\n"
-                            + code.outsideStructCode + "\n";
+                            ;
     return structDef;
   }
 

@@ -39,6 +39,10 @@ public:
     return this->codeGen->getFullyQualifiedCompressedStructName();
   }
 
+  std::unique_ptr<SemaRecordDecl> getSemaRecordDecl() override {
+    return this->codeGen->getSemaRecordDecl();
+  }
+
   std::string getCompressedStructDef() override {
       return this->codeGen->getCompressedStructDef();
   }
