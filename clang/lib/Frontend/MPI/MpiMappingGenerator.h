@@ -2,31 +2,26 @@
 // Created by p on 09/03/2022.
 //
 
-#ifndef CLANG_MPISUPPORTADDER_H
-#define CLANG_MPISUPPORTADDER_H
+#ifndef CLANG_MPIMAPPINGGENERATOR_H
+#define CLANG_MPIMAPPINGGENERATOR_H
 
 #include "../SemaIR/SemaIR.h"
 
-struct MPISupportCode {
-  std::string insideStructCode;
-  std::string outsideStructCode;
-};
+class MpiMappingGenerator {
 
-class MPISupportAdder {
-
-  struct MPIElement {
+  struct MpiElement {
     std::vector<int> blockLengths;
     std::vector<std::string> types;
     std::vector<std::string> offsets;
   };
 
-  MPIElement mapMpiElement(SemaFieldDecl &decl) {
+  MpiElement mapMpiElement(SemaFieldDecl &decl) {
     std::string relativeElementOffset = "offsetof(" + decl.parent->fullyQualifiedName + ", " + decl.name + ")";
     return mapMpiElement(*decl.type, relativeElementOffset);
   }
 
-  MPIElement mapMpiElement(SemaType &type, std::string relativeElementOffset) {
-    MPIElement element;
+  MpiElement mapMpiElement(SemaType &type, std::string relativeElementOffset) {
+    MpiElement element;
 
     if (type.isEnumType()) {
       return mapMpiElement(((SemaEnumType&) type).integerType, relativeElementOffset);
@@ -104,7 +99,7 @@ class MPISupportAdder {
 
       if (elementType.isEnumType() || elementType.isPrimitiveType()) {
 
-        MPIElement arrTypeElement = mapMpiElement(elementType, relativeElementOffset);
+        MpiElement arrTypeElement = mapMpiElement(elementType, relativeElementOffset);
         for (auto blockLength : arrTypeElement.blockLengths) {
           element.blockLengths.push_back(blockLength * size);
         }
@@ -119,7 +114,7 @@ class MPISupportAdder {
 
         size = ((SemaConstSizeArrType*) &type)->size;
 
-        MPIElement arrTypeElement = mapMpiElement(*((SemaConstSizeArrType&) type).elementType, "0");
+        MpiElement arrTypeElement = mapMpiElement(*((SemaConstSizeArrType&) type).elementType, "0");
 
         for (int i = 0; i < size; i++) {
           for (auto blockLength : arrTypeElement.blockLengths) {
@@ -136,7 +131,7 @@ class MPISupportAdder {
       }
     } else if (type.isRecordType()) {
       for (const auto &field : ((SemaRecordType&) type).recordDecl->fields) {
-        MPIElement fieldElement = mapMpiElement(*field);
+        MpiElement fieldElement = mapMpiElement(*field);
         element.blockLengths.insert(element.blockLengths.end(), fieldElement.blockLengths.begin(), fieldElement.blockLengths.end());
         element.types.insert(element.types.end(), fieldElement.types.begin(), fieldElement.types.end());
         for (std::string offset : fieldElement.offsets) {
@@ -147,12 +142,10 @@ class MPISupportAdder {
     return element;
   }
 
-  std::string getInsideStructCode(std::vector<std::unique_ptr<SemaFieldDecl>> &fields) {
+  std::string getMappingMethodCode(std::vector<std::unique_ptr<SemaFieldDecl>> &fields) {
     SemaRecordDecl& recordDecl = *fields[0]->parent;
 
     std::string sourceCode = "";
-
-    sourceCode += "static MPI_Datatype *Datatype;\n\n";
 
     int nitems;
     std::vector<int> blocklengths;
@@ -160,7 +153,7 @@ class MPISupportAdder {
     std::vector<std::string> offsets;
 
     for (const auto &field : recordDecl.fields) {
-      MPIElement element = this->mapMpiElement(*field->type, "offsetof(" + recordDecl.name + ", " + field->name + ")");
+      MpiElement element = this->mapMpiElement(*field->type, "offsetof(" + recordDecl.name + ", " + field->name + ")");
       blocklengths.insert(blocklengths.end(), element.blockLengths.begin(), element.blockLengths.end());
       types.insert(types.end(), element.types.begin(), element.types.end());
       offsets.insert(offsets.end(), element.offsets.begin(), element.offsets.end());
@@ -168,7 +161,8 @@ class MPISupportAdder {
 
     nitems = blocklengths.size();
 
-    sourceCode += "static void __initMpiDatatype() {\n"
+    sourceCode += "    static MPI_Datatype *Datatype = nullptr;\n"
+                  "    if (Datatype) return *Datatype;\n\n"
                   "    Datatype = new MPI_Datatype;\n"
                   "    int blocklengths[" + std::to_string(nitems) + "] = { ";
     for (auto blocklength : blocklengths) {
@@ -201,41 +195,63 @@ class MPISupportAdder {
     }
     sourceCode += "\n    };\n";
 
-    sourceCode += "    MPI_Type_create_struct(" + std::to_string(nitems) + ", blocklengths, offsets, types, Datatype);\n";
-    sourceCode += "    MPI_Type_commit(Datatype);\n";
-    sourceCode += "}\n\n";
-
-    sourceCode += "static MPI_Datatype getMpiDatatype() {\n"
-                  "    if (!Datatype) __initMpiDatatype();\n"
-                  "    return *Datatype;\n"
-                  "}\n\n";
+    sourceCode += "    MPI_Type_create_struct(" + std::to_string(nitems) + ", blocklengths, offsets, types, Datatype);\n"
+                  "    MPI_Type_commit(Datatype);\n"
+                  "    return *Datatype;\n";
 
     return sourceCode;
   }
 
-  std::string getOutsideStructCode(std::vector<std::unique_ptr<SemaFieldDecl>> &fields) {
-    std::string fcqn = fields[0]->parent->fullyQualifiedName;
-    return "MPI_Datatype *" + fcqn + "::Datatype = nullptr;";
+public:
+
+  bool isMpiMappingCandidate(CXXMethodDecl *D) {
+    if (!D->isStatic()) return false;
+    for (auto *attr : D->attrs()) {
+      if (llvm::isa<MapMpiDatatypeAttr>(attr)) return true;
+    }
+    return false;
   }
 
-public:
-  MPISupportCode getMPISupport(std::string structName, RecordDecl *decl) {
+  bool isMpiMappingCandidate(RecordDecl *decl) {
+    if (!llvm::isa<CXXRecordDecl>(decl)) return false;
+    auto *cxxDecl = llvm::cast<CXXRecordDecl>(decl);
+    for (auto *method : cxxDecl->methods()) {
+      if (isMpiMappingCandidate(method)) return true;
+    }
+    return false;
+  }
+
+  std::string getMpiMappingMethodBody(RecordDecl *decl) {
+    return getMpiMappingMethodBody(decl->getNameAsString(), decl);
+  }
+
+  std::string getMpiMappingMethodBody(std::string structName, RecordDecl *decl) {
       auto semaRecordDecl = fromRecordDecl(decl);
       semaRecordDecl->name = structName;
-      return getMPISupport(*semaRecordDecl);
+      return getMpiMappingMethodBody(*semaRecordDecl);
   }
 
-  MPISupportCode getMPISupport(SemaRecordDecl &decl) {
-      return getMPISupport(decl.fields);
+  std::string getMpiMappingMethodBody(SemaRecordDecl &decl) {
+      return getMpiMappingMethodBody(decl.fields);
   }
 
-  MPISupportCode getMPISupport(std::vector<std::unique_ptr<SemaFieldDecl>> &fields) {
-    return {
-      this->getInsideStructCode(fields),
-      this->getOutsideStructCode(fields)
-    };
+  std::string getMpiMappingMethodBody(std::vector<std::unique_ptr<SemaFieldDecl>> &fields) {
+      return this->getMappingMethodCode(fields);
+  }
+
+  std::string getMpiMappingMethodDef(RecordDecl *decl, SemaRecordDecl &semaDecl) {
+    std::string methodName;
+    auto *cxxDecl = llvm::cast<CXXRecordDecl>(decl);
+    for (auto *method : cxxDecl->methods()) {
+      if (!isMpiMappingCandidate(method)) continue;
+      methodName = method->getNameAsString();
+      break;
+    }
+
+    std::string methodDef = "static MPI_Datatype " + methodName + "() {\n" + getMpiMappingMethodBody(semaDecl) + "\n}";
+    return methodDef;
   }
 
 };
 
-#endif // CLANG_MPISUPPORTADDER_H
+#endif // CLANG_MPIMAPPINGGENERATOR_H

@@ -4446,6 +4446,11 @@ void Sema::AddCompressionMethodAttr(Decl *D, const AttributeCommonInfo &CI, Comp
   D->addAttr(CompressionMethodAttr);
 }
 
+void Sema::AddMapMpiDatatypeAttr(Decl *D, const AttributeCommonInfo &CI) {
+  auto *MapMpiDatatypeAttr = clang::MapMpiDatatypeAttr::Create(Context, CI);
+  D->addAttr(MapMpiDatatypeAttr);
+}
+
 static void handleCompressionMethodAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   if (AL.getNumArgs() != 1) return;
   auto *arg = AL.getArgAsIdent(0);
@@ -4455,6 +4460,10 @@ static void handleCompressionMethodAttr(Sema &S, Decl *D, const ParsedAttr &AL) 
   } else if (compressionTypeStr == "bitpack") {
     S.AddCompressionMethodAttr(D, AL, CompressionMethodAttr::Bitpack);
   }
+}
+
+static void handleMapMpiDatatypeAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
+  S.AddMapMpiDatatypeAttr(D, AL);
 }
 
 static void handleAlignValueAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
@@ -9360,6 +9369,9 @@ ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D, const ParsedAttr &AL,
     break;
   case ParsedAttr::AT_CompressionMethod:
     handleCompressionMethodAttr(S, D, AL);
+    break;
+  case ParsedAttr::AT_MapMpiDatatype:
+    handleMapMpiDatatypeAttr(S, D, AL);
     break;
   case ParsedAttr::AT_Availability:
     handleAvailabilityAttr(S, D, AL);

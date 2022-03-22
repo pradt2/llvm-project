@@ -162,6 +162,9 @@ public:
                             std::string toBeSetValue) override {
     return "/** to be implemented **/";
   }
+  std::unique_ptr<SemaRecordDecl> getSemaRecordDecl() override {
+      return std::make_unique<SemaRecordDecl>();
+  };
 };
 
 #endif // CLANG_COMPRESSIONBITPACKCODEGEN_H

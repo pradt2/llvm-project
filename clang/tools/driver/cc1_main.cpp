@@ -286,11 +286,9 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   // Execute the frontend actions.
   CompilerInvocationResult Result;
   bool Success;
-  {
-    llvm::TimeTraceScope TimeScope("ExecuteCompiler");
-    Result = ExecuteCompilerInvocation(Clang.get(), std::make_unique<RewriteAction>());
-    Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
-  }
+  llvm::TimeTraceScope TimeScope("ExecuteCompiler");
+  Result = ExecuteCompilerInvocation(Clang.get(), std::make_unique<RewriteAction>());
+  Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
 
   if (Result == FRONTEND_ACTION_SUCCESS) {
     auto ClangActual = CreateCompilerInstance(Argv, Argv0, MainAddr);

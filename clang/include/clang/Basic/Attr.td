@@ -914,6 +914,12 @@ def CompressTruncateMantissa : InheritableParamAttr {
     let Documentation = [Undocumented];
 }
 
+def MapMpiDatatype : InheritableParamAttr {
+    let Spellings = [Clang<"map_mpi_datatype">];
+    let Subjects = SubjectList<[Function]>;
+    let Documentation = [Undocumented];
+}
+
 def CompressionMethod : InheritableParamAttr {
     let Spellings = [Clang<"compression_method">];
     let Args = [EnumArgument<"CompressionMethod", "CompressionMethodType",
