@@ -48,36 +48,36 @@ int main(int argc, char** argv) {
     sendCar.topSpeed = 240;
     MPI_Send(&sendCar, 1, Car::getMpi(), 1, tag, MPI_COMM_WORLD);
 
-    printf("Rank %d: CAR(size=%lu) TX: %d %d\n", rank, sizeof(sendCar), sendCar.shifts, sendCar.topSpeed);
+    printf("Rank %d: CAR(size=%lu) TX: %3d %3d\n", rank, sizeof(sendCar), sendCar.shifts, sendCar.topSpeed);
 
     CarWrapper sendCarWrapper = {sendCar};
     MPI_Send(&sendCar, 1, Car::getMpi(), 1, tag, MPI_COMM_WORLD);
 
-    printf("Rank %d: CWR(size=%lu) TX: %d %d\n", rank, sizeof(sendCarWrapper), sendCarWrapper.car.shifts, sendCarWrapper.car.topSpeed);
+    printf("Rank %d: CWR(size=%lu) TX: %3d %3d\n", rank, sizeof(sendCarWrapper), sendCarWrapper.car.shifts, sendCarWrapper.car.topSpeed);
 
     Motorcycle sendMotorcycle = {};
     sendMotorcycle.engineSize = 125;
     sendMotorcycle.topSpeed = 240;
     MPI_Send(&sendMotorcycle, 1, Motorcycle::getMyMpiMapping(), 1, tag, MPI_COMM_WORLD);
 
-    printf("Rank %d: MTR(size=%lu) TX: %d %d\n", rank, sizeof(sendMotorcycle), sendMotorcycle.engineSize, sendMotorcycle.topSpeed);
+    printf("Rank %d: MTR(size=%lu) TX: %3d %3d\n", rank, sizeof(sendMotorcycle), sendMotorcycle.engineSize, sendMotorcycle.topSpeed);
   }
   if (rank == 1) {
 
     Car recvCar = {};
     MPI_Recv(&recvCar, 1, Car::getMpi(), 0, tag, MPI_COMM_WORLD, nullptr);
 
-    printf("Rank %d: CAR(size=%lu) RX: %d %d\n", rank, sizeof(recvCar), recvCar.shifts, recvCar.topSpeed);
+    printf("Rank %d: CAR(size=%lu) RX: %3d %3d\n", rank, sizeof(recvCar), recvCar.shifts, recvCar.topSpeed);
 
     CarWrapper recvCarWrapper = {};
     MPI_Recv(&recvCarWrapper, 1, CarWrapper::getMpi(), 0, tag, MPI_COMM_WORLD, nullptr);
 
-    printf("Rank %d: CWR(size=%lu) RX: %d %d\n", rank, sizeof(recvCarWrapper), recvCarWrapper.car.shifts, recvCarWrapper.car.topSpeed);
+    printf("Rank %d: CWR(size=%lu) RX: %3d %3d\n", rank, sizeof(recvCarWrapper), recvCarWrapper.car.shifts, recvCarWrapper.car.topSpeed);
 
     Motorcycle recvMotorcycle = {};
     MPI_Recv(&recvMotorcycle, 1, Motorcycle::getMyMpiMapping(), 0, tag, MPI_COMM_WORLD, nullptr);
 
-    printf("Rank %d: MTR(size=%lu) RX: %d %d\n", rank, sizeof(recvMotorcycle), recvMotorcycle.engineSize, recvMotorcycle.topSpeed);
+    printf("Rank %d: MTR(size=%lu) RX: %3d %3d\n", rank, sizeof(recvMotorcycle), recvMotorcycle.engineSize, recvMotorcycle.topSpeed);
   }
 
   MPI_Finalize();
