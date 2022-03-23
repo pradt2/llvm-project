@@ -822,6 +822,31 @@ def CompressionMethod : InheritableParamAttr {
     let Documentation = [Undocumented];
 }
 
+def SoaConversion : StmtAttr {
+    let Spellings = [Clang<"soa_conversion">];
+    let Args = [StringArgument<"InputFields">,
+                StringArgument<"OutputFields">];
+    let Subjects = SubjectList<[ForStmt, CXXForRangeStmt],
+                                ErrorDiag, "'for' statements">;
+    let Documentation = [Undocumented];
+}
+
+def SoaConversionTarget : StmtAttr {
+    let Spellings = [Clang<"soa_conversion_target">];
+    let Args = [StringArgument<"TargetRef">];
+    let Subjects = SubjectList<[ForStmt],
+                                ErrorDiag, "'for' statements">;
+    let Documentation = [Undocumented];
+}
+
+def SoaConversionTargetSize : StmtAttr {
+    let Spellings = [Clang<"soa_conversion_target_size">];
+    let Args = [StringArgument<"TargetSizeExpr">];
+    let Subjects = SubjectList<[ForStmt, CXXForRangeStmt],
+                                ErrorDiag, "'for' statements">;
+    let Documentation = [Undocumented];
+}
+
 def ARMInterrupt : InheritableAttr, TargetSpecificAttr<TargetARM> {
   // NOTE: If you add any additional spellings, M68kInterrupt's,
   // MSP430Interrupt's, MipsInterrupt's and AnyX86Interrupt's spellings
