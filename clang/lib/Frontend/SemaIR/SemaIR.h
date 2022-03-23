@@ -96,6 +96,11 @@ std::unique_ptr<SemaFieldDecl> fromFieldDecl(SemaRecordDecl &parent, FieldDecl *
   return semaFieldDecl;
 }
 
+std::unique_ptr<SemaFieldDecl> fromFieldDecl(FieldDecl *decl) {
+  auto semaRecordDecl = fromRecordDecl(decl->getParent());
+  return fromFieldDecl(*semaRecordDecl, decl);
+}
+
 struct SemaRecordDecl {
   std::string name;
   std::string fullyQualifiedName;
