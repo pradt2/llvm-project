@@ -327,6 +327,32 @@ static Attr *handleUnlikely(Sema &S, Stmt *St, const ParsedAttr &A,
   return ::new (S.Context) UnlikelyAttr(S.Context, A);
 }
 
+static Attr *handleSoaConversion(Sema &S, Stmt *St, const ParsedAttr &A,
+                                 SourceRange Range) {
+  if (A.getNumArgs() != 2) return nullptr;
+  if (!llvm::isa<StringLiteral>(A.getArgAsExpr(0))) return nullptr;
+  if (!llvm::isa<StringLiteral>(A.getArgAsExpr(1))) return nullptr;
+  auto inRef = llvm::cast<StringLiteral>(A.getArgAsExpr(0))->getString();
+  auto outRef = llvm::cast<StringLiteral>(A.getArgAsExpr(1))->getString();
+  return ::new (S.Context) SoaConversionAttr(S.Context, A, inRef, outRef);
+}
+
+static Attr *handleSoaConversionTarget(Sema &S, Stmt *St, const ParsedAttr &A,
+                                       SourceRange Range) {
+  if (A.getNumArgs() != 1) return nullptr;
+  auto expr = S.getASTContext().getSourceManager().getRewriter()->getRewrittenText(A.getArgAsExpr(0)->getSourceRange());
+
+  return ::new (S.Context) SoaConversionTargetAttr(S.Context, A, expr);
+}
+
+static Attr *handleSoaConversionTargetSize(Sema &S, Stmt *St, const ParsedAttr &A,
+                                           SourceRange Range) {
+  if (A.getNumArgs() != 1) return nullptr;
+  std::string sizeExpr = S.getASTContext().getSourceManager().getRewriter()->getRewrittenText(A.getArgAsExpr(0)->getSourceRange());
+
+  return ::new (S.Context) SoaConversionTargetSizeAttr(S.Context, A, sizeExpr);
+}
+
 CodeAlignAttr *Sema::BuildCodeAlignAttr(const AttributeCommonInfo &CI,
                                         Expr *E) {
   if (!E->isValueDependent()) {
@@ -612,6 +638,12 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &A,
     return handleLikely(S, St, A, Range);
   case ParsedAttr::AT_Unlikely:
     return handleUnlikely(S, St, A, Range);
+  case ParsedAttr::AT_SoaConversion:
+    return handleSoaConversion(S, St, A, Range);
+  case ParsedAttr::AT_SoaConversionTarget:
+    return handleSoaConversionTarget(S, St, A, Range);
+  case ParsedAttr::AT_SoaConversionTargetSize:
+    return handleSoaConversionTargetSize(S, St, A, Range);
   case ParsedAttr::AT_CodeAlign:
     return handleCodeAlignAttr(S, St, A);
   case ParsedAttr::AT_MSConstexpr:
