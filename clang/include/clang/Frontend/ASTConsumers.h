@@ -22,6 +22,8 @@ namespace clang {
 
 class ASTConsumer;
 
+std::unique_ptr<ASTConsumer> CreateSoaConversionASTConsumer(CompilerInstance &CI);
+
 std::unique_ptr<ASTConsumer> CreateCompressionASTConsumer(CompilerInstance &CI);
 
 std::unique_ptr<ASTConsumer> CreateMpiDatatypesMapperASTConsumer(CompilerInstance &CI);

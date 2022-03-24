@@ -1,7 +1,11 @@
-#ifndef CLANG_SOATRANSFORMGENERATOR_H
-#define CLANG_SOATRANSFORMGENERATOR_H
+#ifndef CLANG_SOACONVERSIONASTCONSUMER_H
+#define CLANG_SOACONVERSIONASTCONSUMER_H
 
-class SoaTransformGenerator : public ASTConsumer, public RecursiveASTVisitor<SoaTransformGenerator> {
+#include "../SemaIR/SemaIR.h"
+
+using namespace clang;
+
+class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<SoaConversionASTConsumer> {
 
   CompilerInstance &CI;
   Rewriter &R;
@@ -356,7 +360,7 @@ class SoaTransformGenerator : public ASTConsumer, public RecursiveASTVisitor<Soa
   }
 
 public:
-  SoaTransformGenerator(CompilerInstance &CI) : CI(CI), R(*CI.getSourceManager().getRewriter()) {}
+  SoaConversionASTConsumer(CompilerInstance &CI) : CI(CI), R(*CI.getSourceManager().getRewriter()) {}
 
   bool VisitForStmt(ForStmt *S) {
     const SoaConversionAttr *conversionAttr = getAttr<SoaConversionAttr>(S);
@@ -441,4 +445,4 @@ public:
 
 };
 
-#endif // CLANG_SOATRANSFORMGENERATOR_H
+#endif // CLANG_SOACONVERSIONASTCONSUMER_H
