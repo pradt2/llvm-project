@@ -14,37 +14,9 @@ struct Particle {
 
 #define SIZE 1 << 4
 
-int main() {
-    Particle *particles = new Particle[SIZE];
-    for (int i = 0; i < SIZE; i++) {
-      particles[i].x = 1 + i;
-      particles[i].y = 2 + i;
-      particles[i].z = 3 + i;
-      particles[i].velocity = new ParticleVelocity;
-      particles[i].velocity->vx = i + 3;
-      particles[i].velocity->vy = i + 3;
-      particles[i].velocity->vz = i + 3;
-    }
-
-    [[
-        clang::soa_conversion("x, velocity.vx", "x"),
-        clang::soa_conversion_target(particles),
-        clang::soa_conversion_target_size(SIZE)
-    ]]
-    for (int i = 0; i < SIZE; i++) {
-      for (int j = 0; j < 4; j++) {
-        particles[i].x += particles[i].velocity->vx * 0.01;
-      }
-    }
-
-    for (int i = 0; i < SIZE; i++) {
-      printf("Particle #%2d = (x=%4.6f)\n", i, particles[i].x);
-    }
-}
-
-
 //int main() {
 //  std::vector<Particle> particles = std::vector<Particle>(SIZE);
+//
 //  for (int i = 0; i < SIZE; i++) {
 //    particles[i].x = 1 + i;
 //    particles[i].y = 2 + i;
@@ -58,7 +30,7 @@ int main() {
 //  [[
 //      clang::soa_conversion("x, velocity.vx", "x"),
 //      clang::soa_conversion_target(particles),
-//      clang::soa_conversion_target_size(SIZE)
+//      clang::soa_conversion_target_size(particles.size())
 //  ]]
 //  for (int i = 0; i < SIZE; i++) {
 //    particles[i].x += particles[i].velocity->vx * 0.01;
@@ -68,3 +40,32 @@ int main() {
 //    printf("Particle #%2d = (x=%4.6f)\n", i, particles[i].x);
 //  }
 //}
+
+
+int main() {
+    std::vector<Particle> particles = std::vector<Particle>(SIZE);
+
+    for (int i = 0; i < SIZE; i++) {
+      particles[i].x = 1 + i;
+      particles[i].y = 2 + i;
+      particles[i].z = 3 + i;
+      particles[i].velocity = new ParticleVelocity;
+      particles[i].velocity->vx = i + 3;
+      particles[i].velocity->vy = i + 3;
+      particles[i].velocity->vz = i + 3;
+    }
+
+    [[
+        clang::soa_conversion("x, velocity.vx", "x"),
+        clang::soa_conversion_target_size(particles.size())
+    ]]
+    for (auto &particle : particles) {
+      for (int j = 0; j < 4; j++) {
+        particle.x += particle.velocity->vx * 0.01;
+      }
+    }
+
+    for (int i = 0; i < SIZE; i++) {
+      printf("Particle #%2d = (x=%4.6f)\n", i, particles[i].x);
+    }
+}
