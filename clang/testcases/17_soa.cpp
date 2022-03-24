@@ -1,58 +1,70 @@
-//#include <stdio.h>
-//#include <vector>
+#include <stdio.h>
+#include <vector>
 
-void printf(const char *s, int a, double b, double c) {}
+//void printf(const char *s, int i, double b) {}
 
-struct Particle {
-  double a, b, c;
+struct ParticleVelocity {
+  double vx, vy, vz;
 };
 
-#define SIZE 2
+struct Particle {
+  float x, y, z;
+  ParticleVelocity *velocity;
+};
 
-void calculateParticles(Particle *particles) {
-//  struct ParticleSOA {
-//    double *a;
-//    double *b;
-//  } particleSoa;
-//
-//  particleSoa.a = new double[SIZE];
-//  particleSoa.b = new double[SIZE];
-//
-//  for (int i = 0; i < SIZE; i++) {
-//    particleSoa.a[i] = particles[i].a;
-//    particleSoa.b[i] = particles[i].b;
-//  }
-//
-//  for (int i = 0; i < SIZE; i++) {
-////    particles[i].c = particles[i].a * particles[i].b;
-//    particleSoa.a[i] = particleSoa.a[i] * particleSoa.b[i];
-//  }
-//
-//  for (int i = 0; i < SIZE; i++) {
-//    particles[i].a = particleSoa.a[i];
-//  }
-}
+#define SIZE 1 << 4
 
 int main() {
     Particle *particles = new Particle[SIZE];
     for (int i = 0; i < SIZE; i++) {
-      particles[i].a = 1 + i;
-      particles[i].b = 2 + i;
+      particles[i].x = 1 + i;
+      particles[i].y = 2 + i;
+      particles[i].z = 3 + i;
+      particles[i].velocity = new ParticleVelocity;
+      particles[i].velocity->vx = i + 3;
+      particles[i].velocity->vy = i + 3;
+      particles[i].velocity->vz = i + 3;
     }
 
-    calculateParticles(particles);
-
     [[
-        clang::soa_conversion("a, b", "a"),
+        clang::soa_conversion("x, velocity.vx", "x"),
         clang::soa_conversion_target(particles),
         clang::soa_conversion_target_size(SIZE)
     ]]
     for (int i = 0; i < SIZE; i++) {
-      printf("Particle #%2d = (a=%4.6f, b=%4.6f)\n", i, particles[i].a, particles[i].b);
+      for (int j = 0; j < 4; j++) {
+        particles[i].x += particles[i].velocity->vx * 0.01;
+      }
     }
 
-//    std::vector<int> vectorOfInts;
-//    for (int i : vectorOfInts) {
-//      printf("%d\n", i);
-//    }
+    for (int i = 0; i < SIZE; i++) {
+      printf("Particle #%2d = (x=%4.6f)\n", i, particles[i].x);
+    }
 }
+
+
+//int main() {
+//  std::vector<Particle> particles = std::vector<Particle>(SIZE);
+//  for (int i = 0; i < SIZE; i++) {
+//    particles[i].x = 1 + i;
+//    particles[i].y = 2 + i;
+//    particles[i].z = 3 + i;
+//    particles[i].velocity = new ParticleVelocity;
+//    particles[i].velocity->vx = i + 3;
+//    particles[i].velocity->vy = i + 3;
+//    particles[i].velocity->vz = i + 3;
+//  }
+//
+//  [[
+//      clang::soa_conversion("x, velocity.vx", "x"),
+//      clang::soa_conversion_target(particles),
+//      clang::soa_conversion_target_size(SIZE)
+//  ]]
+//  for (int i = 0; i < SIZE; i++) {
+//    particles[i].x += particles[i].velocity->vx * 0.01;
+//  }
+//
+//  for (int i = 0; i < SIZE; i++) {
+//    printf("Particle #%2d = (x=%4.6f)\n", i, particles[i].x);
+//  }
+//}
