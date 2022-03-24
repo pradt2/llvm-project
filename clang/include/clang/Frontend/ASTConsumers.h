@@ -28,6 +28,8 @@ class LangOptions;
 class Preprocessor;
 class TargetOptions;
 
+std::unique_ptr<ASTConsumer> CreateSoaConversionASTConsumer(CompilerInstance &CI);
+
 std::unique_ptr<ASTConsumer> CreateCompressionASTConsumer(CompilerInstance &CI);
 
 std::unique_ptr<ASTConsumer> CreateMpiDatatypesMapperASTConsumer(CompilerInstance &CI);
