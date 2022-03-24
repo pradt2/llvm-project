@@ -2,8 +2,6 @@
 #define CLANG_COMPRESSIONASTCONSUMER_H
 
 #include "CompressionCodeGenResolver.h"
-#include "../MPI/MpiMappingGenerator.h"
-#include "../SOA/SoaTransformGenerator.h"
 
 class SubExprFinder : public ASTConsumer,
                       public RecursiveASTVisitor<SubExprFinder> {
@@ -565,7 +563,6 @@ public:
     WriteAccessRewriter(R, CI).HandleTranslationUnit(Context);
     ConstSizeArrWriteAccessRewriter(R, CI).HandleTranslationUnit(Context);
     PragmaPackAdder(R, CI).HandleTranslationUnit(Context);
-    SoaTransformGenerator(CI).HandleTranslationUnit(Context);
   }
 
 };

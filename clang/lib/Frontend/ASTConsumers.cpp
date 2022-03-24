@@ -24,6 +24,7 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Timer.h"
 #include "llvm/Support/raw_ostream.h"
+#include "SOA/SoaConversionASTConsumer.h"
 #include "Compression/CompressionASTConsumer.h"
 #include "MPI/MpiDatatypesMapperASTConsumer.h"
 
@@ -161,6 +162,11 @@ namespace {
     raw_ostream &Out;
   };
 } // end anonymous namespace
+
+std::unique_ptr<ASTConsumer>
+clang::CreateSoaConversionASTConsumer(CompilerInstance &CI) {
+  return std::make_unique<SoaConversionASTConsumer>(CI);
+}
 
 std::unique_ptr<ASTConsumer>
 clang::CreateCompressionASTConsumer(clang::CompilerInstance &CI) {

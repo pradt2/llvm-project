@@ -326,25 +326,35 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
 
   RewrittenSourcesHandler rewrittenSourcesHandler;
 
-  auto ClangCompress = CreateCompilerInstance(Argv, Argv0, MainAddr);
-  Result = ExecuteCompilerInvocation(ClangCompress.get(), std::make_unique<CompressAction>());
+  auto ClangSoaConvert = CreateCompilerInstance(Argv, Argv0, MainAddr);
+  Result = ExecuteCompilerInvocation(ClangSoaConvert.get(), std::make_unique<SoaConvertAction>());
   Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
 
   if (Result == FRONTEND_ACTION_SUCCESS) {
-    auto ClangMpiDatatypesMapping = CreateCompilerInstance(Argv, Argv0, MainAddr);
+    auto ClangCompress = CreateCompilerInstance(Argv, Argv0, MainAddr);
 
-    rewrittenSourcesHandler.loadRewrittenSources(ClangCompress->getSourceManager().getRewriter());
-    rewrittenSourcesHandler.saveIntoOpts(ClangMpiDatatypesMapping->getPreprocessorOpts());
+    rewrittenSourcesHandler.loadRewrittenSources(ClangSoaConvert->getSourceManager().getRewriter());
+    rewrittenSourcesHandler.saveIntoOpts(ClangCompress->getPreprocessorOpts());
 
-    Result = ExecuteCompilerInvocation(ClangMpiDatatypesMapping.get(), std::make_unique<MapMpiDatatypesAction>());
+    Result = ExecuteCompilerInvocation(ClangCompress.get(), std::make_unique<CompressAction>());
     Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
 
     if (Result == FRONTEND_ACTION_SUCCESS) {
-      rewrittenSourcesHandler.loadRewrittenSources(ClangMpiDatatypesMapping->getSourceManager().getRewriter());
-      rewrittenSourcesHandler.saveIntoOpts(Clang->getPreprocessorOpts());
+      auto ClangMpiDatatypesMapping = CreateCompilerInstance(Argv, Argv0, MainAddr);
 
-      Result = ExecuteCompilerInvocation(Clang.get());
+      rewrittenSourcesHandler.loadRewrittenSources(ClangCompress->getSourceManager().getRewriter());
+      rewrittenSourcesHandler.saveIntoOpts(ClangMpiDatatypesMapping->getPreprocessorOpts());
+
+      Result = ExecuteCompilerInvocation(ClangMpiDatatypesMapping.get(), std::make_unique<MapMpiDatatypesAction>());
       Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
+
+      if (Result == FRONTEND_ACTION_SUCCESS) {
+        rewrittenSourcesHandler.loadRewrittenSources(ClangMpiDatatypesMapping->getSourceManager().getRewriter());
+        rewrittenSourcesHandler.saveIntoOpts(Clang->getPreprocessorOpts());
+
+        Result = ExecuteCompilerInvocation(Clang.get());
+        Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
+      }
     }
   }
 

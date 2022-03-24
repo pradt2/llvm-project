@@ -92,6 +92,11 @@ ReadPCHAndPreprocessAction::CreateASTConsumer(CompilerInstance &CI,
 // AST Consumer Actions
 //===----------------------------------------------------------------------===//
 std::unique_ptr<ASTConsumer>
+SoaConvertAction::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
+  return CreateSoaConversionASTConsumer(CI);
+}
+
+std::unique_ptr<ASTConsumer>
 CompressAction::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
   return CreateCompressionASTConsumer(CI);
 }
