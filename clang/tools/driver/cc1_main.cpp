@@ -59,6 +59,43 @@
 using namespace clang;
 using namespace llvm::opt;
 
+void CopyRewriterEntriesAsPreprocessorOpts(Rewriter *R, PreprocessorOptions &PreprocessorOpts);
+void DumpRewrittenSources(Rewriter *R);
+
+class RewrittenSourcesHandler {
+  std::map<llvm::StringRef, llvm::StringRef> buffers;
+
+public:
+
+  void loadRewrittenSources(Rewriter *R) {
+    for (auto IT = R->buffer_begin(); IT != R->buffer_end(); IT++) {
+      auto FileID = IT->first;
+      auto *FileEntry = R->getSourceMgr().getFileEntryForID(FileID);
+      if (!FileEntry)
+        continue;
+      auto *RewriterBuffer = R->getRewriteBufferFor(FileID);
+      if (!RewriterBuffer)
+        continue;
+      auto FilePath = FileEntry->getName();
+      auto *RewrittenSourceStr = new std::string(RewriterBuffer->begin(), RewriterBuffer->end());
+      auto RewrittenSource = llvm::StringRef(RewrittenSourceStr->c_str());
+      buffers[FilePath] = RewrittenSource;
+    }
+  }
+
+  void saveIntoOpts(PreprocessorOptions &PreprocessorOpts) {
+    for (auto &entry : buffers) {
+      PreprocessorOpts.addRemappedFile(entry.first, llvm::MemoryBuffer::getMemBufferCopy(entry.second).release());
+    }
+  }
+
+  void dump() {
+    for (auto &entry : buffers) {
+      llvm::outs() << entry.first << "\n" << entry.second << "\n\n";
+    }
+  }
+};
+
 //===----------------------------------------------------------------------===//
 // Main driver
 //===----------------------------------------------------------------------===//
@@ -226,8 +263,6 @@ static int PrintSupportedExtensions(std::string TargetStr) {
 }
 
 std::unique_ptr<CompilerInstance> CreateCompilerInstance(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr);
-void CopyRewriterEntriesAsPreprocessorOpts(Rewriter *R, PreprocessorOptions &PreprocessorOpts);
-void DumpRewrittenSources(Rewriter *R);
 
 int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   ensureSufficientStack();
@@ -289,25 +324,31 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   bool Success;
   llvm::TimeTraceScope TimeScope("ExecuteCompiler");
 
+  RewrittenSourcesHandler rewrittenSourcesHandler;
+
   auto ClangCompress = CreateCompilerInstance(Argv, Argv0, MainAddr);
   Result = ExecuteCompilerInvocation(ClangCompress.get(), std::make_unique<CompressAction>());
   Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
 
   if (Result == FRONTEND_ACTION_SUCCESS) {
     auto ClangMpiDatatypesMapping = CreateCompilerInstance(Argv, Argv0, MainAddr);
-    CopyRewriterEntriesAsPreprocessorOpts(ClangCompress->getSourceManager().getRewriter(), ClangMpiDatatypesMapping->getPreprocessorOpts());
+
+    rewrittenSourcesHandler.loadRewrittenSources(ClangCompress->getSourceManager().getRewriter());
+    rewrittenSourcesHandler.saveIntoOpts(ClangMpiDatatypesMapping->getPreprocessorOpts());
+
     Result = ExecuteCompilerInvocation(ClangMpiDatatypesMapping.get(), std::make_unique<MapMpiDatatypesAction>());
     Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
 
     if (Result == FRONTEND_ACTION_SUCCESS) {
-      CopyRewriterEntriesAsPreprocessorOpts(ClangMpiDatatypesMapping->getSourceManager().getRewriter(), Clang->getPreprocessorOpts());
-      DumpRewrittenSources(ClangMpiDatatypesMapping->getSourceManager().getRewriter());
+      rewrittenSourcesHandler.loadRewrittenSources(ClangMpiDatatypesMapping->getSourceManager().getRewriter());
+      rewrittenSourcesHandler.saveIntoOpts(Clang->getPreprocessorOpts());
+
       Result = ExecuteCompilerInvocation(Clang.get());
       Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
     }
-  } else {
-    DumpRewrittenSources(ClangCompress->getSourceManager().getRewriter());
   }
+
+  rewrittenSourcesHandler.dump();
 
   // If any timers were active but haven't been destroyed yet, print their
   // results now.  This happens in -disable-free mode.
@@ -391,36 +432,4 @@ std::unique_ptr<CompilerInstance> CreateCompilerInstance(ArrayRef<const char *> 
         CompilerInvocation::GetResourcesPath(Argv0, MainAddr);
 
   return Clang;
-}
-
-void CopyRewriterEntriesAsPreprocessorOpts(Rewriter *R, PreprocessorOptions &PreprocessorOpts) {
-  for (auto IT = R->buffer_begin(); IT != R->buffer_end(); IT++) {
-    auto FileID = IT->first;
-    auto *FileEntry = R->getSourceMgr().getFileEntryForID(FileID);
-    if (!FileEntry)
-      continue;
-    auto *RewriterBuffer = R->getRewriteBufferFor(FileID);
-    if (!RewriterBuffer)
-      continue;
-    auto FilePath = FileEntry->getName();
-    auto *RewrittenSourceStr = new std::string(RewriterBuffer->begin(), RewriterBuffer->end());
-    auto RewrittenSource = llvm::StringRef(RewrittenSourceStr->c_str());
-    auto RewrittenSourceBuffer = llvm::MemoryBuffer::getMemBuffer(RewrittenSource);
-    PreprocessorOpts.addRemappedFile(FilePath, RewrittenSourceBuffer.release());
-  }
-}
-
-void DumpRewrittenSources(Rewriter *R) {
-  for (auto IT = R->buffer_begin(); IT != R->buffer_end(); IT++) {
-    auto FileID = IT->first;
-    auto *FileEntry = R->getSourceMgr().getFileEntryForID(FileID);
-    if (!FileEntry)
-      continue;
-    auto *RewriterBuffer = R->getRewriteBufferFor(FileID);
-    if (!RewriterBuffer)
-      continue;
-    auto FilePath = FileEntry->getName();
-    auto *RewrittenSourceStr = new std::string(RewriterBuffer->begin(), RewriterBuffer->end());
-    llvm::outs() << FilePath << "\n" << *RewrittenSourceStr << "\n\n";
-  }
 }

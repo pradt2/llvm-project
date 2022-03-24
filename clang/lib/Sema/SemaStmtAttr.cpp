@@ -348,9 +348,28 @@ static Attr *handleSoaConversionTarget(Sema &S, Stmt *St, const ParsedAttr &A,
 static Attr *handleSoaConversionTargetSize(Sema &S, Stmt *St, const ParsedAttr &A,
                                            SourceRange Range) {
   if (A.getNumArgs() != 1) return nullptr;
-  std::string sizeExpr = S.getASTContext().getSourceManager().getRewriter()->getRewrittenText(A.getArgAsExpr(0)->getSourceRange());
 
-  return ::new (S.Context) SoaConversionTargetSizeAttr(S.Context, A, sizeExpr);
+  std::string size;
+
+  auto *expr = A.getArgAsExpr(0);
+
+  llvm::SmallVector<PartialDiagnosticAt, 8> Notes;
+  Expr::EvalResult Eval;
+  Notes.clear();
+  Eval.Diag = &Notes;
+  int minValueInt = 0;
+  bool Result = expr->EvaluateAsConstantExpr(Eval, S.Context);
+
+  if (Result) {
+    assert(Eval.Val.hasValue());
+    size = std::to_string(Eval.Val.getInt().getExtValue());
+  } else {
+    size = S.getASTContext().getSourceManager().getRewriter()->getRewrittenText(A.getArgAsExpr(0)->getSourceRange());
+  }
+
+  assert(size.size() != 0);
+
+  return ::new (S.Context) SoaConversionTargetSizeAttr(S.Context, A, size);
 }
 
 CodeAlignAttr *Sema::BuildCodeAlignAttr(const AttributeCommonInfo &CI,

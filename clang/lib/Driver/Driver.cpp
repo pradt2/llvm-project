@@ -4891,7 +4891,7 @@ void Driver::BuildJobs(Compilation &C) const {
   // also when we need to report process execution statistics.
   if (C.getJobs().size() > 1 || CCPrintProcessStats)
     for (auto &J : C.getJobs())
-      J.InProcess = false;
+//      J.InProcess = false;
 
   if (CCPrintProcessStats) {
     C.setPostCallback([=](const Command &Cmd, int Res) {
