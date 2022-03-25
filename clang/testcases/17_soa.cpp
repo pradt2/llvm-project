@@ -12,7 +12,7 @@ struct Particle {
   ParticleVelocity *velocity;
 };
 
-#define SIZE 1 << 4
+#define SIZE 1 << 28
 
 //int main() {
 //  std::vector<Particle> particles = std::vector<Particle>(SIZE);
@@ -43,29 +43,30 @@ struct Particle {
 
 
 int main() {
-    std::vector<Particle> particles = std::vector<Particle>(SIZE);
+    std::vector<Particle*> particles(SIZE);
 
     for (int i = 0; i < SIZE; i++) {
-      particles[i].x = 1 + i;
-      particles[i].y = 2 + i;
-      particles[i].z = 3 + i;
-      particles[i].velocity = new ParticleVelocity;
-      particles[i].velocity->vx = i + 3;
-      particles[i].velocity->vy = i + 3;
-      particles[i].velocity->vz = i + 3;
+      particles[i] = new Particle;
+      particles[i]->x = 1 + i;
+      particles[i]->y = 2 + i;
+      particles[i]->z = 3 + i;
+      particles[i]->velocity = new ParticleVelocity;
+      particles[i]->velocity->vx = i + 3;
+      particles[i]->velocity->vy = i + 3;
+      particles[i]->velocity->vz = i + 3;
     }
 
     [[
         clang::soa_conversion("x, velocity.vx", "x"),
         clang::soa_conversion_target_size(particles.size())
     ]]
-    for (auto &particle : particles) {
+    for (auto particle : particles) {
       for (int j = 0; j < 4; j++) {
-        particle.x += particle.velocity->vx * 0.01;
+        particle->x += particle->velocity->vx * 0.01;
       }
     }
 
-    for (int i = 0; i < SIZE; i++) {
-      printf("Particle #%2d = (x=%4.6f)\n", i, particles[i].x);
-    }
+    //for (int i = 0; i < SIZE; i++) {
+    //  printf("Particle #%2d = (x=%4.6f)\n", i, particles[i].x);
+    //}
 }
