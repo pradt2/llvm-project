@@ -57,13 +57,15 @@ int main() {
     }
 
     [[
-        clang::soa_conversion("x, velocity.vx", "x"),
+        clang::soa_conversion("x, y, z, velocity.vx, velocity.vy, velocity.vz", "x, y, z"),
         clang::soa_conversion_target_size(particles.size())
     ]]
     for (auto particle : particles) {
-      for (int j = 0; j < 4; j++) {
+      //for (int j = 0; j < 4; j++) {
         particle->x += particle->velocity->vx * 0.01;
-      }
+        particle->y += particle->velocity->vy * 0.01;
+        particle->z += particle->velocity->vz * 0.01;
+      //}
     }
 
     //for (int i = 0; i < SIZE; i++) {
