@@ -26,6 +26,8 @@
 #include "llvm/Support/CrashRecoveryContext.h"
 #include "llvm/Support/TimeProfiler.h"
 #include "clang/Lex/PreprocessorOptions.h"
+#include "../Sema/TreeTransform.h"
+
 #include <cstdio>
 #include <memory>
 using namespace clang;
@@ -113,6 +115,74 @@ void clang::ParseAST(Preprocessor &PP, ASTConsumer *Consumer,
   ParseAST(*S.get(), PrintStats, SkipFunctionBodies);
 }
 
+void transformAST(Sema &S) {
+  class CompoundAssignTransform : public TreeTransform<CompoundAssignTransform> {
+  public:
+    explicit CompoundAssignTransform(Sema &S) : TreeTransform<CompoundAssignTransform>(S) {}
+
+    bool AlwaysRebuild() { return true; } // this essentially clones
+
+    bool ReplacingOriginal() { return true; }
+
+    DeclResult TransformTypedefDecl(TypedefDecl *D) {
+      return D;
+    }
+
+    DeclResult TransformFunctionDecl(FunctionDecl *D) {
+      //        FunctionDecl::Create()
+    }
+
+    ExprResult TransformCompoundAssignOperator(CompoundAssignOperator *E) {
+      BinaryOperator::Opcode binOpc = E->getOpcode();
+      E->getLHS()->dump();
+      //        ExprResult lhsClone = TransformExpr(E->getLHS());
+      auto *lhsClone = E->getLHS();
+      llvm::outs() << "lhs clone done\n";
+      //        lhsClone.get()->dump();
+      ExprResult rhs = RebuildBinaryOperator(E->getOperatorLoc(),
+                                             BinaryOperator::Opcode::BO_Sub, lhsClone, E->getRHS());
+      llvm::outs() << "rhs rebuild done\n";
+//      rhs.get()->dump();
+      auto res = RebuildBinaryOperator(E->getOperatorLoc(),
+                                       BO_Assign, E->getLHS(), rhs.get());
+
+      llvm::outs() << "expr rebuild done\n";
+//      res.get()->dump();
+      return res;
+    };
+  } transform(S);
+
+  class ASTCons : public ASTConsumer, public RecursiveASTVisitor<ASTCons> {
+    CompoundAssignTransform t;
+  public:
+
+    explicit ASTCons(CompoundAssignTransform &t) : t(t) {}
+
+    bool VisitFunctionTemplateDecl(FunctionTemplateDecl *D) {
+      for (auto *d : D->specializations()) {
+        TraverseDecl(d);
+      }
+      return true;
+    }
+
+    bool VisitFunctionDecl(FunctionDecl *D) {
+      if (!D->isDefined() || D->isTemplated()) return true;
+      auto *E = t.getSema().getCurScope()->getEntity();
+      t.getSema().PushDeclContext(t.getSema().getCurScope(), D);
+      t.getSema().PushFunctionScope();
+      auto transformResult = t.TransformStmt(D->getBody());
+      t.getSema().PopDeclContext();
+      t.getSema().getCurScope()->setEntity(E);
+      auto *newCompoundStmt = transformResult.get();
+      D->setBody(newCompoundStmt);
+      return true;
+    }
+
+  } visitor(transform);
+
+  visitor.TraverseDecl(S.getASTContext().getTranslationUnitDecl());
+}
+
 void clang::ParseAST(Sema &S, bool PrintStats, bool SkipFunctionBodies) {
   // Collect global stats on Decls/Stmts (until we have a module streamer).
   if (PrintStats) {
@@ -161,6 +231,8 @@ void clang::ParseAST(Sema &S, bool PrintStats, bool SkipFunctionBodies) {
          AtEOF = P.ParseTopLevelDecl(ADecl)) {
     }
   }
+
+  transformAST(S);
 
   for (auto *D : Context.getTranslationUnitDecl()->decls()) {
     // If we got a null return and something *was* parsed, ignore it.  This

@@ -2,6 +2,7 @@
 #define CLANG_COMPRESSIONASTCONSUMER_H
 
 #include "CompressionCodeGenResolver.h"
+#include "../Sema/TreeTransform.h"
 
 class SubExprFinder : public ASTConsumer,
                       public RecursiveASTVisitor<SubExprFinder> {
@@ -553,16 +554,67 @@ private:
 public:
   CompressionASTConsumer(CompilerInstance &CI) : CI(CI), R(*CI.getSourceManager().getRewriter()) {}
 
+  bool VisitFunctionDecl(FunctionDecl *D) {
+    class CompoundAssignTransform : public TreeTransform<CompoundAssignTransform> {
+    public:
+      explicit CompoundAssignTransform(Sema &S) : TreeTransform<CompoundAssignTransform>(S) {}
+
+      bool AlwaysRebuild() { return true; } // this essentially clones
+
+      bool ReplacingOriginal() { return true; }
+
+      DeclResult TransformTypedefDecl(TypedefDecl *D) {
+        return D;
+      }
+
+      DeclResult TransformFunctionDecl(FunctionDecl *D) {
+        //        FunctionDecl::Create()
+      }
+
+      ExprResult TransformCompoundAssignOperator(CompoundAssignOperator *E) {
+        BinaryOperator::Opcode binOpc = E->getOpcode();
+        E->getLHS()->dump();
+        //        ExprResult lhsClone = TransformExpr(E->getLHS());
+        auto *lhsClone = E->getLHS();
+        llvm::outs() << "lhs clone done\n";
+        //        lhsClone.get()->dump();
+        ExprResult rhs = RebuildBinaryOperator(E->getOperatorLoc(),
+                                               BinaryOperator::Opcode::BO_Add, lhsClone, E->getRHS());
+        llvm::outs() << "rhs rebuild done\n";
+        rhs.get()->dump();
+        auto res = RebuildBinaryOperator(E->getOperatorLoc(),
+                                         BO_Assign, E->getLHS(), rhs.get());
+
+        llvm::outs() << "expr rebuild done\n";
+        res.get()->dump();
+        return res;
+      };
+    } transform(CI.getSema());
+
+    if (!D->hasBody()) return true;
+
+    auto *E = transform.getSema().getCurScope()->getEntity();
+    transform.getSema().PushDeclContext(transform.getSema().getCurScope(), D);
+    transform.getSema().PushFunctionScope();
+    auto transformResult = transform.TransformStmt(D->getBody());
+    transform.getSema().PopDeclContext();
+    transform.getSema().getCurScope()->setEntity(E);
+    auto *newCompoundStmt = transformResult.get();
+    D->setBody(newCompoundStmt);
+    return true;
+  }
+
   void HandleTranslationUnit(ASTContext &Context) override {
-    NewStructAdder(R, CI).HandleTranslationUnit(Context);
-    VarDeclUpdater(R, CI).HandleTranslationUnit(Context);
-    ConstructorExprRewriter(R, CI).HandleTranslationUnit(Context);
-    FunctionReturnTypeUpdater(R, CI).HandleTranslationUnit(Context);
-    ReadAccessRewriter(R, CI).HandleTranslationUnit(Context);
-    ConstSizeArrReadAccessRewriter(R, CI).HandleTranslationUnit(Context);
-    WriteAccessRewriter(R, CI).HandleTranslationUnit(Context);
-    ConstSizeArrWriteAccessRewriter(R, CI).HandleTranslationUnit(Context);
-    PragmaPackAdder(R, CI).HandleTranslationUnit(Context);
+      this->TraverseDecl(Context.getTranslationUnitDecl());
+//    NewStructAdder(R, CI).HandleTranslationUnit(Context);
+//    VarDeclUpdater(R, CI).HandleTranslationUnit(Context);
+//    ConstructorExprRewriter(R, CI).HandleTranslationUnit(Context);
+//    FunctionReturnTypeUpdater(R, CI).HandleTranslationUnit(Context);
+//    ReadAccessRewriter(R, CI).HandleTranslationUnit(Context);
+//    ConstSizeArrReadAccessRewriter(R, CI).HandleTranslationUnit(Context);
+//    WriteAccessRewriter(R, CI).HandleTranslationUnit(Context);
+//    ConstSizeArrWriteAccessRewriter(R, CI).HandleTranslationUnit(Context);
+//    PragmaPackAdder(R, CI).HandleTranslationUnit(Context);
   }
 
 };
