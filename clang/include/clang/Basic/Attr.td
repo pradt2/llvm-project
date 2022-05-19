@@ -895,20 +895,20 @@ def Annotate : InheritableParamAttr {
 }
 
 def Compress : InheritableParamAttr {
-  let Spellings = [Clang<"compress">];
+  let Spellings = [Clang<"compress">, Clang<"pack">];
   let Subjects = SubjectList<[Field]>;
   let Documentation = [Undocumented];
 }
 
 def CompressRange : InheritableParamAttr {
-    let Spellings = [Clang<"compress_range">];
+    let Spellings = [Clang<"compress_range">, Clang<"pack_range">];
     let Args = [DefaultIntArgument<"MinValue", 0>, IntArgument<"MaxValue">];
     let Subjects = SubjectList<[Field]>;
     let Documentation = [Undocumented];
 }
 
 def CompressTruncateMantissa : InheritableParamAttr {
-    let Spellings = [Clang<"compress_truncate_mantissa">];
+    let Spellings = [Clang<"compress_truncate_mantissa">, Clang<"truncate_mantissa">];
     let Args = [IntArgument<"MantissaSize">];
     let Subjects = SubjectList<[Field]>;
     let Documentation = [Undocumented];
