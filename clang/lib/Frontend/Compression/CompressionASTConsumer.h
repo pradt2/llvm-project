@@ -177,21 +177,13 @@ private:
       Expr *initExpr = decl->getInit();
       if (decl->getInitStyle() == VarDecl::InitializationStyle::ListInit) { // TODO move to its own ASTConsumer?
         InitListExpr *initListExpr = llvm::cast<InitListExpr>(initExpr);
-        std::string source = "{";
-        for (unsigned int i = 0; i < initListExpr->getNumInits(); i++) {
-          auto *initExpr = initListExpr->getInit(i);
-          if (initExpr->getSourceRange().isInvalid()) continue;
-          source += R.getRewrittenText(initExpr->getSourceRange()) + ", ";
-        }
-        source.pop_back();
-        source.pop_back();
-        source += "}";
-        R.ReplaceText(initListExpr->getSourceRange(), source);
-        R.InsertTextBefore(initListExpr->getBeginLoc(), "(");
-        R.InsertTextAfterToken(initListExpr->getEndLoc(), ")");
+        R.ReplaceText(initListExpr->getSourceRange(), "(" + R.getRewrittenText(initListExpr->getSourceRange()) + ")");
       }
-      else if (decl->getInitStyle() == VarDecl::CInit) {
-        // nothing to do, handled by constructor invocation rewrite
+      else if (decl->getInitStyle() == VarDecl::InitializationStyle::CInit) {
+        std::string newStructName = compressionCodeGen.getFullyQualifiedCompressedStructName();
+        InitListExpr *initListExpr = llvm::cast<InitListExpr>(initExpr);
+        std::string origInit = R.getRewrittenText(initListExpr->getSourceRange());
+        R.ReplaceText(initListExpr->getSourceRange(), newStructName + "(" + origInit + ")");
         return true;
       }
       return true;

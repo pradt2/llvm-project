@@ -12,10 +12,12 @@ struct SemaRecordDecl;
 std::unique_ptr<SemaRecordDecl> fromRecordDecl(RecordDecl *decl);
 
 struct SemaType {
+  unsigned int size;
   virtual bool isPrimitiveType() { return false; }
   virtual bool isEnumType() { return false; }
   virtual bool isConstSizeArrType() { return false; }
   virtual bool isRecordType() { return false; }
+  virtual unsigned int getSize() { return this->size; }
   virtual ~SemaType() = default;
 };
 
@@ -52,30 +54,34 @@ struct SemaRecordType : SemaType {
   bool isRecordType() override { return true; }
 };
 
-std::unique_ptr<SemaType> fromQualType(QualType type) {
+std::unique_ptr<SemaType> fromQualType(QualType type, ASTContext &C) {
   if (type->isBuiltinType()) {
     std::unique_ptr<SemaPrimitiveType> semaType = std::make_unique<SemaPrimitiveType>();
     auto *builtinType = type->getAs<BuiltinType>();
     semaType->typeKind = builtinType->getKind();
+    semaType->size = C.getTypeInfo(type).Width;
     return semaType;
   }
   if (type->isEnumeralType()) {
     std::unique_ptr<SemaEnumType> semaType = std::make_unique<SemaEnumType>();
     EnumDecl *enumDecl = type->getAs<EnumType>()->getDecl();
     semaType->name = enumDecl->getNameAsString();
-    semaType->integerType = *((SemaPrimitiveType*) fromQualType(enumDecl->getIntegerType()).release());
+    semaType->integerType = *((SemaPrimitiveType*) fromQualType(enumDecl->getIntegerType(), C).release());
+    semaType->size = C.getTypeInfo(type).Width;
     return semaType;
   }
   if (type->isConstantArrayType()) {
     auto *constArr = llvm::cast<ConstantArrayType>(type->getAsArrayTypeUnsafe());
     std::unique_ptr<SemaConstSizeArrType> semaType = std::make_unique<SemaConstSizeArrType>();
     semaType->size = constArr->getSize().getZExtValue();
-    semaType->elementType = fromQualType(constArr->getElementType());
+    semaType->elementType = fromQualType(constArr->getElementType(), C);
+    semaType->size = C.getTypeInfo(type).Width;
     return semaType;
   }
   if (type->isRecordType()) {
     std::unique_ptr<SemaRecordType> semaType = std::make_unique<SemaRecordType>();
     semaType->recordDecl = fromRecordDecl(type->getAsRecordDecl());
+    semaType->size = C.getTypeInfo(type).Width;
     return semaType;
   }
   llvm::errs() << "Unsupported type for SemaIR representation " << __FILE__ << ":" << __LINE__ << "\n";
@@ -92,7 +98,7 @@ std::unique_ptr<SemaFieldDecl> fromFieldDecl(SemaRecordDecl &parent, FieldDecl *
   auto semaFieldDecl = std::make_unique<SemaFieldDecl>();
   semaFieldDecl->name = decl->getNameAsString();
   semaFieldDecl->parent = &parent;
-  semaFieldDecl->type = fromQualType(decl->getType());
+  semaFieldDecl->type = fromQualType(decl->getType(), decl->getASTContext());
   return semaFieldDecl;
 }
 

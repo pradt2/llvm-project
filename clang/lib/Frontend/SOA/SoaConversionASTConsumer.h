@@ -210,14 +210,14 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
     std::string instanceName = targetRef.str() + "__SoA__instance";
     std::string sourceCode = "struct " + targetRef.str() + "__SoA {\n";
     for (auto *field : fromFieldDecls) {
-      auto type = toSource(*fromQualType(field->getType()));
+      auto type = toSource(*fromQualType(field->getType(), field->getASTContext()));
       auto name = field->getNameAsString();
       sourceCode += "    " + type + " * " + "(" + name + ");\n";
     }
     sourceCode += "\n} " + instanceName + ";\n\n";
 
     for (auto *field : fromFieldDecls) {
-      auto type = toSource(*fromQualType(field->getType()));
+      auto type = toSource(*fromQualType(field->getType(), field->getASTContext()));
       auto name = field->getNameAsString();
       sourceCode += instanceName + "." + name + " = new " + type + "[" + size.str() + "];\n";
     }
