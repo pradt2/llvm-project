@@ -2511,6 +2511,7 @@ public:
 private:
   friend class ASTContext; // ASTContext creates these.
 
+public:
   BuiltinType(Kind K)
       : Type(Builtin, QualType(),
              K == Dependent ? TypeDependence::DependentInstantiation
@@ -2518,7 +2519,6 @@ private:
     BuiltinTypeBits.Kind = K;
   }
 
-public:
   Kind getKind() const { return static_cast<Kind>(BuiltinTypeBits.Kind); }
   StringRef getName(const PrintingPolicy &Policy) const;
 
