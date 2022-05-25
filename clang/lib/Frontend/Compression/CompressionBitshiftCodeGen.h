@@ -49,7 +49,7 @@ static bool isCompressionCandidate(RecordDecl *recordDecl) {
 }
 
 class CompressionBitshiftCodeGen : public CompressionICodeGen {
-  const std::string tableName = "__table";
+  const std::string tableName = "__bitstore";
   unsigned int tableCellSize = 8;
   SemaPrimitiveType tableCellSemaType = SemaPrimitiveType::getForKind(BuiltinType::Kind::Char_U);
   RecordDecl *decl;
@@ -174,13 +174,18 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
     tableFieldDecl->parent = &record;
 
     std::vector<std::unique_ptr<SemaFieldDecl>> fields;
-    fields.push_back(std::move(tableFieldDecl));
 
     for (auto *field : decl->fields()) {
       if (isCompressionCandidate(field)) continue;
        std::unique_ptr<SemaFieldDecl> fieldDecl = fromFieldDecl(record, field);
        fields.push_back(std::move(fieldDecl));
     }
+
+    std::sort(fields.begin(), fields.end(), [] (std::unique_ptr<SemaFieldDecl> const& a, std::unique_ptr<SemaFieldDecl> const& b) {
+      return a->type->getSize() > b->type->getSize();
+    });
+
+    fields.push_back(std::move(tableFieldDecl));
 
     return fields;
   }
@@ -207,11 +212,11 @@ public:
   explicit CompressionBitshiftCodeGen(RecordDecl *d, CompilerInstance &CI) : decl(d), CI(CI) {}
 
   std::string getCompressedStructName() override {
-    return getOriginalStructName() + "__COMPRESSED";
+    return getOriginalStructName() + "__PACKED";
   }
 
   std::string getFullyQualifiedCompressedStructName() override {
-    return getOriginalFullyQualifiedStructName() + "__COMPRESSED";
+    return getOriginalFullyQualifiedStructName() + "__PACKED";
   }
 
   std::unique_ptr<SemaRecordDecl> getSemaRecordDecl() override {
@@ -239,8 +244,7 @@ public:
     CXXMethodDecl *mpiMappingMethod = getMpiMappingMethodDecl();
     if (mpiMappingMethod) mpiMapping = getNewMpiMappingMethodDecl(mpiMappingMethod);
 
-    std::string structDef = std::string("\n#pragma pack(push, 1)\n")
-                            + "struct " + recordDecl->name + " {\n"
+    std::string structDef = "struct __attribute__((packed)) " + recordDecl->name + " {\n"
                             + fieldsDecl + ";\n"
                             + emptyConstructor + ";\n"
                             + fromOriginalConstructor + ";\n"
@@ -248,9 +252,7 @@ public:
                             + conversionStructs + ";\n"
                             + constSizeArrCompressionMethods + ";\n"
                             + mpiMapping + "\n"
-                            + "};\n"
-                            + "#pragma pack(pop)\n"
-                            ;
+                            + "};\n";
     return structDef;
   }
 
