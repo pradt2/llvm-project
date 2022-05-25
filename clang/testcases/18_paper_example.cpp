@@ -14,7 +14,7 @@ struct Particle {
   int iterationCount;
 
   [[clang::truncate_mantissa(7)]]
-  float convergenceResidual = 1.0;
+  float convergenceResidual = 1.0f;
 
   double energy;
 };
@@ -27,6 +27,6 @@ int main() {
   printf("iterationCount = %d\n", p.iterationCount);
   p.convergenceResidual = 1.125f;
   printf("convergenceResidual = %f\n", p.convergenceResidual);
-  p.energy = 2e5;
+  p.energy = 2e5f;
   printf("energy %f", p.energy);
 }
