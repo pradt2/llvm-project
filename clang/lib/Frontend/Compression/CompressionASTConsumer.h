@@ -179,13 +179,13 @@ private:
         return true;
       } else if (decl->getInitStyle() == VarDecl::InitializationStyle::ListInit) { // TODO move to its own ASTConsumer?
         InitListExpr *initListExpr = llvm::cast<InitListExpr>(initExpr);
-        R.ReplaceText(initListExpr->getSourceRange(), "(" + R.getRewrittenText(initListExpr->getSourceRange()) + ")");
+        R.ReplaceText(initListExpr->getSourceRange(), "(" + record->getNameAsString() + R.getRewrittenText(initListExpr->getSourceRange()) + ")");
       }
       else if (decl->getInitStyle() == VarDecl::InitializationStyle::CInit) {
         std::string newStructName = compressionCodeGen.getFullyQualifiedCompressedStructName();
         InitListExpr *initListExpr = llvm::cast<InitListExpr>(initExpr);
         std::string origInit = R.getRewrittenText(initListExpr->getSourceRange());
-        R.ReplaceText(initListExpr->getSourceRange(), newStructName + "(" + origInit + ")");
+        R.ReplaceText(initListExpr->getSourceRange(), newStructName + "(" + record->getNameAsString() + origInit + ")");
         return true;
       }
       return true;

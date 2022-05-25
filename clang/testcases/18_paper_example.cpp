@@ -28,5 +28,5 @@ int main() {
   p.convergenceResidual = 1.125f;
   printf("convergenceResidual = %f\n", p.convergenceResidual);
   p.energy = 2e5f;
-  printf("energy %f", p.energy);
+  printf("energy %f\n", p.energy);
 }
