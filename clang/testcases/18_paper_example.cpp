@@ -20,6 +20,13 @@ struct Particle {
 };
 
 int main() {
-  Particle p { A, 0 };
-  printf("convergence = %f\n", p.convergenceResidual);
+  Particle p;
+  p.moveState = MoveState::B;
+  printf("moveState = %d\n", p.moveState);
+  p.iterationCount = 128;
+  printf("iterationCount = %d\n", p.iterationCount);
+  p.convergenceResidual = 1.125f;
+  printf("convergenceResidual = %f\n", p.convergenceResidual);
+  p.energy = 2e5;
+  printf("energy %f", p.energy);
 }
