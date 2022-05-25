@@ -175,7 +175,9 @@ private:
       R.ReplaceText(SourceRange(decl->getTypeSpecStartLoc(), decl->getTypeSpecEndLoc()), compressionCodeGen.getFullyQualifiedCompressedStructName() + (ptrs.length() > 0 ? " " + ptrs : ""));
       if (!decl->hasInit()) return true;
       Expr *initExpr = decl->getInit();
-      if (decl->getInitStyle() == VarDecl::InitializationStyle::ListInit) { // TODO move to its own ASTConsumer?
+      if (llvm::isa<CXXConstructExpr>(initExpr)) {
+        return true;
+      } else if (decl->getInitStyle() == VarDecl::InitializationStyle::ListInit) { // TODO move to its own ASTConsumer?
         InitListExpr *initListExpr = llvm::cast<InitListExpr>(initExpr);
         R.ReplaceText(initListExpr->getSourceRange(), "(" + R.getRewrittenText(initListExpr->getSourceRange()) + ")");
       }
@@ -204,6 +206,8 @@ private:
 
     bool VisitCXXConstructExpr(CXXConstructExpr *decl) {
       if (decl->isElidable()) return true;
+      if (decl->getNumArgs() == 0) return true;
+      if (decl->getConstructor()->isImplicit()) return true;
       std::string ptrs;
       auto constructType = getTypeFromIndirectType(decl->getType(), ptrs);
       if (!constructType->isRecordType()) return true;
