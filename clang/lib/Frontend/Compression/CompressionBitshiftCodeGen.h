@@ -87,7 +87,21 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
 
   std::string getEmptyConstructor() {
     std::string constructor = getCompressedStructName();
-    constructor += "() {}";
+    constructor += "() {";
+    auto *R = decl->getASTContext().getSourceManager().getRewriter();
+    for (auto *field : decl->fields()) {
+      if (!field->hasInClassInitializer()) continue;
+      std::string init = R->getRewrittenText(field->getInClassInitializer()->getSourceRange());
+      if (isCompressionCandidate(field)) {
+        auto compressor = DelegatingFieldCompressor(tableCellSize, tableName, getCompressedStructName(), field);
+        compressor.setOffset(getFieldOffset(field));
+        constructor += compressor.getCopyConstructorStmt("this->", init) + "\n";
+      }
+      else {
+        constructor += "this->" + field->getNameAsString() + " = " + init + "; ";
+      }
+    }
+    constructor += "}";
     return constructor;
   }
 
