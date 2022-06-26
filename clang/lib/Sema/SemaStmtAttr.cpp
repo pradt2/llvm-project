@@ -233,14 +233,32 @@ static Attr *handleUnlikely(Sema &S, Stmt *St, const ParsedAttr &A,
   return ::new (S.Context) UnlikelyAttr(S.Context, A);
 }
 
-static Attr *handleSoaConversion(Sema &S, Stmt *St, const ParsedAttr &A,
-                                 SourceRange Range) {
-  if (A.getNumArgs() != 2) return nullptr;
-  if (!llvm::isa<StringLiteral>(A.getArgAsExpr(0))) return nullptr;
-  if (!llvm::isa<StringLiteral>(A.getArgAsExpr(1))) return nullptr;
-  auto inRef = llvm::cast<StringLiteral>(A.getArgAsExpr(0))->getString();
-  auto outRef = llvm::cast<StringLiteral>(A.getArgAsExpr(1))->getString();
-  return ::new (S.Context) SoaConversionAttr(S.Context, A, inRef, outRef);
+static Attr *handleSoaConversionInput(Sema &S, Stmt *St, const ParsedAttr &A,
+                                      SourceRange Range) {
+  if (A.getNumArgs() == 0) return nullptr;
+  auto SIZE = A.getNumArgs();
+  auto *arr = new (S.Context) llvm::StringRef[SIZE];
+
+  for (int i = 0; A.getNumArgs(); i++) {
+    if (!llvm::isa<StringLiteral>(A.getArgAsExpr(i))) return nullptr;
+    arr[i] = llvm::cast<StringLiteral>(A.getArgAsExpr(i))->getString();
+  }
+
+  return ::new (S.Context) SoaConversionInputAttr(S.Context, A, arr, SIZE);
+}
+
+static Attr *handleSoaConversionOutput(Sema &S, Stmt *St, const ParsedAttr &A,
+                                       SourceRange Range) {
+  if (A.getNumArgs() == 0) return nullptr;
+  auto SIZE = A.getNumArgs();
+  auto *arr = new (S.Context) llvm::StringRef[SIZE];
+
+  for (int i = 0; A.getNumArgs(); i++) {
+    if (!llvm::isa<StringLiteral>(A.getArgAsExpr(i))) return nullptr;
+    arr[i] = llvm::cast<StringLiteral>(A.getArgAsExpr(i))->getString();
+  }
+
+  return ::new (S.Context) SoaConversionOutputAttr(S.Context, A, arr, SIZE);
 }
 
 static Attr *handleSoaConversionTarget(Sema &S, Stmt *St, const ParsedAttr &A,
@@ -469,8 +487,10 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &A,
     return handleLikely(S, St, A, Range);
   case ParsedAttr::AT_Unlikely:
     return handleUnlikely(S, St, A, Range);
-  case ParsedAttr::AT_SoaConversion:
-    return handleSoaConversion(S, St, A, Range);
+  case ParsedAttr::AT_SoaConversionInput:
+    return handleSoaConversionInput(S, St, A, Range);
+  case ParsedAttr::AT_SoaConversionOutput:
+    return handleSoaConversionOutput(S, St, A, Range);
   case ParsedAttr::AT_SoaConversionTarget:
     return handleSoaConversionTarget(S, St, A, Range);
   case ParsedAttr::AT_SoaConversionTargetSize:

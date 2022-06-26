@@ -809,6 +809,7 @@ def CompressTruncateMantissa : InheritableParamAttr {
 
 def MapMpiDatatype : InheritableParamAttr {
     let Spellings = [Clang<"map_mpi_datatype">];
+    let Args = [VariadicStringArgument<"Fields">];
     let Subjects = SubjectList<[Function]>;
     let Documentation = [Undocumented];
 }
@@ -822,10 +823,17 @@ def CompressionMethod : InheritableParamAttr {
     let Documentation = [Undocumented];
 }
 
-def SoaConversion : StmtAttr {
-    let Spellings = [Clang<"soa_conversion">];
-    let Args = [StringArgument<"InputFields">,
-                StringArgument<"OutputFields">];
+def SoaConversionInput : StmtAttr {
+    let Spellings = [Clang<"soa_conversion_input">];
+    let Args = [VariadicStringArgument<"InputFields">];
+    let Subjects = SubjectList<[ForStmt, CXXForRangeStmt],
+                                ErrorDiag, "'for' statements">;
+    let Documentation = [Undocumented];
+}
+
+def SoaConversionOutput : StmtAttr {
+    let Spellings = [Clang<"soa_conversion_output">];
+    let Args = [VariadicStringArgument<"OutputFields">];
     let Subjects = SubjectList<[ForStmt, CXXForRangeStmt],
                                 ErrorDiag, "'for' statements">;
     let Documentation = [Undocumented];

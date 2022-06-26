@@ -142,7 +142,7 @@ class MpiMappingGenerator {
     return element;
   }
 
-  std::string getMappingMethodCode(std::vector<std::unique_ptr<SemaFieldDecl>> &fields) {
+  std::string getMappingMethodCode(std::vector<std::unique_ptr<SemaFieldDecl>> &fields, std::set<llvm::StringRef> fieldPaths) {
     SemaRecordDecl& recordDecl = *fields[0]->parent;
 
     std::string sourceCode = "";
@@ -221,36 +221,43 @@ public:
     return false;
   }
 
-  std::string getMpiMappingMethodBody(RecordDecl *decl) {
-    return getMpiMappingMethodBody(decl->getNameAsString(), decl);
-  }
-
-  std::string getMpiMappingMethodBody(std::string structName, RecordDecl *decl) {
-      auto semaRecordDecl = fromRecordDecl(decl);
-      semaRecordDecl->name = structName;
-      return getMpiMappingMethodBody(*semaRecordDecl);
-  }
-
-  std::string getMpiMappingMethodBody(SemaRecordDecl &decl) {
-      return getMpiMappingMethodBody(decl.fields);
-  }
-
-  std::string getMpiMappingMethodBody(std::vector<std::unique_ptr<SemaFieldDecl>> &fields) {
-      return this->getMappingMethodCode(fields);
-  }
-
-  std::string getMpiMappingMethodDef(RecordDecl *decl, SemaRecordDecl &semaDecl) {
-    std::string methodName;
-    auto *cxxDecl = llvm::cast<CXXRecordDecl>(decl);
-    for (auto *method : cxxDecl->methods()) {
-      if (!isMpiMappingCandidate(method)) continue;
-      methodName = method->getNameAsString();
-      break;
+  std::string getMpiMappingMethodBody(CXXMethodDecl *D) {
+    std::set<llvm::StringRef> fieldPaths;
+    for (auto *attr : D->attrs()) {
+      if (!llvm::isa<MapMpiDatatypeAttr>(attr)) continue;
+      for (auto field : llvm::cast<MapMpiDatatypeAttr>(attr)->fields()) fieldPaths.insert(field);
     }
-
-    std::string methodDef = "static MPI_Datatype " + methodName + "() {\n" + getMpiMappingMethodBody(semaDecl) + "\n}";
-    return methodDef;
+    CXXRecordDecl *decl = D->getParent();
+    return getMpiMappingMethodBody(decl->getNameAsString(), decl, fieldPaths);
   }
+
+  std::string getMpiMappingMethodBody(std::string structName, RecordDecl *decl, std::set<llvm::StringRef> fieldPaths) {
+      auto semaRecordDecl = fromRecordDecl(decl, fieldPaths);
+      semaRecordDecl->name = structName;
+      return getMpiMappingMethodBody(*semaRecordDecl, fieldPaths);
+  }
+
+  std::string getMpiMappingMethodBody(SemaRecordDecl &decl, std::set<llvm::StringRef> fieldPaths) {
+      return getMpiMappingMethodBody(decl.fields, fieldPaths);
+  }
+
+  std::string getMpiMappingMethodBody(std::vector<std::unique_ptr<SemaFieldDecl>> &fields, std::set<llvm::StringRef> fieldPaths) {
+      return this->getMappingMethodCode(fields, fieldPaths);
+  }
+
+// unused?
+//  std::string getMpiMappingMethodDef(RecordDecl *decl, SemaRecordDecl &semaDecl) {
+//    std::string methodName;
+//    auto *cxxDecl = llvm::cast<CXXRecordDecl>(decl);
+//    for (auto *method : cxxDecl->methods()) {
+//      if (!isMpiMappingCandidate(method)) continue;
+//      methodName = method->getNameAsString();
+//      break;
+//    }
+//
+//    std::string methodDef = "static MPI_Datatype " + methodName + "() {\n" + getMpiMappingMethodBody(semaDecl) + "\n}";
+//    return methodDef;
+//  }
 
 };
 

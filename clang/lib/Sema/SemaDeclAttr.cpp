@@ -4000,8 +4000,8 @@ void Sema::AddCompressionMethodAttr(Decl *D, const AttributeCommonInfo &CI, Comp
   D->addAttr(CompressionMethodAttr);
 }
 
-void Sema::AddMapMpiDatatypeAttr(Decl *D, const AttributeCommonInfo &CI) {
-  auto *MapMpiDatatypeAttr = clang::MapMpiDatatypeAttr::Create(Context, CI);
+void Sema::AddMapMpiDatatypeAttr(Decl *D, llvm::StringRef *Fields, unsigned int FieldsSize, const AttributeCommonInfo &CI) {
+  auto *MapMpiDatatypeAttr = clang::MapMpiDatatypeAttr::Create(Context, Fields, FieldsSize, CI);
   D->addAttr(MapMpiDatatypeAttr);
 }
 
@@ -4017,7 +4017,16 @@ static void handleCompressionMethodAttr(Sema &S, Decl *D, const ParsedAttr &AL) 
 }
 
 static void handleMapMpiDatatypeAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
-  S.AddMapMpiDatatypeAttr(D, AL);
+  if (AL.getNumArgs() == 0) return;
+  auto SIZE = AL.getNumArgs();
+  auto *arr = new (S.Context) llvm::StringRef[SIZE];
+
+  for (int i = 0; AL.getNumArgs(); i++) {
+    if (!llvm::isa<StringLiteral>(AL.getArgAsExpr(i))) return;
+    arr[i] = llvm::cast<StringLiteral>(AL.getArgAsExpr(i))->getString();
+  }
+
+  S.AddMapMpiDatatypeAttr(D, arr, SIZE, AL);
 }
 
 static void handleAlignValueAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
