@@ -354,7 +354,7 @@ LANGOPT(
     CompleteMemberPointers, 1, 0,
     "Require member pointer base types to be complete at the point where the "
     "type's inheritance model would be determined under the Microsoft ABI")
-
+LANGOPT(HpcLanguageExtensions, 1, 0, "HPC language extensions such as [[clang::pack]] attribute")
 ENUM_LANGOPT(GC, GCMode, 2, NonGC, "Objective-C Garbage Collection mode")
 BENIGN_ENUM_LANGOPT(ValueVisibilityMode, Visibility, 3, DefaultVisibility,
              "default visibility for functions and variables [-fvisibility]")

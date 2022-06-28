@@ -1885,6 +1885,10 @@ defm complete_member_pointers : BoolOption<"f", "complete-member-pointers",
           " member pointer base types to be complete if they"
             " would be significant under the Microsoft ABI">>,
   Group<f_clang_Group>;
+defm hpc_language_extensions : BoolFOption<"hpc-language-extensions",
+  LangOpts<"HpcLanguageExtensions">, DefaultFalse,
+  PosFlag<SetTrue, [CC1Option], "HPC language extensions such as [[clang::pack]] attribute">,
+  NegFlag<SetFalse>>;
 def fcf_runtime_abi_EQ : Joined<["-"], "fcf-runtime-abi=">, Group<f_Group>,
     Visibility<[ClangOption, CC1Option]>,
     Values<"unspecified,standalone,objc,swift,swift-5.0,swift-4.2,swift-4.1">,
