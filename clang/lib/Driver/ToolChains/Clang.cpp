@@ -6429,6 +6429,10 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       D.Diag(diag::warn_drv_clang_unsupported) << A->getAsString(Args);
   }
 
+  if (Args.hasFlag(options::OPT_fhpc_language_extensions,
+                   options::OPT_fno_hpc_language_extensions, true))
+    CmdArgs.push_back("-fhpc-language-extensions");
+
   if (Args.hasFlag(options::OPT_fapple_pragma_pack,
                    options::OPT_fno_apple_pragma_pack, false))
     CmdArgs.push_back("-fapple-pragma-pack");
