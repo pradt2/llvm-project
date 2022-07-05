@@ -90,7 +90,7 @@ class MpiMappingGenerator {
       int size = 1;
 
       while (true) {
-        size *= constSizeArrType->size;
+        size *= constSizeArrType->elementCount;
         if (!constSizeArrType->elementType->isConstSizeArrType()) break;
         constSizeArrType = (SemaConstSizeArrType *) constSizeArrType->elementType.get();
       }
