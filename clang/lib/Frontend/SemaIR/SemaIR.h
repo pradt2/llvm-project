@@ -44,7 +44,7 @@ struct SemaEnumType : SemaType {
 };
 
 struct SemaConstSizeArrType : SemaType {
-  unsigned int size;
+  unsigned int elementCount;
   std::unique_ptr<SemaType> elementType;
   bool isConstSizeArrType() override { return true; }
 };
@@ -73,7 +73,7 @@ std::unique_ptr<SemaType> fromQualType(QualType type, ASTContext &C) {
   if (type->isConstantArrayType()) {
     auto *constArr = llvm::cast<ConstantArrayType>(type->getAsArrayTypeUnsafe());
     std::unique_ptr<SemaConstSizeArrType> semaType = std::make_unique<SemaConstSizeArrType>();
-    semaType->size = constArr->getSize().getZExtValue();
+    semaType->elementCount = constArr->getSize().getZExtValue();
     semaType->elementType = fromQualType(constArr->getElementType(), C);
     semaType->size = C.getTypeInfo(type).Width;
     return semaType;
