@@ -196,11 +196,10 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
     return fieldDecl;
   }
 
-  std::vector<FieldDecl *> getFieldsForSoa(RecordDecl *decl, llvm::StringRef fields) {
-    std::vector<std::string> fieldsList = splitString(fields, ",");
+  std::vector<FieldDecl *> getFieldsForSoa(RecordDecl *decl, llvm::StringRef *fields, unsigned int fieldsCount) {
     std::vector<FieldDecl *> foundFields;
-    for (auto field : fieldsList) {
-      auto *newField = getNestedFieldDecl(decl, field);
+    for (unsigned int i = 0; i < fieldsCount; i++) {
+      auto *newField = getNestedFieldDecl(decl, fields[i]);
       foundFields.push_back(newField);
     }
     return foundFields;
@@ -251,52 +250,52 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
     return source;
   }
 
-  std::string getSoaConversionForLoop(llvm::StringRef targetRef, QualType type, RecordDecl *decl, std::vector<std::string> fieldPaths, llvm::StringRef size) {
+  std::string getSoaConversionForLoop(llvm::StringRef targetRef, QualType type, RecordDecl *decl, llvm::StringRef *fieldPaths, unsigned int fieldPathsCount, llvm::StringRef size) {
     std::string soaName = targetRef.str() + "__SoA__instance";
     std::string idxName = targetRef.str() + "__SoA__instance__iter";
     std::string sourceCode = "for (int " + idxName + " = 0; " + idxName + " < " + size.str() + "; " + idxName + "++) {\n";
-    for (auto fieldPath : fieldPaths) {
-      std::string fieldName = getNestedFieldDecl(decl, fieldPath)->getNameAsString();
-      sourceCode += soaName + "." + fieldName + "[" + idxName + "] = " + buildReadAccess(targetRef, type, idxName, fieldPath) + ";\n";
+    for (unsigned int i = 0; i < fieldPathsCount; i++) {
+      std::string fieldName = getNestedFieldDecl(decl, fieldPaths[i])->getNameAsString();
+      sourceCode += soaName + "." + fieldName + "[" + idxName + "] = " + buildReadAccess(targetRef, type, idxName, fieldPaths[i]) + ";\n";
     }
     sourceCode += "}\n";
     return sourceCode;
   }
 
-  std::string getSoaConversionForRangeLoop(llvm::StringRef targetRef, QualType type, RecordDecl *decl, std::vector<std::string> fieldPaths, llvm::StringRef size) {
+  std::string getSoaConversionForRangeLoop(llvm::StringRef targetRef, QualType type, RecordDecl *decl, llvm::StringRef *fieldPaths, unsigned int fieldPathsCount, llvm::StringRef size) {
     std::string soaName = targetRef.str() + "__SoA__instance";
     std::string idxName = targetRef.str() + "__SoA__instance__iter";
     std::string sourceCode = "{ unsigned int " + idxName + " = 0;\n";
     sourceCode += "for (auto &element : " + targetRef.str() + ") {\n";
-    for (auto fieldPath : fieldPaths) {
-      std::string fieldName = getNestedFieldDecl(decl, fieldPath)->getNameAsString();
-      sourceCode += soaName + "." + fieldName + "[" + idxName + "] = " + buildReadAccess("element", type, fieldPath) + ";\n";
+    for (unsigned int i = 0; i < fieldPathsCount; i++) {
+      std::string fieldName = getNestedFieldDecl(decl, fieldPaths[i])->getNameAsString();
+      sourceCode += soaName + "." + fieldName + "[" + idxName + "] = " + buildReadAccess("element", type, fieldPaths[i]) + ";\n";
     }
     sourceCode += idxName + "++;\n";
     sourceCode += "} }\n";
     return sourceCode;
   }
 
-  std::string getSoaUnconversionForLoop(llvm::StringRef targetRef, QualType type, RecordDecl *decl, std::vector<std::string> fieldPaths, llvm::StringRef size) {
+  std::string getSoaUnconversionForLoop(llvm::StringRef targetRef, QualType type, RecordDecl *decl, llvm::StringRef *fieldPaths, unsigned int fieldPathsCount, llvm::StringRef size) {
     std::string soaName = targetRef.str() + "__SoA__instance";
     std::string idxName = targetRef.str() + "__SoA__instance__iter";
     std::string sourceCode = "for (int " + idxName + " = 0; " + idxName + " < " + size.str() + "; " + idxName + "++) {\n";
-    for (auto fieldPath : fieldPaths) {
-      std::string fieldName = getNestedFieldDecl(decl, fieldPath)->getNameAsString();
-      sourceCode += buildReadAccess(targetRef, type, idxName, fieldPath) + " = " + soaName + "." + fieldName + "[" + idxName + "];\n";
+    for (unsigned int i = 0; i < fieldPathsCount; i++) {
+      std::string fieldName = getNestedFieldDecl(decl, fieldPaths[i])->getNameAsString();
+      sourceCode += buildReadAccess(targetRef, type, idxName, fieldPaths[i]) + " = " + soaName + "." + fieldName + "[" + idxName + "];\n";
     }
     sourceCode += "}\n";
     return sourceCode;
   }
 
-  std::string getSoaUnconversionForRangeLoop(llvm::StringRef targetRef, QualType type, RecordDecl *decl, std::vector<std::string> fieldPaths, llvm::StringRef size) {
+  std::string getSoaUnconversionForRangeLoop(llvm::StringRef targetRef, QualType type, RecordDecl *decl, llvm::StringRef *fieldPaths, unsigned int fieldPathsCount, llvm::StringRef size) {
     std::string soaName = targetRef.str() + "__SoA__instance";
     std::string idxName = targetRef.str() + "__SoA__instance__iter";
     std::string sourceCode = "{ unsigned int " + idxName + " = 0;\n";
     sourceCode += "for (auto &element : " + targetRef.str() + ") {\n";
-    for (auto fieldPath : fieldPaths) {
-      std::string fieldName = getNestedFieldDecl(decl, fieldPath)->getNameAsString();
-      sourceCode += buildReadAccess("element", type, fieldPath) + " = " + soaName + "." + fieldName + "[" + idxName + "];\n";
+    for (unsigned int i = 0; i < fieldPathsCount; i++) {
+      std::string fieldName = getNestedFieldDecl(decl, fieldPaths[i])->getNameAsString();
+      sourceCode += buildReadAccess("element", type, fieldPaths[i]) + " = " + soaName + "." + fieldName + "[" + idxName + "];\n";
     }
     sourceCode += idxName + "++;\n";
     sourceCode += "} }\n";
@@ -362,35 +361,34 @@ public:
   SoaConversionASTConsumer(CompilerInstance &CI) : CI(CI), R(*CI.getSourceManager().getRewriter()) {}
 
   bool VisitForStmt(ForStmt *S) {
-    const SoaConversionAttr *conversionAttr = getAttr<SoaConversionAttr>(S);
+    const SoaConversionInputsAttr *conversionInputsAttr = getAttr<SoaConversionInputsAttr>(S);
+    const SoaConversionOutputsAttr *conversionOutputsAttr = getAttr<SoaConversionOutputsAttr>(S);
     const SoaConversionTargetAttr *conversionTargetAttr = getAttr<SoaConversionTargetAttr>(S);
     const SoaConversionTargetSizeAttr *conversionTargetSizeAttr = getAttr<SoaConversionTargetSizeAttr>(S);
 
-    if (!conversionAttr || !conversionTargetAttr || !conversionTargetSizeAttr) return true;
+    if (!conversionInputsAttr || !conversionOutputsAttr || !conversionTargetAttr || !conversionTargetSizeAttr) return true;
 
     FunctionDecl *loopParent = getLoopParentFunctionDecl(S);
     auto *targetDeclRef = getTargetDeclRefExpr(conversionTargetAttr->getTargetRef(), loopParent);
     RecordDecl *targetRecordDecl = getTargetRecordDecl(targetDeclRef, loopParent);
-    std::vector<FieldDecl*> soaFields = getFieldsForSoa(targetRecordDecl, conversionAttr->getInputFields());
+    std::vector<FieldDecl*> soaFields = getFieldsForSoa(targetRecordDecl, conversionInputsAttr->inputFields_begin(), conversionInputsAttr->inputFields_size());
 
     std::string soaDef = getSoaDef(conversionTargetAttr->getTargetRef(), soaFields, conversionTargetSizeAttr->getTargetSizeExpr());
     std::string soaConv = getSoaConversionForLoop(
         conversionTargetAttr->getTargetRef(), targetDeclRef->getType(), targetRecordDecl,
-        splitString(conversionAttr->getInputFields(), ","),
+        conversionInputsAttr->inputFields_begin(), conversionInputsAttr->inputFields_size(),
         conversionTargetSizeAttr->getTargetSizeExpr());
     writeBeforeForStmt(S, soaDef + "\n" + soaConv + "\n");
 
     std::string soaUnconv = getSoaUnconversionForLoop(
         conversionTargetAttr->getTargetRef(), targetDeclRef->getType(), targetRecordDecl,
-        splitString(conversionAttr->getOutputFields(), ","),
+        conversionOutputsAttr->outputFields_begin(), conversionOutputsAttr->outputFields_size(),
         conversionTargetSizeAttr->getTargetSizeExpr());
     writeAfterStmt(S, "\n" + soaUnconv);
 
     MemberExprRewriter rewriter(R);
-    std::vector<std::string> fieldPaths = splitString(conversionAttr->getInputFields(), ",");
-    assert(soaFields.size() == fieldPaths.size());
     std::string forLoopIdx = getForStmtIdx(S);
-    for (int i = 0; i < soaFields.size(); i++) {
+    for (unsigned long i = 0; i < soaFields.size(); i++) {
       std::string replacement = conversionTargetAttr->getTargetRef().str() + "__SoA__instance" + "." + soaFields[i]->getNameAsString() + "[" + forLoopIdx + "]" ;
       rewriter.replaceMemberExprs(soaFields[i], replacement, S);
     }
@@ -398,27 +396,28 @@ public:
   }
 
   bool VisitCXXForRangeStmt(CXXForRangeStmt *S) {
-    const SoaConversionAttr *conversionAttr = getAttr<SoaConversionAttr>(S);
+    const SoaConversionInputsAttr *conversionInputsAttr = getAttr<SoaConversionInputsAttr>(S);
+    const SoaConversionOutputsAttr *conversionOutputsAttr = getAttr<SoaConversionOutputsAttr>(S);
     const SoaConversionTargetSizeAttr *conversionTargetSizeAttr = getAttr<SoaConversionTargetSizeAttr>(S);
 
-    if (!conversionAttr || !conversionTargetSizeAttr) return true;
+    if (!conversionInputsAttr || !conversionOutputsAttr || !conversionTargetSizeAttr) return true;
 
     std::string targetRefStr = R.getRewrittenText(S->getRangeInit()->getSourceRange());
     llvm::StringRef targetRef = llvm::StringRef(targetRefStr);
 
     RecordDecl *targetRecordDecl = getMostLikelyIterableType(S->getLoopVariable()->getType())->getAsRecordDecl();
-    std::vector<FieldDecl*> soaFields = getFieldsForSoa(targetRecordDecl, conversionAttr->getInputFields());
+    std::vector<FieldDecl*> soaFields = getFieldsForSoa(targetRecordDecl, conversionInputsAttr->inputFields_begin(), conversionInputsAttr->inputFields_size());
 
     std::string soaDef = getSoaDef(targetRef, soaFields, conversionTargetSizeAttr->getTargetSizeExpr());
     std::string soaConv = getSoaConversionForRangeLoop(
         targetRef, S->getLoopVariable()->getType(), targetRecordDecl,
-        splitString(conversionAttr->getInputFields(), ","),
+        conversionInputsAttr->inputFields_begin(), conversionInputsAttr->inputFields_size(),
         conversionTargetSizeAttr->getTargetSizeExpr());
     writeBeforeForStmt(S, soaDef + "\n" + soaConv + "\n");
 
     std::string soaUnconv = getSoaUnconversionForRangeLoop(
         targetRef, S->getLoopVariable()->getType(), targetRecordDecl,
-        splitString(conversionAttr->getOutputFields(), ","),
+        conversionInputsAttr->inputFields_begin(), conversionInputsAttr->inputFields_size(),
         conversionTargetSizeAttr->getTargetSizeExpr());
     writeAfterStmt(S, "\n" + soaUnconv);
 
@@ -428,10 +427,7 @@ public:
     R.ReplaceText(newForLoop, "for (unsigned int " + forLoopIdx + " = 0; " + forLoopIdx + " < " + conversionTargetSizeAttr->getTargetSizeExpr().str() + "; " + forLoopIdx + "++)");
 
     MemberExprRewriter rewriter(R);
-    std::vector<std::string> fieldPaths = splitString(conversionAttr->getInputFields(), ",");
-    assert(soaFields.size() == fieldPaths.size());
-
-    for (int i = 0; i < soaFields.size(); i++) {
+    for (unsigned long i = 0; i < soaFields.size(); i++) {
       std::string replacement = targetRef.str() + "__SoA__instance" + "." + soaFields[i]->getNameAsString() + "[" + forLoopIdx + "]" ;
       rewriter.replaceMemberExprs(soaFields[i], replacement, S);
     }
