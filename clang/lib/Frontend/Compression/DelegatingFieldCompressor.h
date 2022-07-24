@@ -46,12 +46,26 @@ public:
   }
 
   bool supports(FieldDecl *fd) {
-    return supports(fd->getType(), fd->attrs());
+    bool doesSupport = supports(fd->getType(), fd->attrs());
+
+    if (doesSupport) return doesSupport;
+
+    for ( auto *attr : fd->attrs()) {
+      if (llvm::isa<CompressAttr>(attr)
+          || llvm::isa<CompressRangeAttr>(attr)
+          || llvm::isa<CompressTruncateMantissaAttr>(attr)) {
+        llvm::errs() << "Packing requested for an unsupported field type! " << "Packing will not be implemented for " << fd->getSourceRange().getBegin().printToString(fd->getASTContext().getSourceManager()) << "\n";
+        exit(1);
+      }
+    }
+
+    return doesSupport;
   }
 
   bool supports(QualType type, Attrs attrs) {
     if (DelegatingNonIndexedFieldCompressor().supports(type, attrs)) return true;
     if (ConstantSizeArrayBitArrayCompressor().supports(type, attrs)) return true;
+
     return false;
   }
 
