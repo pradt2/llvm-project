@@ -324,42 +324,60 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   bool Success;
   llvm::TimeTraceScope TimeScope("ExecuteCompiler");
 
-  if (Clang->getLangOpts().HpcLanguageExtensions) {
+  bool enableHpcLangExtensions = Clang->getLangOpts().PackedAttributesLanguageExtension
+                              || Clang->getLangOpts().MpiAttributesLanguageExtension
+                              || Clang->getLangOpts().SoaConversionAttributesLanguageExtension;
+
+  if (enableHpcLangExtensions) {
     RewrittenSourcesHandler rewrittenSourcesHandler;
 
-    auto ClangSoaConvert = CreateCompilerInstance(Argv, Argv0, MainAddr);
-    Result = ExecuteCompilerInvocation(ClangSoaConvert.get(), std::make_unique<SoaConvertAction>());
-    Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
+    std::unique_ptr<CompilerInstance> CompilerInstance;
 
-    if (Result == FRONTEND_ACTION_SUCCESS) {
-      auto ClangCompress = CreateCompilerInstance(Argv, Argv0, MainAddr);
-
-      rewrittenSourcesHandler.loadRewrittenSources(ClangSoaConvert->getSourceManager().getRewriter());
-      rewrittenSourcesHandler.saveIntoOpts(ClangCompress->getPreprocessorOpts());
-
-      Result = ExecuteCompilerInvocation(ClangCompress.get(), std::make_unique<CompressAction>());
+    if (Clang->getLangOpts().SoaConversionAttributesLanguageExtension) {
+      CompilerInstance = CreateCompilerInstance(Argv, Argv0, MainAddr);
+      Result = ExecuteCompilerInvocation(CompilerInstance.get(), std::make_unique<SoaConvertAction>());
       Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
-
-      if (Result == FRONTEND_ACTION_SUCCESS) {
-        auto ClangMpiDatatypesMapping = CreateCompilerInstance(Argv, Argv0, MainAddr);
-
-        rewrittenSourcesHandler.loadRewrittenSources(ClangCompress->getSourceManager().getRewriter());
-        rewrittenSourcesHandler.saveIntoOpts(ClangMpiDatatypesMapping->getPreprocessorOpts());
-
-        Result = ExecuteCompilerInvocation(ClangMpiDatatypesMapping.get(), std::make_unique<MapMpiDatatypesAction>());
-        Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
-
-        if (Result == FRONTEND_ACTION_SUCCESS) {
-          rewrittenSourcesHandler.loadRewrittenSources(ClangMpiDatatypesMapping->getSourceManager().getRewriter());
-          rewrittenSourcesHandler.saveIntoOpts(Clang->getPreprocessorOpts());
-
-          Result = ExecuteCompilerInvocation(Clang.get());
-          Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
-        }
-      }
+    } else {
+      Result = clang::FRONTEND_ACTION_SUCCESS;
+      Success = true;
     }
 
-    rewrittenSourcesHandler.dump();
+    if (Result == FRONTEND_ACTION_SUCCESS && Clang->getLangOpts().PackedAttributesLanguageExtension) {
+      rewrittenSourcesHandler.loadRewrittenSources(CompilerInstance->getSourceManager().getRewriter());
+
+      CompilerInstance = CreateCompilerInstance(Argv, Argv0, MainAddr);
+      rewrittenSourcesHandler.saveIntoOpts(CompilerInstance->getPreprocessorOpts());
+
+      Result = ExecuteCompilerInvocation(CompilerInstance.get(), std::make_unique<CompressAction>());
+      Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
+    } else {
+      Result = clang::FRONTEND_ACTION_SUCCESS;
+      Success = true;
+    }
+
+    if (Result == FRONTEND_ACTION_SUCCESS && Clang->getLangOpts().MpiAttributesLanguageExtension) {
+      rewrittenSourcesHandler.loadRewrittenSources(CompilerInstance->getSourceManager().getRewriter());
+
+      CompilerInstance = CreateCompilerInstance(Argv, Argv0, MainAddr);
+      rewrittenSourcesHandler.saveIntoOpts(CompilerInstance->getPreprocessorOpts());
+
+      Result = ExecuteCompilerInvocation(CompilerInstance.get(), std::make_unique<MapMpiDatatypesAction>());
+      Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
+    } else {
+      Result = clang::FRONTEND_ACTION_SUCCESS;
+      Success = true;
+    }
+
+    if (Result == FRONTEND_ACTION_SUCCESS) {
+      rewrittenSourcesHandler.loadRewrittenSources(CompilerInstance->getSourceManager().getRewriter());
+      rewrittenSourcesHandler.saveIntoOpts(Clang->getPreprocessorOpts());
+
+      rewrittenSourcesHandler.dump();
+
+      Result = ExecuteCompilerInvocation(Clang.get());
+      Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
+    }
+
   } else {
     Result = ExecuteCompilerInvocation(Clang.get());
     Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;

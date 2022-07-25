@@ -7236,9 +7236,29 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       D.Diag(diag::warn_drv_clang_unsupported) << A->getAsString(Args);
   }
 
-  if (Args.hasFlag(options::OPT_fhpc_language_extensions,
-                   options::OPT_fno_hpc_language_extensions, true))
-    CmdArgs.push_back("-fhpc-language-extensions");
+  if (Args.hasFlag(options::OPT_fpacked_attributes_language_extension,
+                   options::OPT_fno_packed_attributes_language_extension, true)) {
+    CmdArgs.push_back("-fpacked_attributes_language_extension");
+    CmdArgs.push_back("-D__PACKED_ATTRIBUTES_LANGUAGE_EXTENSION__");
+  }
+
+  if (Args.hasFlag(options::OPT_fmpi_attributes_language_extension,
+                   options::OPT_fno_mpi_attributes_language_extension, true)) {
+    CmdArgs.push_back("-fmpi_attributes_language_extension");
+    CmdArgs.push_back("-D__MPI_ATTRIBUTES_LANGUAGE_EXTENSION__");
+  }
+
+  if (Args.hasFlag(options::OPT_fmpi_attributes_language_extension,
+                   options::OPT_fno_mpi_attributes_language_extension, true)) {
+    CmdArgs.push_back("-fmpi_attributes_language_extension");
+    CmdArgs.push_back("-D__MPI_ATTRIBUTES_LANGUAGE_EXTENSION__");
+  }
+
+  if (Args.hasFlag(options::OPT_fsoa_conversion_attributes_language_extension,
+                   options::OPT_fno_soa_conversion_attributes_language_extension, true)) {
+    CmdArgs.push_back("-fsoa_conversion_attributes_language_extension");
+    CmdArgs.push_back("-D__SOA_CONVERSION_ATTRIBUTES_EXTENSION__");
+  }
 
   if (Args.hasFlag(options::OPT_fapple_pragma_pack,
                    options::OPT_fno_apple_pragma_pack, false))

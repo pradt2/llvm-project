@@ -1885,9 +1885,17 @@ defm complete_member_pointers : BoolOption<"f", "complete-member-pointers",
           " member pointer base types to be complete if they"
             " would be significant under the Microsoft ABI">>,
   Group<f_clang_Group>;
-defm hpc_language_extensions : BoolFOption<"hpc-language-extensions",
-  LangOpts<"HpcLanguageExtensions">, DefaultFalse,
-  PosFlag<SetTrue, [CC1Option], "HPC language extensions such as [[clang::pack]] attribute">,
+defm packed_attributes_language_extension : BoolFOption<"packed-attributes-language-extension",
+  LangOpts<"PackedAttributesLanguageExtension">, DefaultFalse,
+  PosFlag<SetTrue, [CC1Option], "Packing attributes such as [[clang::pack]] attribute">,
+  NegFlag<SetFalse>>;
+defm mpi_attributes_language_extension : BoolFOption<"mpi-attributes-language-extension",
+  LangOpts<"MpiAttributesLanguageExtension">, DefaultFalse,
+  PosFlag<SetTrue, [CC1Option], "MPI mapping extensions such as [[clang::map_mpi_datatype]] attribute">,
+  NegFlag<SetFalse>>;
+defm soa_conversion_attributes_language_extension : BoolFOption<"soa-conversion-attributes-language-extension",
+  LangOpts<"SoaConversionAttributesLanguageExtension">, DefaultFalse,
+  PosFlag<SetTrue, [CC1Option], "SOA conversion attributes such as [[clang::soa_conv_target]] attribute">,
   NegFlag<SetFalse>>;
 def fcf_runtime_abi_EQ : Joined<["-"], "fcf-runtime-abi=">, Group<f_Group>,
     Visibility<[ClangOption, CC1Option]>,
