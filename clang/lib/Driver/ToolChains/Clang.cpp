@@ -7238,25 +7238,19 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
   if (Args.hasFlag(options::OPT_fpacked_attributes_language_extension,
                    options::OPT_fno_packed_attributes_language_extension, true)) {
-    CmdArgs.push_back("-fpacked_attributes_language_extension");
+    CmdArgs.push_back("-fpacked-attributes-language-extension");
     CmdArgs.push_back("-D__PACKED_ATTRIBUTES_LANGUAGE_EXTENSION__");
   }
 
   if (Args.hasFlag(options::OPT_fmpi_attributes_language_extension,
                    options::OPT_fno_mpi_attributes_language_extension, true)) {
-    CmdArgs.push_back("-fmpi_attributes_language_extension");
-    CmdArgs.push_back("-D__MPI_ATTRIBUTES_LANGUAGE_EXTENSION__");
-  }
-
-  if (Args.hasFlag(options::OPT_fmpi_attributes_language_extension,
-                   options::OPT_fno_mpi_attributes_language_extension, true)) {
-    CmdArgs.push_back("-fmpi_attributes_language_extension");
+    CmdArgs.push_back("-fmpi-attributes-language-extension");
     CmdArgs.push_back("-D__MPI_ATTRIBUTES_LANGUAGE_EXTENSION__");
   }
 
   if (Args.hasFlag(options::OPT_fsoa_conversion_attributes_language_extension,
                    options::OPT_fno_soa_conversion_attributes_language_extension, true)) {
-    CmdArgs.push_back("-fsoa_conversion_attributes_language_extension");
+    CmdArgs.push_back("-fsoa-conversion-attributes-language-extension");
     CmdArgs.push_back("-D__SOA_CONVERSION_ATTRIBUTES_EXTENSION__");
   }
 

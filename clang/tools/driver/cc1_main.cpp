@@ -343,7 +343,8 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
     }
 
     if (Result == FRONTEND_ACTION_SUCCESS && Clang->getLangOpts().PackedAttributesLanguageExtension) {
-      rewrittenSourcesHandler.loadRewrittenSources(CompilerInstance->getSourceManager().getRewriter());
+      if (CompilerInstance.get())
+        rewrittenSourcesHandler.loadRewrittenSources(CompilerInstance->getSourceManager().getRewriter());
 
       CompilerInstance = CreateCompilerInstance(Argv, Argv0, MainAddr);
       rewrittenSourcesHandler.saveIntoOpts(CompilerInstance->getPreprocessorOpts());
@@ -356,7 +357,8 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
     }
 
     if (Result == FRONTEND_ACTION_SUCCESS && Clang->getLangOpts().MpiAttributesLanguageExtension) {
-      rewrittenSourcesHandler.loadRewrittenSources(CompilerInstance->getSourceManager().getRewriter());
+      if (CompilerInstance.get())
+        rewrittenSourcesHandler.loadRewrittenSources(CompilerInstance->getSourceManager().getRewriter());
 
       CompilerInstance = CreateCompilerInstance(Argv, Argv0, MainAddr);
       rewrittenSourcesHandler.saveIntoOpts(CompilerInstance->getPreprocessorOpts());
@@ -369,7 +371,8 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
     }
 
     if (Result == FRONTEND_ACTION_SUCCESS) {
-      rewrittenSourcesHandler.loadRewrittenSources(CompilerInstance->getSourceManager().getRewriter());
+      if (CompilerInstance.get())
+        rewrittenSourcesHandler.loadRewrittenSources(CompilerInstance->getSourceManager().getRewriter());
       rewrittenSourcesHandler.saveIntoOpts(Clang->getPreprocessorOpts());
 
       rewrittenSourcesHandler.dump();
