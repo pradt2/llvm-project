@@ -76,7 +76,8 @@ public:
       auto *RewriterBuffer = R->getRewriteBufferFor(FileID);
       if (!RewriterBuffer)
         continue;
-      auto FilePath = FileEntry->getName();
+                      // this must be this complicated, otherwise the FilePath is not preserved across compiler instances on Hamilton
+      auto FilePath = llvm::StringRef((new std::string(FileEntry->getName().str().c_str()))->c_str());
       auto *RewrittenSourceStr = new std::string(RewriterBuffer->begin(), RewriterBuffer->end());
       auto RewrittenSource = llvm::StringRef(RewrittenSourceStr->c_str());
       buffers[FilePath] = RewrittenSource;
