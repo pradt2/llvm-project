@@ -7,7 +7,6 @@ int main() {
   printf("PACKED\n");
 #endif
 
-
 #ifdef __MPI_ATTRIBUTES_LANGUAGE_EXTENSION__
   printf("MPI\n");
 #endif
