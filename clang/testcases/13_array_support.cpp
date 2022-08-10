@@ -1,5 +1,5 @@
-//#include <stdio.h>
-void printf(const char* s, int i, int b, int c);
+#include <stdio.h>
+//void printf(const char* s, int i, int b, int c);
 
 struct S {
 
