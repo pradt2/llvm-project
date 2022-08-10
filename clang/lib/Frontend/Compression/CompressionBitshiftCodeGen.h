@@ -108,7 +108,7 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
   std::string getFromOriginalTypeConstructor() {
     std::string constructor = getCompressedStructName();
     std::string localVarName = "__arg0";
-    constructor += " (" + getOriginalStructName() + " &&" + localVarName + ") { ";
+    constructor += " (" + getOriginalFullyQualifiedStructName() + " &&" + localVarName + ") { ";
     for (auto *field : decl->fields()) {
       if (isCompressionCandidate(field)) {
         auto compressor = DelegatingFieldCompressor(tableCellSize, tableName, getCompressedStructName(), field);
@@ -258,7 +258,7 @@ public:
     CXXMethodDecl *mpiMappingMethod = getMpiMappingMethodDecl();
     if (mpiMappingMethod) mpiMapping = getNewMpiMappingMethodDecl(mpiMappingMethod);
 
-    std::string structDef = "struct __attribute__((packed)) " + recordDecl->name + " {\n"
+    std::string structDef = "struct __attribute__((packed)) " + recordDecl->fullyQualifiedName + " {\n"
                             + fieldsDecl + ";\n"
                             + emptyConstructor + ";\n"
                             + fromOriginalConstructor + ";\n"
