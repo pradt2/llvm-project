@@ -124,7 +124,7 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
   }
 
   std::string getTypeCastToOriginal() {
-    std::string typeCast = "operator " + getOriginalStructName() + "() { " + getOriginalStructName() + " val ;\n";
+    std::string typeCast = "operator " + getOriginalFullyQualifiedStructName() + "() { " + getOriginalFullyQualifiedStructName() + " val ;\n";
     for (auto *field : decl->fields()) {
       if (isCompressionCandidate(field)) {
         auto compressor = DelegatingFieldCompressor(tableCellSize, tableName, getCompressedStructName(), field);
