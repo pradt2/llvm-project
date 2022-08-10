@@ -376,11 +376,11 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
         rewrittenSourcesHandler.loadRewrittenSources(CompilerInstance->getSourceManager().getRewriter());
       rewrittenSourcesHandler.saveIntoOpts(Clang->getPreprocessorOpts());
 
-      rewrittenSourcesHandler.dump();
-
       Result = ExecuteCompilerInvocation(Clang.get());
       Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
     }
+
+    rewrittenSourcesHandler.dump();
 
   } else {
     Result = ExecuteCompilerInvocation(Clang.get());
