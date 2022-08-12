@@ -99,7 +99,7 @@ private:
       if (!decl) return true;
       auto compressionCodeGen = CompressionCodeGenResolver(decl, CI);
       std::string compressedStructName = compressionCodeGen.getCompressedStructName();
-      R.InsertTextAfterToken(decl->getEndLoc(), ";\n struct" + compressedStructName + ";\n");
+      R.InsertTextAfterToken(decl->getEndLoc(), ";\n struct " + compressedStructName + ";\n");
     }
   };
 
