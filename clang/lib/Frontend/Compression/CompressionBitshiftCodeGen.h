@@ -53,8 +53,8 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
   unsigned int tableCellSize = 8;
   SemaPrimitiveType tableCellSemaType = SemaPrimitiveType::getForKind(BuiltinType::Kind::Char_U);
   RecordDecl *decl;
+  Rewriter &R;
   CompilerInstance &CI;
-
 
 
   unsigned int getTableCellsNeeded() {
@@ -227,7 +227,7 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
 
 public:
 
-  explicit CompressionBitshiftCodeGen(RecordDecl *d, CompilerInstance &CI) : decl(d), CI(CI) {}
+  explicit CompressionBitshiftCodeGen(RecordDecl *d, Rewriter &R, CompilerInstance &CI) : decl(d), R(R), CI(CI) {}
 
   std::string getCompressedStructName() override {
     return getOriginalStructName() + "::" + getCompressedStructShortName();
