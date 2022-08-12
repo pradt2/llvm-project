@@ -81,28 +81,6 @@ class CompressionASTConsumer : public ASTConsumer,
 
 private:
 
-  class NewStructForwardDeclAdder : public ASTConsumer, public RecursiveASTVisitor<NewStructForwardDeclAdder> {
-  private:
-    Rewriter &R;
-    CompilerInstance &CI;
-  public:
-    explicit NewStructForwardDeclAdder(Rewriter &R, CompilerInstance &CI) : R(R), CI(CI) {}
-
-    void HandleTranslationUnit(ASTContext &Context) override {
-      TranslationUnitDecl *D = Context.getTranslationUnitDecl();
-      TraverseDecl(D);
-    }
-
-    bool VisitCXXRecordDecl(CXXRecordDecl *decl) {
-      if (!isCompressionCandidate(decl)) return true;
-      decl = decl->getPreviousDecl();
-      if (!decl) return true;
-      auto compressionCodeGen = CompressionCodeGenResolver(decl, CI);
-      std::string compressedStructName = compressionCodeGen.getCompressedStructName();
-      R.InsertTextAfterToken(decl->getEndLoc(), ";\n struct " + compressedStructName + ";\n");
-    }
-  };
-
   class NewStructAdder : public ASTConsumer, public RecursiveASTVisitor<NewStructAdder> {
   private:
     Rewriter &R;
@@ -119,7 +97,7 @@ private:
       if (!isCompressionCandidate(decl)) return true;
       auto compressionCodeGen = CompressionCodeGenResolver(decl, CI);
       std::string compressedStructDef = compressionCodeGen.getCompressedStructDef();
-      R.InsertTextAfterToken(decl->getEndLoc(), ";\n" + compressedStructDef);
+      R.InsertTextBefore(decl->getEndLoc(), "public: \n" + compressedStructDef);
       return true;
     }
   };
@@ -572,7 +550,6 @@ public:
   CompressionASTConsumer(CompilerInstance &CI) : CI(CI), R(*CI.getSourceManager().getRewriter()) {}
 
   void HandleTranslationUnit(ASTContext &Context) override {
-    NewStructForwardDeclAdder(R, CI).HandleTranslationUnit(Context);
     NewStructAdder(R, CI).HandleTranslationUnit(Context);
     VarDeclUpdater(R, CI).HandleTranslationUnit(Context);
     ConstructorExprRewriter(R, CI).HandleTranslationUnit(Context);
