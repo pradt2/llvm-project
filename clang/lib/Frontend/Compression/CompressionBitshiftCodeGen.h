@@ -143,17 +143,29 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
     std::string structs = "";
     for (auto *field : decl->fields()) {
       if (!isCompressionCandidate(field)) continue;
-      if (!field->getType()->isFloatingType()) continue;
-      if (field->getType()->getAs<BuiltinType>()->getKind() != BuiltinType::Float) continue;
-      structs += "union conv_float { unsigned int i; float fp; conv_float(unsigned int i) { this->i = i; }; conv_float(float f) { this->fp = f; }; }; ";
-      break;
+      QualType elementType;
+      if (field->getType()->isConstantArrayType()) {
+        elementType = ConstantSizeArrayBitArrayCompressor::getElementType(llvm::cast<ConstantArrayType>(field->getType()));
+      } else {
+        elementType = field->getType();
+      }
+      if (elementType->isFloatingType() && elementType->getAs<BuiltinType>()->getKind() == BuiltinType::Float) {
+        structs += "union conv_float { unsigned int i; float fp; conv_float(unsigned int i) { this->i = i; }; conv_float(float f) { this->fp = f; }; }; ";
+        break;
+      }
     }
     for (auto *field : decl->fields()) {
       if (!isCompressionCandidate(field)) continue;
-      if (!field->getType()->isFloatingType()) continue;
-      if (field->getType()->getAs<BuiltinType>()->getKind() != BuiltinType::Double) continue;
-      structs += "union conv_double { unsigned long i; double fp; conv_double(unsigned long i) { this->i = i; }; conv_double(double d) { this->fp = d; }; }; ";
-      break;
+      QualType elementType;
+      if (field->getType()->isConstantArrayType()) {
+        elementType = ConstantSizeArrayBitArrayCompressor::getElementType(llvm::cast<ConstantArrayType>(field->getType()));
+      } else {
+        elementType = field->getType();
+      }
+      if (elementType->isFloatingType() && elementType->getAs<BuiltinType>()->getKind() == BuiltinType::Double) {
+        structs += "union conv_double { unsigned long i; double fp; conv_double(unsigned long i) { this->i = i; }; conv_double(double d) { this->fp = d; }; }; ";
+        break;
+      }
     }
     return structs;
   }
@@ -230,11 +242,11 @@ public:
   explicit CompressionBitshiftCodeGen(RecordDecl *d, Rewriter &R, CompilerInstance &CI) : decl(d), R(R), CI(CI) {}
 
   std::string getCompressedStructName() override {
-    return getOriginalStructName() + "::" + getCompressedStructShortName();
+    return /**getOriginalStructName() + "::" + **/ getCompressedStructShortName();
   }
 
   std::string getFullyQualifiedCompressedStructName() override {
-    return getOriginalFullyQualifiedStructName() + "::" + getCompressedStructShortName();
+    return getOriginalFullyQualifiedStructName() + "__PACKED" /** + "::" + getCompressedStructShortName() **/ ;
   }
 
   std::unique_ptr<SemaRecordDecl> getSemaRecordDecl() override {
@@ -262,7 +274,7 @@ public:
     CXXMethodDecl *mpiMappingMethod = getMpiMappingMethodDecl();
     if (mpiMappingMethod) mpiMapping = getNewMpiMappingMethodDecl(mpiMappingMethod);
 
-    std::string structDef = "struct __attribute__((packed)) " + getCompressedStructShortName() + " {\n"
+    std::string structDef = "struct __attribute__((packed)) " + recordDecl->fullyQualifiedName + " {\n"
                             + fieldsDecl + ";\n"
                             + emptyConstructor + ";\n"
                             + fromOriginalConstructor + ";\n"
