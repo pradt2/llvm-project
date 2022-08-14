@@ -46,19 +46,6 @@ class ConstantSizeArrayBitArrayCompressor : public AbstractBitArrayCompressor {
     return _elementCompressor->getSetterExpr(thisAccessor, toBeSetValExpr);
   }
 
-  QualType getElementType(const ConstantArrayType *arrType) {
-    QualType elementType;
-    while (true) {
-      if (arrType->getElementType()->isConstantArrayType()) {
-        arrType = llvm::cast<ConstantArrayType>(arrType->getElementType()->getAsArrayTypeUnsafe());
-      } else {
-        elementType = arrType->getElementType();
-        break;
-      }
-    }
-    return elementType;
-  }
-
   void populateDimensions(const ConstantArrayType *arrType) {
     while (true) {
       _dimensions.push_back(arrType->getSize().getSExtValue());
@@ -85,6 +72,19 @@ public:
     populateDimensions(arrType);
     auto elementType = getElementType(arrType);
     _elementCompressor = std::make_unique<DelegatingNonIndexedFieldCompressor>(tableCellSize, tableName, structName, elementType, attrs);
+  }
+
+  static QualType getElementType(const ConstantArrayType *arrType) {
+    QualType elementType;
+    while (true) {
+      if (arrType->getElementType()->isConstantArrayType()) {
+        arrType = llvm::cast<ConstantArrayType>(arrType->getElementType()->getAsArrayTypeUnsafe());
+      } else {
+        elementType = arrType->getElementType();
+        break;
+      }
+    }
+    return elementType;
   }
 
   unsigned int getCompressedTypeWidth() override {
