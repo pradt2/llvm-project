@@ -186,6 +186,26 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
     return methods;
   }
 
+  std::string convertMethod(CXXMethodDecl *methodDecl) {
+    std::string method;
+
+    return method;
+  }
+
+  std::string getStructMethods() {
+    std::string methods;
+    if (!llvm::isa<CXXRecordDecl>(decl)) return methods;
+    auto *cxxDecl = llvm::cast<CXXRecordDecl>(decl);
+
+    for (auto *method : cxxDecl->methods()) {
+      if (!method->isStatic()) continue;
+
+      methods += convertMethod(method) + "\n\n";
+    }
+
+    return methods;
+  }
+
   std::vector<std::unique_ptr<SemaFieldDecl>> getFieldsDecl(SemaRecordDecl &record) {
     std::unique_ptr<SemaPrimitiveType> elementType = std::make_unique<SemaPrimitiveType>();
     elementType->typeKind = tableCellSemaType.typeKind;
@@ -242,11 +262,11 @@ public:
   explicit CompressionBitshiftCodeGen(RecordDecl *d, Rewriter &R, CompilerInstance &CI) : decl(d), R(R), CI(CI) {}
 
   std::string getCompressedStructName() override {
-    return /**getOriginalStructName() + "::" + **/ getCompressedStructShortName();
+    return getCompressedStructShortName();
   }
 
   std::string getFullyQualifiedCompressedStructName() override {
-    return getOriginalFullyQualifiedStructName() + "__PACKED" /** + "::" + getCompressedStructShortName() **/ ;
+    return getOriginalFullyQualifiedStructName() + "__PACKED";
   }
 
   std::unique_ptr<SemaRecordDecl> getSemaRecordDecl() override {
@@ -269,6 +289,7 @@ public:
     std::string typeCastToOriginal = getTypeCastToOriginal();
     std::string conversionStructs = getConversionStructs();
     std::string constSizeArrCompressionMethods = getConstSizeArrCompressionMethods();
+    std::string methods = getStructMethods();
 
     std::string mpiMapping = "";
     CXXMethodDecl *mpiMappingMethod = getMpiMappingMethodDecl();
@@ -281,6 +302,7 @@ public:
                             + typeCastToOriginal + ";\n"
                             + conversionStructs + ";\n"
                             + constSizeArrCompressionMethods + ";\n"
+                            + methods + "\n"
                             + mpiMapping + "\n"
                             + "};\n";
     return structDef;

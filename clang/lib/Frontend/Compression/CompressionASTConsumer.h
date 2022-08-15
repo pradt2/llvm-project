@@ -148,52 +148,68 @@ private:
     }
   };
 
-  class VarDeclUpdater : public ASTConsumer, public RecursiveASTVisitor<VarDeclUpdater> {
+  class FieldDeclUpdater : public ASTConsumer, public RecursiveASTVisitor<FieldDeclUpdater> {
+    private:
+      Rewriter &R;
+      CompilerInstance &CI;
+    public:
+      explicit FieldDeclUpdater(Rewriter &R, CompilerInstance &CI) : R(R), CI(CI) {}
+
+      void HandleTranslationUnit(ASTContext &Context) override {
+        TranslationUnitDecl *D = Context.getTranslationUnitDecl();
+        TraverseDecl(D);
+      }
+
+      bool VisitFieldDecl(FieldDecl *decl) {
+        std::string ptrs = "";
+        auto type = getTypeFromIndirectType(decl->getType(), ptrs);
+        if (!type->isRecordType()) return true;
+        auto *record = type->getAsRecordDecl();
+        if (!isCompressionCandidate(record)) return true;
+        auto compressionCodeGen = CompressionCodeGenResolver(record, R, CI);
+        R.ReplaceText(SourceRange(decl->getTypeSpecStartLoc(), decl->getTypeSpecEndLoc()), compressionCodeGen.getFullyQualifiedCompressedStructName() + (ptrs.length() > 0 ? " " + ptrs : ""));
+        if (!decl->hasInClassInitializer()) return true;
+        Expr *initExpr = decl->getInClassInitializer();
+        if (decl->getInClassInitStyle() == InClassInitStyle::ICIS_ListInit) { // TODO move to its own ASTConsumer?
+          InitListExpr *initListExpr = llvm::cast<InitListExpr>(initExpr);
+          std::string source = "{";
+          for (unsigned int i = 0; i < initListExpr->getNumInits(); i++) {
+            auto *initExpr = initListExpr->getInit(i);
+            if (initExpr->getSourceRange().isInvalid()) continue;
+            source += R.getRewrittenText(initExpr->getSourceRange()) + ", ";
+          }
+          source.pop_back();
+          source.pop_back();
+          source += "}";
+          R.ReplaceText(initListExpr->getSourceRange(), source);
+          R.InsertTextBefore(initListExpr->getBeginLoc(), "(");
+          R.InsertTextAfterToken(initListExpr->getEndLoc(), ")");
+        }
+        else if (decl->getInClassInitStyle() == InClassInitStyle::ICIS_CopyInit) {
+          // nothing to do, handled by constructor invocation rewrite
+          return true;
+        }
+        return true;
+      }
+
+  };
+
+  class StaticMethodCallUpdater : public ASTConsumer, public RecursiveASTVisitor<StaticMethodCallUpdater> {
   private:
     Rewriter &R;
     CompilerInstance &CI;
+
   public:
-    explicit VarDeclUpdater(Rewriter &R, CompilerInstance &CI) : R(R), CI(CI) {}
+    explicit StaticMethodCallUpdater(Rewriter &R, CompilerInstance &CI)
+        : R(R), CI(CI) {}
 
     void HandleTranslationUnit(ASTContext &Context) override {
       TranslationUnitDecl *D = Context.getTranslationUnitDecl();
       TraverseDecl(D);
     }
 
-    bool VisitFieldDecl(FieldDecl *decl) {
-      std::string ptrs = "";
-      auto type = getTypeFromIndirectType(decl->getType(), ptrs);
-      if (!type->isRecordType()) return true;
-      auto *record = type->getAsRecordDecl();
-      if (!isCompressionCandidate(record)) return true;
-      auto compressionCodeGen = CompressionCodeGenResolver(record, R, CI);
-      R.ReplaceText(SourceRange(decl->getTypeSpecStartLoc(), decl->getTypeSpecEndLoc()), compressionCodeGen.getFullyQualifiedCompressedStructName() + (ptrs.length() > 0 ? " " + ptrs : ""));
-      if (!decl->hasInClassInitializer()) return true;
-      Expr *initExpr = decl->getInClassInitializer();
-      if (decl->getInClassInitStyle() == InClassInitStyle::ICIS_ListInit) { // TODO move to its own ASTConsumer?
-        InitListExpr *initListExpr = llvm::cast<InitListExpr>(initExpr);
-        std::string source = "{";
-        for (unsigned int i = 0; i < initListExpr->getNumInits(); i++) {
-          auto *initExpr = initListExpr->getInit(i);
-          if (initExpr->getSourceRange().isInvalid()) continue;
-          source += R.getRewrittenText(initExpr->getSourceRange()) + ", ";
-        }
-        source.pop_back();
-        source.pop_back();
-        source += "}";
-        R.ReplaceText(initListExpr->getSourceRange(), source);
-        R.InsertTextBefore(initListExpr->getBeginLoc(), "(");
-        R.InsertTextAfterToken(initListExpr->getEndLoc(), ")");
-      }
-      else if (decl->getInClassInitStyle() == InClassInitStyle::ICIS_CopyInit) {
-        // nothing to do, handled by constructor invocation rewrite
-        return true;
-      }
-      return true;
-    }
-
-    bool VisitCallExpr(CallExpr *expr) {
-      FunctionDecl *functionDecl = expr->getDirectCallee();
+    bool VisitCallExpr(CallExpr *expr) {                      // this replaces static method calls,
+      FunctionDecl *functionDecl = expr->getDirectCallee();   // probably only useful for the MPI auto mapping atm
       if (functionDecl == nullptr) return true;
       if (!functionDecl->isStatic()) return true;
       DeclContext *parentDecl = functionDecl->getParent();
@@ -205,6 +221,20 @@ private:
       std::string newSource = compressionCodeGenResolver.getFullyQualifiedCompressedStructName() + "::" + functionDecl->getNameAsString();
       R.ReplaceText(rangeToReplace, newSource);
       return true;
+    }
+
+  };
+
+  class LocalVarAndMethodArgUpdater : public ASTConsumer, public RecursiveASTVisitor<LocalVarAndMethodArgUpdater> {
+  private:
+    Rewriter &R;
+    CompilerInstance &CI;
+  public:
+    explicit LocalVarAndMethodArgUpdater(Rewriter &R, CompilerInstance &CI) : R(R), CI(CI) {}
+
+    void HandleTranslationUnit(ASTContext &Context) override {
+      TranslationUnitDecl *D = Context.getTranslationUnitDecl();
+      TraverseDecl(D);
     }
 
     bool VisitVarDecl(VarDecl *decl) {
@@ -422,7 +452,6 @@ private:
           //  - field is the member
           Expr *baseExpr = expr->getBase();
           if (llvm::isa<CXXThisExpr>(baseExpr)) {
-            CXXThisExpr *thisExpr = llvm::cast<CXXThisExpr>(baseExpr);
             varName = "this->";
           } else {
             varName = R.getRewrittenText(SourceRange(expr->getBeginLoc(), expr->getMemberLoc().getLocWithOffset(-1)));
@@ -673,14 +702,17 @@ public:
     NewStructForwardDeclAdder(R, CI).HandleTranslationUnit(Context);
     FriendStructAdder(R, CI).HandleTranslationUnit(Context);
     NewStructAdder(R, CI).HandleTranslationUnit(Context);
-    VarDeclUpdater(R, CI).HandleTranslationUnit(Context);
+    PragmaPackAdder(R, CI).HandleTranslationUnit(Context);
+    FieldDeclUpdater(R, CI).HandleTranslationUnit(Context);
+
+    StaticMethodCallUpdater(R, CI).HandleTranslationUnit(Context);
+    LocalVarAndMethodArgUpdater(R, CI).HandleTranslationUnit(Context);
     ConstructorExprRewriter(R, CI).HandleTranslationUnit(Context);
     FunctionReturnTypeUpdater(R, CI).HandleTranslationUnit(Context);
     ReadAccessRewriter(R, CI).HandleTranslationUnit(Context);
     ConstSizeArrReadAccessRewriter(R, CI).HandleTranslationUnit(Context);
     WriteAccessRewriter(R, CI).HandleTranslationUnit(Context);
     ConstSizeArrWriteAccessRewriter(R, CI).HandleTranslationUnit(Context);
-    PragmaPackAdder(R, CI).HandleTranslationUnit(Context);
   }
 
 };
