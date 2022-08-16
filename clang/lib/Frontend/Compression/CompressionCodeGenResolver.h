@@ -14,21 +14,24 @@ class CompressionCodeGenResolver : public CompressionICodeGen {
 
 public:
 
-  explicit CompressionCodeGenResolver(RecordDecl *d, Rewriter &R, CompilerInstance &CI) {
+  explicit CompressionCodeGenResolver(RecordDecl *d, ASTContext &Ctx,
+                                                      SourceManager &SrcMgr,
+                                                      LangOptions &LangOpts,
+                                                      Rewriter &R) {
     for (auto *attr : d->attrs()) {
       if (!llvm::isa<CompressionMethodAttr>(attr))
         continue;
       auto *compressionMethodAttr = llvm::cast<CompressionMethodAttr>(attr);
       switch (compressionMethodAttr->getCompressionMethod()) {
       case CompressionMethodAttr::CompressionMethodType::Bitshift:
-        this->codeGen = std::make_unique<CompressionBitshiftCodeGen>(d, R, CI);
+        this->codeGen = std::make_unique<CompressionBitshiftCodeGen>(d, Ctx, SrcMgr, LangOpts, R);
         return;
       case CompressionMethodAttr::CompressionMethodType::Bitpack:
-        this->codeGen = std::make_unique<CompressionBitpackCodeGen>(d, CI);
+        this->codeGen = std::make_unique<CompressionBitpackCodeGen>(d, Ctx, SrcMgr, LangOpts, R);
         return;
       }
     }
-    this->codeGen = std::make_unique<CompressionBitshiftCodeGen>(d, R,CI);
+    this->codeGen = std::make_unique<CompressionBitshiftCodeGen>(d, Ctx, SrcMgr, LangOpts, R);
   }
 
   std::string getCompressedStructName() override {

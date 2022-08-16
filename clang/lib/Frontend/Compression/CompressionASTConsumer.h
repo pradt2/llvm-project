@@ -3,18 +3,22 @@
 
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/RecursiveASTVisitor.h"
-#include "clang/Frontend/CompilerInstance.h"
 #include "clang/Rewrite/Core/Rewriter.h"
 
 using namespace clang;
 
 class CompressionASTConsumer : public ASTConsumer,
                                public RecursiveASTVisitor<CompressionASTConsumer> {
-  CompilerInstance &CI;
+  ASTContext &Ctx;
+  SourceManager &SrcMgr;
+  LangOptions &LangOpts;
   Rewriter &R;
 
 public:
-  explicit CompressionASTConsumer(CompilerInstance &CI) : CI(CI), R(*CI.getSourceManager().getRewriter()) {}
+  explicit CompressionASTConsumer(ASTContext &Ctx,
+                                  SourceManager &SrcMgr,
+                                  LangOptions &LangOpts,
+                                  Rewriter &R) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
 
   void HandleTranslationUnit(ASTContext &Context) override;
 };
