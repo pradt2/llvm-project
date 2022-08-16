@@ -189,9 +189,21 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
 
   std::string convertMethod(CXXMethodDecl *methodDecl) {
     std::string method;
-    SourceLocation begin = methodDecl->getSourceRange().getBegin();
-    SourceLocation end = methodDecl->getTypeSpecEndLoc(); // method signature location
-    method = R.getRewrittenText(SourceRange(begin, end)) + ";"; // this just copies over the signature without the impl.
+    if (llvm::isa<CXXConstructorDecl>(methodDecl)) {
+      auto *constr = llvm::cast<CXXConstructorDecl>(methodDecl);
+      SourceRange paramsSourceRange = constr->getParametersSourceRange();
+      if (paramsSourceRange.isValid()) { // constructor has args
+        method = getCompressedStructName() + "(" + R.getRewrittenText(paramsSourceRange) + ");";
+      } else { // constructor has no args
+        return std::string(); // we already generate a no-args constructor that initialises default fields values
+      }
+      // constructors must have their own name
+    } else {
+      SourceLocation begin = methodDecl->getSourceRange().getBegin();
+      SourceLocation end = methodDecl->getTypeSpecEndLoc(); // method signature location
+      method = R.getRewrittenText(SourceRange(begin, end)) + ";"; // this just copies over the signature without the impl.
+    }
+
     return method;
   }
 
