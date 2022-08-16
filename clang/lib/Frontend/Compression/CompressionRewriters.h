@@ -681,6 +681,19 @@ public:
     return method;
   }
 
+  std::string getMethod(CXXConstructorDecl *decl, std::string recordFullyQualifiedName) {
+    std::string method;
+    Rewriter r(SrcMgr, LangOpts);
+
+    FunctionUpdater(Ctx, SrcMgr, LangOpts, r).TraverseDecl(decl);
+
+    std::string functionName = recordFullyQualifiedName;
+
+    r.ReplaceText(decl->getNameInfo().getSourceRange(), functionName); // replace function name with fully qualified struct name + name
+    method = r.getRewrittenText(decl->getSourceRange());
+    return method;
+  }
+
   bool VisitCXXRecordDecl(CXXRecordDecl *decl) {
     if (!isCompressionCandidate(decl)) return true;
     auto compressionCodeGen = CompressionCodeGenResolver(decl, Ctx, SrcMgr, LangOpts, R);
@@ -690,6 +703,11 @@ public:
     for (auto *method : decl->methods()) {
       if (method->isImplicit()) continue;
       if (!method->isDefined()) continue; // do not generate a method impl if it is not defined
+      if (llvm::isa<CXXConstructorDecl>(method)) {
+        auto *constr = llvm::cast<CXXConstructorDecl>(method);
+        if (constr->getNumParams() == 0) continue; // no-arg constructor is already provided
+        methods += getMethod(constr, compressionCodeGen.getFullyQualifiedCompressedStructName()) + "\n\n";
+      }
       methods += getMethod(method, compressionCodeGen.getFullyQualifiedCompressedStructName()) + "\n\n";
     }
     compressedStructDef += "\n" + methods;
