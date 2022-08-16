@@ -67,13 +67,13 @@ class RewrittenSourcesHandler {
 
 public:
 
-  void loadRewrittenSources(Rewriter *R) {
-    for (auto IT = R->buffer_begin(); IT != R->buffer_end(); IT++) {
+  void loadRewrittenSources(Rewriter &R) {
+    for (auto IT = R.buffer_begin(); IT != R.buffer_end(); IT++) {
       auto FileID = IT->first;
-      auto *FileEntry = R->getSourceMgr().getFileEntryForID(FileID);
+      auto *FileEntry = R.getSourceMgr().getFileEntryForID(FileID);
       if (!FileEntry)
         continue;
-      auto *RewriterBuffer = R->getRewriteBufferFor(FileID);
+      auto *RewriterBuffer = R.getRewriteBufferFor(FileID);
       if (!RewriterBuffer)
         continue;
                       // this must be this complicated, otherwise the FilePath is not preserved across compiler instances on Hamilton
