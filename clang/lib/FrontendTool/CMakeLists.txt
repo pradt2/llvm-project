@@ -10,6 +10,7 @@ set(link_libs
   clangExtractAPI
   clangFrontend
   clangRewriteFrontend
+  clangCompressionFrontend
   )
 
 if(CLANG_ENABLE_ARCMT)
