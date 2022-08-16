@@ -6,7 +6,6 @@
 #define CLANG_COMPRESSIONREWRITERS_H
 
 #include "CompressionCodeGenResolver.h"
-#include "CompressionFunctionUpdater.h"
 
 class SubExprFinder : public ASTConsumer,
                       public RecursiveASTVisitor<SubExprFinder> {
