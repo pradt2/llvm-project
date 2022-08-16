@@ -172,86 +172,53 @@ private:
   LangOptions &LangOpts;
   Rewriter &R;
 
-  class InternalRewriter : public ASTConsumer, public RecursiveASTVisitor<InternalRewriter> {
-  private:
-    ASTContext &Ctx;
-    SourceManager &SrcMgr;
-    LangOptions &LangOpts;
-    Rewriter &R;
-
-  public:
-    explicit InternalRewriter(ASTContext &Ctx,
-                              SourceManager &SrcMgr,
-                              LangOptions &LangOpts,
-                              Rewriter &R) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
-
-    bool VisitMemberExpr(MemberExpr *expr) {
-      auto *memberDecl = expr->getMemberDecl();
-      if (!llvm::isa<FieldDecl>(memberDecl)) return true;
-      auto *fieldDecl = llvm::cast<FieldDecl>(memberDecl);
-      if (fieldDecl == nullptr) return true;
-      if (!isNonIndexAccessCompressionCandidate(fieldDecl)) return true;
-
-      auto parents =
-          Ctx.getParents(*expr);
-      if (parents.size() != 1) {
-        llvm::outs() << "Multiple parents of MemberExpr\n";
-        return false;
-      }
-
-      std::string varName;
-
-      // Member expression 'var.field':
-      //  - var is the base
-      //  - field is the member
-      Expr *baseExpr = expr->getBase();
-      if (llvm::isa<CXXThisExpr>(baseExpr)) {
-        CXXThisExpr *thisExpr = llvm::cast<CXXThisExpr>(baseExpr);
-        varName = "this->";
-      } else {
-        varName = R.getRewrittenText(SourceRange(expr->getBeginLoc(), expr->getMemberLoc().getLocWithOffset(-1)));
-      }
-
-      auto parent = parents[0];
-      auto parentNodeKind = parent.getNodeKind();
-      if (parentNodeKind.KindId ==
-          ASTNodeKind::NodeKindId::NKI_ImplicitCastExpr) {
-        auto *implicitCast = parent.get<ImplicitCastExpr>();
-        if (implicitCast->getCastKind() != CastKind::CK_LValueToRValue)
-          return true;
-        // value is read here, we know by the implicit lvalue to rvalue cast
-
-        std::string source =
-            CompressionCodeGenResolver(fieldDecl->getParent(), Ctx, SrcMgr, LangOpts, R).getGetterExpr(fieldDecl, varName);
-        R.ReplaceText(SourceRange(expr->getBeginLoc(), expr->getEndLoc()),
-                      source);
-      }
-      return true;
-    }
-  };
-
 public:
   explicit ReadAccessRewriter(ASTContext &Ctx,
                               SourceManager &SrcMgr,
                               LangOptions &LangOpts,
                               Rewriter &R) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
 
-  void HandleTranslationUnit(ASTContext &Context) override {
-    TranslationUnitDecl *D = Context.getTranslationUnitDecl();
-    TraverseDecl(D);
-  }
+  bool VisitMemberExpr(MemberExpr *expr) {
+    auto *memberDecl = expr->getMemberDecl();
+    if (!llvm::isa<FieldDecl>(memberDecl)) return true;
+    auto *fieldDecl = llvm::cast<FieldDecl>(memberDecl);
+    if (fieldDecl == nullptr) return true;
+    if (!isNonIndexAccessCompressionCandidate(fieldDecl)) return true;
 
-  bool VisitCXXMethodDecl(CXXMethodDecl *d) {
-    if (isCompressionCandidate(d->getParent())) return true;
-    InternalRewriter r(Ctx, SrcMgr, LangOpts, R);
-    r.TraverseDecl(d);
-    return true;
-  }
+    auto parents =
+        Ctx.getParents(*expr);
+    if (parents.size() != 1) {
+      llvm::outs() << "Multiple parents of MemberExpr\n";
+      return false;
+    }
 
-  bool VisitFunctionDecl(FunctionDecl *d) {
-    if (llvm::isa<CXXMethodDecl>(d)) return true;
-    InternalRewriter r(Ctx, SrcMgr, LangOpts, R);
-    r.TraverseDecl(d);
+    std::string varName;
+
+    // Member expression 'var.field':
+    //  - var is the base
+    //  - field is the member
+    Expr *baseExpr = expr->getBase();
+    if (llvm::isa<CXXThisExpr>(baseExpr)) {
+      CXXThisExpr *thisExpr = llvm::cast<CXXThisExpr>(baseExpr);
+      varName = "this->";
+    } else {
+      varName = R.getRewrittenText(SourceRange(expr->getBeginLoc(), expr->getMemberLoc().getLocWithOffset(-1)));
+    }
+
+    auto parent = parents[0];
+    auto parentNodeKind = parent.getNodeKind();
+    if (parentNodeKind.KindId ==
+        ASTNodeKind::NodeKindId::NKI_ImplicitCastExpr) {
+      auto *implicitCast = parent.get<ImplicitCastExpr>();
+      if (implicitCast->getCastKind() != CastKind::CK_LValueToRValue)
+        return true;
+      // value is read here, we know by the implicit lvalue to rvalue cast
+
+      std::string source =
+          CompressionCodeGenResolver(fieldDecl->getParent(), Ctx, SrcMgr, LangOpts, R).getGetterExpr(fieldDecl, varName);
+      R.ReplaceText(SourceRange(expr->getBeginLoc(), expr->getEndLoc()),
+                    source);
+    }
     return true;
   }
 
@@ -264,88 +231,55 @@ private:
   LangOptions &LangOpts;
   Rewriter &R;
 
-  class InternalRewriter : public ASTConsumer, public RecursiveASTVisitor<InternalRewriter> {
-  private:
-    ASTContext &Ctx;
-    SourceManager &SrcMgr;
-    LangOptions &LangOpts;
-    Rewriter &R;
-
-  public:
-    explicit InternalRewriter(ASTContext &Ctx,
-                              SourceManager &SrcMgr,
-                              LangOptions &LangOpts,
-                              Rewriter &R) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
-
-    bool VisitMemberExpr(MemberExpr *expr) {
-      auto *memberDecl = expr->getMemberDecl();
-      if (!llvm::isa<FieldDecl>(memberDecl)) return true;
-      auto *fieldDecl = llvm::cast<FieldDecl>(memberDecl);
-      if (fieldDecl == nullptr) return true;
-      if (!isNonIndexAccessCompressionCandidate(fieldDecl)) return true;
-
-      auto parents =
-          Ctx.getParents(*expr);
-      if (parents.size() != 1) {
-        llvm::outs() << "Multiple parents of MemberExpr\n";
-        return false;
-      }
-
-      auto parent = parents[0];
-      auto parentNodeKind = parent.getNodeKind();
-      if (parentNodeKind.KindId == ASTNodeKind::NKI_BinaryOperator) {
-        // simple value assignment, e.g p.x = 1;
-        auto *binaryOp = parent.get<BinaryOperator>();
-        if (binaryOp->getOpcode() != clang::BO_Assign) return true;
-        if (binaryOp->getLHS() != expr || SubExprFinder::containsSubExpr(binaryOp->getRHS(), expr)) {
-          llvm::outs() << "Expr is both read and written to?\n";
-          return true;
-        }
-
-        std::string varName;
-        // Member expression 'var.field':
-        //  - var is the base
-        //  - field is the member
-        Expr *baseExpr = expr->getBase();
-        if (llvm::isa<CXXThisExpr>(baseExpr)) {
-          varName = "this->";
-        } else {
-          varName = R.getRewrittenText(SourceRange(expr->getBeginLoc(), expr->getMemberLoc().getLocWithOffset(-1)));
-        }
-
-        auto rhsCurrentExpr = R.getRewrittenText(binaryOp->getRHS()->getSourceRange());
-        std::string source =
-            CompressionCodeGenResolver(fieldDecl->getParent(), Ctx, SrcMgr, LangOpts, R).getSetterExpr(fieldDecl, varName, rhsCurrentExpr);
-        R.ReplaceText(binaryOp->getSourceRange(), source);
-      } else if (parentNodeKind.KindId == ASTNodeKind::NKI_CompoundAssignOperator) {
-        llvm::outs() << "To be implemented\n";
-      }
-      return true;
-    }
-  };
-
 public:
   explicit WriteAccessRewriter(ASTContext &Ctx,
                                SourceManager &SrcMgr,
                                LangOptions &LangOpts,
                                Rewriter &R) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
 
-  void HandleTranslationUnit(ASTContext &Context) override {
-    TranslationUnitDecl *D = Context.getTranslationUnitDecl();
-    TraverseDecl(D);
-  }
+  bool VisitMemberExpr(MemberExpr *expr) {
+    auto *memberDecl = expr->getMemberDecl();
+    if (!llvm::isa<FieldDecl>(memberDecl)) return true;
+    auto *fieldDecl = llvm::cast<FieldDecl>(memberDecl);
+    if (fieldDecl == nullptr) return true;
+    if (!isNonIndexAccessCompressionCandidate(fieldDecl)) return true;
 
-  bool VisitCXXMethodDecl(CXXMethodDecl *d) {
-    if (isCompressionCandidate(d->getParent())) return true;
-    InternalRewriter r(Ctx, SrcMgr, LangOpts, R);
-    r.TraverseDecl(d);
-    return true;
-  }
+    auto parents =
+        Ctx.getParents(*expr);
+    if (parents.size() != 1) {
+      llvm::outs() << "Multiple parents of MemberExpr\n";
+      return false;
+    }
 
-  bool VisitFunctionDecl(FunctionDecl *d) {
-    if (llvm::isa<CXXMethodDecl>(d)) return true;
-    InternalRewriter r(Ctx, SrcMgr, LangOpts, R);
-    r.TraverseDecl(d);
+    auto parent = parents[0];
+    auto parentNodeKind = parent.getNodeKind();
+    if (parentNodeKind.KindId == ASTNodeKind::NKI_BinaryOperator) {
+      // simple value assignment, e.g p.x = 1;
+      auto *binaryOp = parent.get<BinaryOperator>();
+      if (binaryOp->getOpcode() != clang::BO_Assign) return true;
+      if (binaryOp->getLHS() != expr || SubExprFinder::containsSubExpr(binaryOp->getRHS(), expr)) {
+        llvm::outs() << "Expr is both read and written to?\n";
+        return true;
+      }
+
+      std::string varName;
+      // Member expression 'var.field':
+      //  - var is the base
+      //  - field is the member
+      Expr *baseExpr = expr->getBase();
+      if (llvm::isa<CXXThisExpr>(baseExpr)) {
+        varName = "this->";
+      } else {
+        varName = R.getRewrittenText(SourceRange(expr->getBeginLoc(), expr->getMemberLoc().getLocWithOffset(-1)));
+      }
+
+      auto rhsCurrentExpr = R.getRewrittenText(binaryOp->getRHS()->getSourceRange());
+      std::string source =
+          CompressionCodeGenResolver(fieldDecl->getParent(), Ctx, SrcMgr, LangOpts, R).getSetterExpr(fieldDecl, varName, rhsCurrentExpr);
+      R.ReplaceText(binaryOp->getSourceRange(), source);
+    } else if (parentNodeKind.KindId == ASTNodeKind::NKI_CompoundAssignOperator) {
+      llvm::outs() << "To be implemented\n";
+    }
     return true;
   }
 
@@ -388,11 +322,6 @@ public:
                                           SourceManager &SrcMgr,
                                           LangOptions &LangOpts,
                                           Rewriter &R) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
-
-  void HandleTranslationUnit(ASTContext &Context) override {
-    TranslationUnitDecl *D = Context.getTranslationUnitDecl();
-    TraverseDecl(D);
-  }
 
   bool VisitArraySubscriptExpr(ArraySubscriptExpr *e) {
     if (hasParentOfKind(*e, ASTNodeKind::NodeKindId::NKI_ArraySubscriptExpr)) return true; // we're in the middle of a multi-dim arr ref
@@ -472,11 +401,6 @@ public:
                                            SourceManager &SrcMgr,
                                            LangOptions &LangOpts,
                                            Rewriter &R) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
-
-  void HandleTranslationUnit(ASTContext &Context) override {
-    TranslationUnitDecl *D = Context.getTranslationUnitDecl();
-    TraverseDecl(D);
-  }
 
   bool VisitArraySubscriptExpr(ArraySubscriptExpr *e) {
     if (hasParentOfKind(*e, ASTNodeKind::NodeKindId::NKI_ArraySubscriptExpr)) return true; // we're in the middle of a multi-dim arr ref
@@ -577,6 +501,7 @@ public:
     if (!isCompressionCandidate(record)) return true;
     auto compressionCodeGen = CompressionCodeGenResolver(record, Ctx, SrcMgr, LangOpts, R);
     R.ReplaceText(decl->getReturnTypeSourceRange(), compressionCodeGen.getFullyQualifiedCompressedStructName() + (ptrs.length() > 0 ? " " + ptrs : ""));
+    return true;
   }
 
   bool VisitVarDecl(VarDecl *decl) { // changes local var types, incl. function args
