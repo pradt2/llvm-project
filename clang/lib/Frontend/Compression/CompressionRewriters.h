@@ -754,7 +754,7 @@ public:
 
     FunctionUpdater(Ctx, SrcMgr, LangOpts, r).TraverseDecl(decl);
 
-    std::string functionName = recordFullyQualifiedName + "::" + decl->getName().str();
+    std::string functionName = recordFullyQualifiedName + "::" + decl->getDeclName().getAsString();
 
     r.ReplaceText(decl->getNameInfo().getSourceRange(), functionName); // replace function name with fully qualified struct name + name
     method = r.getRewrittenText(decl->getSourceRange());
