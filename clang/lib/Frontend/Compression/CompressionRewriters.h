@@ -534,10 +534,8 @@ public:
               LangOptions &LangOpts,
               Rewriter &R) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
 
-  std::string HandleStmt(Stmt *stmt, Rewriter *Re = nullptr) {
-    if (!stmt) return std::string();
-
-    Rewriter &R = Re ? *Re : *(new Rewriter(SrcMgr, LangOpts));
+  void HandleStmt(Stmt *stmt) {
+    if (!stmt) return;
 
     StaticMethodCallUpdater(Ctx, SrcMgr, LangOpts, R).TraverseStmt(stmt);
     ConstructorAndInitExprRewriter(Ctx, SrcMgr, LangOpts, R).TraverseStmt(stmt);
@@ -545,9 +543,6 @@ public:
     ConstSizeArrReadAccessRewriter(Ctx, SrcMgr, LangOpts, R).TraverseStmt(stmt);
     WriteAccessRewriter(Ctx, SrcMgr, LangOpts, R).TraverseStmt(stmt);
     ConstSizeArrWriteAccessRewriter(Ctx, SrcMgr, LangOpts, R).TraverseStmt(stmt);
-
-    std::string newSource = R.getRewrittenText(stmt->getSourceRange());
-    return newSource;
   }
 
 };
@@ -768,8 +763,11 @@ public:
 
     std::string methods; // generating methods
     for (auto *method : decl->methods()) {
+      if (method->isImplicit()) continue;
+      if (!method->isDefined()) continue; // do not generate a method impl if it is not defined
       methods += getMethod(method, compressionCodeGen.getFullyQualifiedCompressedStructName()) + "\n\n";
     }
+    compressedStructDef += "\n" + methods;
 
     R.InsertTextAfterToken(decl->getEndLoc(), ";\n" + compressedStructDef);
     return true;
@@ -789,6 +787,11 @@ public:
                            Rewriter &R) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
 
 public:
+
+  void HandleTranslationUnit(ASTContext &Context) override {
+    TranslationUnitDecl *D = Context.getTranslationUnitDecl();
+    TraverseDecl(D);
+  }
 
   bool VisitFunctionDecl(FunctionDecl *decl) {
     DeclContext *parent = decl->getParent();
