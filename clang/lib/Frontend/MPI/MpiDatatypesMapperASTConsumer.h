@@ -5,6 +5,8 @@
 #ifndef CLANG_MPIDATATYPESMAPPERASTCONSUMER_H
 #define CLANG_MPIDATATYPESMAPPERASTCONSUMER_H
 
+#include "MpiMappingGenerator.h"
+
 class MpiDatatypesMapperASTConsumer : public ASTConsumer,
                                       public RecursiveASTVisitor<MpiDatatypesMapperASTConsumer> {
   CompilerInstance &CI;
