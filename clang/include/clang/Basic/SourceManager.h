@@ -852,7 +852,7 @@ public:
 
   FileManager &getFileManager() const { return FileMgr; }
 
-  Rewriter *getRewriter() { return TheRewriter; };
+  Rewriter &getRewriter() { return *TheRewriter; };
 
   void setRewriter(Rewriter *Rewriter) {
     TheRewriter = Rewriter;

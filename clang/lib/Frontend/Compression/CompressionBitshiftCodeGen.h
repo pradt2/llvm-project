@@ -53,9 +53,10 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
   unsigned int tableCellSize = 8;
   SemaPrimitiveType tableCellSemaType = SemaPrimitiveType::getForKind(BuiltinType::Kind::Char_U);
   RecordDecl *decl;
+  ASTContext &Ctx;
+  SourceManager &SrcMgr;
+  LangOptions &LangOpts;
   Rewriter &R;
-  CompilerInstance &CI;
-
 
   unsigned int getTableCellsNeeded() {
     double bitCounter = 0;
@@ -88,10 +89,9 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
   std::string getEmptyConstructor() {
     std::string constructor = getCompressedStructShortName();
     constructor += "() {";
-    auto *R = decl->getASTContext().getSourceManager().getRewriter();
     for (auto *field : decl->fields()) {
       if (!field->hasInClassInitializer()) continue;
-      std::string init = R->getRewrittenText(field->getInClassInitializer()->getSourceRange());
+      std::string init = R.getRewrittenText(field->getInClassInitializer()->getSourceRange());
       if (isCompressionCandidate(field)) {
         auto compressor = DelegatingFieldCompressor(tableCellSize, tableName, getCompressedStructShortName(), field);
         compressor.setOffset(getFieldOffset(field));
@@ -259,7 +259,10 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
 
 public:
 
-  explicit CompressionBitshiftCodeGen(RecordDecl *d, Rewriter &R, CompilerInstance &CI) : decl(d), R(R), CI(CI) {}
+  explicit CompressionBitshiftCodeGen(RecordDecl *d, ASTContext &Ctx,
+                                                      SourceManager &SrcMgr,
+                                                      LangOptions &LangOpts,
+                                                      Rewriter &R) : decl(d), Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
 
   std::string getCompressedStructName() override {
     return getCompressedStructShortName();

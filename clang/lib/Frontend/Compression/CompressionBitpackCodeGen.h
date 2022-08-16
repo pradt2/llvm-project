@@ -10,7 +10,10 @@
 class CompressionBitpackCodeGen : public CompressionICodeGen {
 
   RecordDecl *decl;
-  CompilerInstance &CI;
+  ASTContext &Ctx;
+  SourceManager &SrcMgr;
+  LangOptions &LangOpts;
+  Rewriter &R;
 
   unsigned int getCompressedTypeWidth(FieldDecl *fieldDecl) {
     auto type = fieldDecl->getType();
@@ -65,10 +68,10 @@ class CompressionBitpackCodeGen : public CompressionICodeGen {
       if (isCompressionCandidate(field)) {
         SourceRange typeAndName = SourceRange(field->getSourceRange().getBegin(), field->getLocation().getLocWithOffset(field->getNameAsString().size()).getLocWithOffset(-1));
         unsigned int compressedBitSize = getCompressedTypeWidth(field);
-        std::string fieldStr = CI.getSourceManager().getRewriter()->getRewrittenText(typeAndName) + " : " + std::to_string(compressedBitSize);
+        std::string fieldStr = R.getRewrittenText(typeAndName) + " : " + std::to_string(compressedBitSize);
         fields += fieldStr + "; ";
       } else {
-        fields += CI.getSourceManager().getRewriter()->getRewrittenText(field->getSourceRange()) + "; ";
+        fields += R.getRewrittenText(field->getSourceRange()) + "; ";
       }
     }
     return fields;
@@ -114,8 +117,10 @@ class CompressionBitpackCodeGen : public CompressionICodeGen {
   }
 
 public:
-  explicit CompressionBitpackCodeGen(RecordDecl *d, CompilerInstance &CI)
-      : decl(d), CI(CI) {}
+  explicit CompressionBitpackCodeGen(RecordDecl *d, ASTContext &Ctx,
+                                     SourceManager &SrcMgr,
+                                     LangOptions &LangOpts,
+                                     Rewriter &R) : decl(d), Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
 
   std::string getCompressedStructName() override {
     return getOriginalStructName() + "__BITPACKED";

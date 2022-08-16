@@ -170,7 +170,7 @@ clang::CreateSoaConversionASTConsumer(CompilerInstance &CI) {
 
 std::unique_ptr<ASTConsumer>
 clang::CreateCompressionASTConsumer(clang::CompilerInstance &CI) {
-    return std::make_unique<CompressionASTConsumer>(CI);
+    return std::make_unique<CompressionASTConsumer>(CI.getASTContext(), CI.getSourceManager(), CI.getLangOpts(), CI.getSourceManager().getRewriter());
 }
 
 std::unique_ptr<ASTConsumer>

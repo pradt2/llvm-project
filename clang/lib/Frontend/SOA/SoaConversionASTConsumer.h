@@ -358,7 +358,7 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
   }
 
 public:
-  SoaConversionASTConsumer(CompilerInstance &CI) : CI(CI), R(*CI.getSourceManager().getRewriter()) {}
+  SoaConversionASTConsumer(CompilerInstance &CI) : CI(CI), R(CI.getSourceManager().getRewriter()) {}
 
   bool VisitForStmt(ForStmt *S) {
     const SoaConversionInputsAttr *conversionInputsAttr = getAttr<SoaConversionInputsAttr>(S);

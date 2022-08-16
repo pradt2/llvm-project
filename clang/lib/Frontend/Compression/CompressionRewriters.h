@@ -80,10 +80,15 @@ static QualType getTypeFromIndirectType(QualType type, std::string &ptrs) {
 
 class NewStructForwardDeclAdder : public ASTConsumer, public RecursiveASTVisitor<NewStructForwardDeclAdder> {
 private:
+  ASTContext &Ctx;
+  SourceManager &SrcMgr;
+  LangOptions &LangOpts;
   Rewriter &R;
-  CompilerInstance &CI;
 public:
-  explicit NewStructForwardDeclAdder(Rewriter &R, CompilerInstance &CI) : R(R), CI(CI) {}
+  explicit NewStructForwardDeclAdder(ASTContext &Ctx,
+                                  SourceManager &SrcMgr,
+                                  LangOptions &LangOpts,
+                                  Rewriter &R) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
 
   void HandleTranslationUnit(ASTContext &Context) override {
     TranslationUnitDecl *D = Context.getTranslationUnitDecl();
@@ -93,7 +98,7 @@ public:
   bool VisitCXXRecordDecl(CXXRecordDecl *decl) {
     if (!isCompressionCandidate(decl)) return true;
     while ((decl = decl->getPreviousDecl())) {
-      auto compressionCodeGen = CompressionCodeGenResolver(decl, R, CI);
+      auto compressionCodeGen = CompressionCodeGenResolver(decl, Ctx, SrcMgr, LangOpts, R);
       std::string compressedStructName = compressionCodeGen.getCompressedStructName();
       R.InsertTextAfterToken(decl->getEndLoc(), ";\n struct " + compressedStructName + ";\n");
     }
@@ -103,10 +108,15 @@ public:
 
 class FriendStructAdder : public ASTConsumer, public RecursiveASTVisitor<FriendStructAdder> {
 private:
+  ASTContext &Ctx;
+  SourceManager &SrcMgr;
+  LangOptions &LangOpts;
   Rewriter &R;
-  CompilerInstance &CI;
 public:
-  explicit FriendStructAdder(Rewriter &R, CompilerInstance &CI) : R(R), CI(CI) {}
+  explicit FriendStructAdder(ASTContext &Ctx,
+                                  SourceManager &SrcMgr,
+                                  LangOptions &LangOpts,
+                                  Rewriter &R) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
 
   void HandleTranslationUnit(ASTContext &Context) override {
     TranslationUnitDecl *D = Context.getTranslationUnitDecl();
@@ -115,7 +125,7 @@ public:
 
   bool VisitCXXRecordDecl(CXXRecordDecl *decl) {
     if (!isCompressionCandidate(decl)) return true;
-    auto compressionCodeGen = CompressionCodeGenResolver(decl, R, CI);
+    auto compressionCodeGen = CompressionCodeGenResolver(decl, Ctx, SrcMgr, LangOpts, R);
     std::string compressedStructName = compressionCodeGen.getCompressedStructName();
     auto &srcMgr = R.getSourceMgr();
     auto loc = decl->getBraceRange().getBegin();
@@ -126,10 +136,15 @@ public:
 
 class NewStructAdder : public ASTConsumer, public RecursiveASTVisitor<NewStructAdder> {
 private:
+  ASTContext &Ctx;
+  SourceManager &SrcMgr;
+  LangOptions &LangOpts;
   Rewriter &R;
-  CompilerInstance &CI;
 public:
-  explicit NewStructAdder(Rewriter &R, CompilerInstance &CI) : R(R), CI(CI) {}
+  explicit NewStructAdder(ASTContext &Ctx,
+                                  SourceManager &SrcMgr,
+                                  LangOptions &LangOpts,
+                                  Rewriter &R) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
 
   void HandleTranslationUnit(ASTContext &Context) override {
     TranslationUnitDecl *D = Context.getTranslationUnitDecl();
@@ -138,7 +153,7 @@ public:
 
   bool VisitCXXRecordDecl(CXXRecordDecl *decl) {
     if (!isCompressionCandidate(decl)) return true;
-    auto compressionCodeGen = CompressionCodeGenResolver(decl, R, CI);
+    auto compressionCodeGen = CompressionCodeGenResolver(decl, Ctx, SrcMgr, LangOpts, R);
     std::string compressedStructDef = compressionCodeGen.getCompressedStructDef();
     R.InsertTextAfterToken(decl->getEndLoc(), ";\n" + compressedStructDef);
     return true;
@@ -147,10 +162,15 @@ public:
 
 class FieldDeclUpdater : public ASTConsumer, public RecursiveASTVisitor<FieldDeclUpdater> {
 private:
+  ASTContext &Ctx;
+  SourceManager &SrcMgr;
+  LangOptions &LangOpts;
   Rewriter &R;
-  CompilerInstance &CI;
 public:
-  explicit FieldDeclUpdater(Rewriter &R, CompilerInstance &CI) : R(R), CI(CI) {}
+  explicit FieldDeclUpdater(ASTContext &Ctx,
+                                  SourceManager &SrcMgr,
+                                  LangOptions &LangOpts,
+                                  Rewriter &R) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
 
   void HandleTranslationUnit(ASTContext &Context) override {
     TranslationUnitDecl *D = Context.getTranslationUnitDecl();
@@ -163,7 +183,7 @@ public:
     if (!type->isRecordType()) return true;
     auto *record = type->getAsRecordDecl();
     if (!isCompressionCandidate(record)) return true;
-    auto compressionCodeGen = CompressionCodeGenResolver(record, R, CI);
+    auto compressionCodeGen = CompressionCodeGenResolver(record, Ctx, SrcMgr, LangOpts, R);
     R.ReplaceText(SourceRange(decl->getTypeSpecStartLoc(), decl->getTypeSpecEndLoc()), compressionCodeGen.getFullyQualifiedCompressedStructName() + (ptrs.length() > 0 ? " " + ptrs : ""));
     if (!decl->hasInClassInitializer()) return true;
     Expr *initExpr = decl->getInClassInitializer();
@@ -191,12 +211,16 @@ public:
 
 class StaticMethodCallUpdater : public ASTConsumer, public RecursiveASTVisitor<StaticMethodCallUpdater> {
 private:
+  ASTContext &Ctx;
+  SourceManager &SrcMgr;
+  LangOptions &LangOpts;
   Rewriter &R;
-  CompilerInstance &CI;
 
 public:
-  explicit StaticMethodCallUpdater(Rewriter &R, CompilerInstance &CI)
-      : R(R), CI(CI) {}
+  explicit StaticMethodCallUpdater(ASTContext &Ctx,
+                                   SourceManager &SrcMgr,
+                                   LangOptions &LangOpts,
+                                   Rewriter &R) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
 
   void HandleTranslationUnit(ASTContext &Context) override {
     TranslationUnitDecl *D = Context.getTranslationUnitDecl();
@@ -212,7 +236,7 @@ public:
     RecordDecl *recordDecl = llvm::cast<RecordDecl>(parentDecl);
     if (!isCompressionCandidate(recordDecl)) return true;
     SourceRange rangeToReplace = expr->getCallee()->getSourceRange();
-    CompressionCodeGenResolver compressionCodeGenResolver = CompressionCodeGenResolver(recordDecl, R, CI);
+    CompressionCodeGenResolver compressionCodeGenResolver = CompressionCodeGenResolver(recordDecl, Ctx, SrcMgr, LangOpts, R);
     std::string newSource = compressionCodeGenResolver.getFullyQualifiedCompressedStructName() + "::" + functionDecl->getNameAsString();
     R.ReplaceText(rangeToReplace, newSource);
     return true;
@@ -222,10 +246,15 @@ public:
 
 class LocalVarAndMethodArgUpdater : public ASTConsumer, public RecursiveASTVisitor<LocalVarAndMethodArgUpdater> {
 private:
+  ASTContext &Ctx;
+  SourceManager &SrcMgr;
+  LangOptions &LangOpts;
   Rewriter &R;
-  CompilerInstance &CI;
 public:
-  explicit LocalVarAndMethodArgUpdater(Rewriter &R, CompilerInstance &CI) : R(R), CI(CI) {}
+  explicit LocalVarAndMethodArgUpdater(ASTContext &Ctx,
+                                  SourceManager &SrcMgr,
+                                  LangOptions &LangOpts,
+                                  Rewriter &R) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
 
   void HandleTranslationUnit(ASTContext &Context) override {
     TranslationUnitDecl *D = Context.getTranslationUnitDecl();
@@ -242,7 +271,7 @@ public:
     if (!type->isRecordType()) return true;
     auto *record = type->getAsRecordDecl();
     if (!isCompressionCandidate(record)) return true;
-    auto compressionCodeGen = CompressionCodeGenResolver(record, R, CI);
+    auto compressionCodeGen = CompressionCodeGenResolver(record, Ctx, SrcMgr, LangOpts, R);
     R.ReplaceText(SourceRange(decl->getTypeSpecStartLoc(), decl->getTypeSpecEndLoc()), compressionCodeGen.getFullyQualifiedCompressedStructName() + (ptrs.length() > 0 ? " " + ptrs : ""));
     if (!decl->hasInit()) return true;
     Expr *initExpr = decl->getInit();
@@ -265,10 +294,15 @@ public:
 
 class ConstructorExprRewriter : public ASTConsumer, public RecursiveASTVisitor<ConstructorExprRewriter> {
 private:
+  ASTContext &Ctx;
+  SourceManager &SrcMgr;
+  LangOptions &LangOpts;
   Rewriter &R;
-  CompilerInstance &CI;
 public:
-  explicit ConstructorExprRewriter(Rewriter &R, CompilerInstance &CI) : R(R), CI(CI) {}
+  explicit ConstructorExprRewriter(ASTContext &Ctx,
+                                  SourceManager &SrcMgr,
+                                  LangOptions &LangOpts,
+                                  Rewriter &R) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
 
   void HandleTranslationUnit(ASTContext &Context) override {
     TranslationUnitDecl *D = Context.getTranslationUnitDecl();
@@ -284,7 +318,7 @@ public:
     if (!constructType->isRecordType()) return true;
     auto *constructDecl = constructType->getAsRecordDecl();
     if (!isCompressionCandidate(constructDecl)) return true;
-    auto compressionCodeGen = CompressionCodeGenResolver(constructDecl, R, CI);
+    auto compressionCodeGen = CompressionCodeGenResolver(constructDecl, Ctx, SrcMgr, LangOpts, R);
     R.InsertTextBefore(decl->getBeginLoc(), compressionCodeGen.getFullyQualifiedCompressedStructName() + "(");
     R.InsertTextAfterToken(decl->getEndLoc(), ")");
     return true;
@@ -293,10 +327,15 @@ public:
 
 class FunctionReturnTypeUpdater : public ASTConsumer, public RecursiveASTVisitor<FunctionReturnTypeUpdater> {
 private:
+  ASTContext &Ctx;
+  SourceManager &SrcMgr;
+  LangOptions &LangOpts;
   Rewriter &R;
-  CompilerInstance &CI;
 public:
-  explicit FunctionReturnTypeUpdater(Rewriter &R, CompilerInstance &CI) : R(R), CI(CI) {}
+  explicit FunctionReturnTypeUpdater(ASTContext &Ctx,
+                                  SourceManager &SrcMgr,
+                                  LangOptions &LangOpts,
+                                  Rewriter &R) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
 
   void HandleTranslationUnit(ASTContext &Context) override {
     TranslationUnitDecl *D = Context.getTranslationUnitDecl();
@@ -314,7 +353,7 @@ public:
     if (!returnType->isRecordType()) return true;
     auto *record = returnType->getAsRecordDecl();
     if (!isCompressionCandidate(record)) return true;
-    auto compressionCodeGen = CompressionCodeGenResolver(record, R, CI);
+    auto compressionCodeGen = CompressionCodeGenResolver(record, Ctx, SrcMgr, LangOpts, R);
     R.ReplaceText(decl->getReturnTypeSourceRange(), compressionCodeGen.getFullyQualifiedCompressedStructName() + (ptrs.length() > 0 ? " " + ptrs : ""));
     return true;
   }
@@ -323,16 +362,23 @@ public:
 class ReadAccessRewriter : public ASTConsumer, public RecursiveASTVisitor<ReadAccessRewriter> {
 
 private:
+  ASTContext &Ctx;
+  SourceManager &SrcMgr;
+  LangOptions &LangOpts;
   Rewriter &R;
-  CompilerInstance &CI;
 
   class InternalRewriter : public ASTConsumer, public RecursiveASTVisitor<InternalRewriter> {
   private:
+    ASTContext &Ctx;
+    SourceManager &SrcMgr;
+    LangOptions &LangOpts;
     Rewriter &R;
-    CompilerInstance &CI;
 
   public:
-    explicit InternalRewriter(Rewriter &R, CompilerInstance &CI) : R(R), CI(CI) {}
+    explicit InternalRewriter(ASTContext &Ctx,
+                                  SourceManager &SrcMgr,
+                                  LangOptions &LangOpts,
+                                  Rewriter &R) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
 
     bool VisitMemberExpr(MemberExpr *expr) {
       auto *memberDecl = expr->getMemberDecl();
@@ -342,7 +388,7 @@ private:
       if (!isNonIndexAccessCompressionCandidate(fieldDecl)) return true;
 
       auto parents =
-          CI.getASTContext().getParents(*expr);
+          Ctx.getParents(*expr);
       if (parents.size() != 1) {
         llvm::outs() << "Multiple parents of MemberExpr\n";
         return false;
@@ -371,7 +417,7 @@ private:
         // value is read here, we know by the implicit lvalue to rvalue cast
 
         std::string source =
-            CompressionCodeGenResolver(fieldDecl->getParent(), R, CI).getGetterExpr(fieldDecl, varName);
+            CompressionCodeGenResolver(fieldDecl->getParent(), Ctx, SrcMgr, LangOpts, R).getGetterExpr(fieldDecl, varName);
         R.ReplaceText(SourceRange(expr->getBeginLoc(), expr->getEndLoc()),
                       source);
       }
@@ -380,7 +426,10 @@ private:
   };
 
 public:
-  explicit ReadAccessRewriter(Rewriter &R, CompilerInstance &CI) : R(R), CI(CI) {}
+  explicit ReadAccessRewriter(ASTContext &Ctx,
+                                  SourceManager &SrcMgr,
+                                  LangOptions &LangOpts,
+                                  Rewriter &R) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
 
   void HandleTranslationUnit(ASTContext &Context) override {
     TranslationUnitDecl *D = Context.getTranslationUnitDecl();
@@ -389,14 +438,14 @@ public:
 
   bool VisitCXXMethodDecl(CXXMethodDecl *d) {
     if (isCompressionCandidate(d->getParent())) return true;
-    InternalRewriter r(R, CI);
+    InternalRewriter r(Ctx, SrcMgr, LangOpts, R);
     r.TraverseDecl(d);
     return true;
   }
 
   bool VisitFunctionDecl(FunctionDecl *d) {
     if (llvm::isa<CXXMethodDecl>(d)) return true;
-    InternalRewriter r(R, CI);
+    InternalRewriter r(Ctx, SrcMgr, LangOpts, R);
     r.TraverseDecl(d);
     return true;
   }
@@ -405,16 +454,23 @@ public:
 
 class WriteAccessRewriter : public ASTConsumer, public RecursiveASTVisitor<WriteAccessRewriter> {
 private:
+  ASTContext &Ctx;
+  SourceManager &SrcMgr;
+  LangOptions &LangOpts;
   Rewriter &R;
-  CompilerInstance &CI;
 
   class InternalRewriter : public ASTConsumer, public RecursiveASTVisitor<InternalRewriter> {
   private:
+    ASTContext &Ctx;
+    SourceManager &SrcMgr;
+    LangOptions &LangOpts;
     Rewriter &R;
-    CompilerInstance &CI;
 
   public:
-    explicit InternalRewriter(Rewriter &R, CompilerInstance &CI) : R(R), CI(CI) {}
+    explicit InternalRewriter(ASTContext &Ctx,
+                                  SourceManager &SrcMgr,
+                                  LangOptions &LangOpts,
+                                  Rewriter &R) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
 
     bool VisitMemberExpr(MemberExpr *expr) {
       auto *memberDecl = expr->getMemberDecl();
@@ -424,7 +480,7 @@ private:
       if (!isNonIndexAccessCompressionCandidate(fieldDecl)) return true;
 
       auto parents =
-          CI.getASTContext().getParents(*expr);
+          Ctx.getParents(*expr);
       if (parents.size() != 1) {
         llvm::outs() << "Multiple parents of MemberExpr\n";
         return false;
@@ -454,7 +510,7 @@ private:
 
         auto rhsCurrentExpr = R.getRewrittenText(binaryOp->getRHS()->getSourceRange());
         std::string source =
-            CompressionCodeGenResolver(fieldDecl->getParent(), R, CI).getSetterExpr(fieldDecl, varName, rhsCurrentExpr);
+            CompressionCodeGenResolver(fieldDecl->getParent(), Ctx, SrcMgr, LangOpts, R).getSetterExpr(fieldDecl, varName, rhsCurrentExpr);
         R.ReplaceText(binaryOp->getSourceRange(), source);
       } else if (parentNodeKind.KindId == ASTNodeKind::NKI_CompoundAssignOperator) {
         llvm::outs() << "To be implemented\n";
@@ -464,7 +520,10 @@ private:
   };
 
 public:
-  explicit WriteAccessRewriter(Rewriter &R, CompilerInstance &CI) : R(R), CI(CI) {}
+  explicit WriteAccessRewriter(ASTContext &Ctx,
+                                  SourceManager &SrcMgr,
+                                  LangOptions &LangOpts,
+                                  Rewriter &R) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
 
   void HandleTranslationUnit(ASTContext &Context) override {
     TranslationUnitDecl *D = Context.getTranslationUnitDecl();
@@ -473,14 +532,14 @@ public:
 
   bool VisitCXXMethodDecl(CXXMethodDecl *d) {
     if (isCompressionCandidate(d->getParent())) return true;
-    InternalRewriter r(R, CI);
+    InternalRewriter r(Ctx, SrcMgr, LangOpts, R);
     r.TraverseDecl(d);
     return true;
   }
 
   bool VisitFunctionDecl(FunctionDecl *d) {
     if (llvm::isa<CXXMethodDecl>(d)) return true;
-    InternalRewriter r(R, CI);
+    InternalRewriter r(Ctx, SrcMgr, LangOpts, R);
     r.TraverseDecl(d);
     return true;
   }
@@ -489,7 +548,11 @@ public:
 
 class PragmaPackAdder : public ASTConsumer, public RecursiveASTVisitor<PragmaPackAdder> {
 private:
-
+  ASTContext &Ctx;
+  SourceManager &SrcMgr;
+  LangOptions &LangOpts;
+  Rewriter &R;
+  
   class CompressibleTypeFieldsFinder : public ASTConsumer, public RecursiveASTVisitor<CompressibleTypeFieldsFinder> {
     bool found;
   public:
@@ -511,10 +574,11 @@ private:
 
   } compressibleTypeFieldsFinder;
 
-  Rewriter &R;
-  CompilerInstance &CI;
 public:
-  explicit PragmaPackAdder(Rewriter &R, CompilerInstance &CI) : R(R), CI(CI) {}
+  explicit PragmaPackAdder(ASTContext &Ctx,
+                                  SourceManager &SrcMgr,
+                                  LangOptions &LangOpts,
+                                  Rewriter &R) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
 
   void HandleTranslationUnit(ASTContext &Context) override {
     TranslationUnitDecl *D = Context.getTranslationUnitDecl();
@@ -531,36 +595,41 @@ public:
 
 class ConstSizeArrReadAccessRewriter : public ASTConsumer, public RecursiveASTVisitor<ConstSizeArrReadAccessRewriter> {
 private:
+  ASTContext &Ctx;
+  SourceManager &SrcMgr;
+  LangOptions &LangOpts;
   Rewriter &R;
-  CompilerInstance &CI;
 
   bool hasParentOfKind(Expr &child, ASTNodeKind::NodeKindId kindId) {
-    auto parentList = CI.getASTContext().getParents(child);
+    auto parentList = Ctx.getParents(child);
     while (parentList.size() == 1) {
       auto parent = parentList[0];
       if (parent.getNodeKind().KindId == kindId) {
         return true;
       }
-      parentList = CI.getASTContext().getParents(parent);
+      parentList = Ctx.getParents(parent);
     }
     return false;
   }
 
   template<typename T>
   const T* getParentOfKind(Expr &child, ASTNodeKind::NodeKindId kindId) {
-    auto parentList = CI.getASTContext().getParents(child);
+    auto parentList = Ctx.getParents(child);
     while (parentList.size() == 1) {
       auto parent = parentList[0];
       if (parent.getNodeKind().KindId == kindId) {
         return parent.get<T>();
       }
-      parentList = CI.getASTContext().getParents(parent);
+      parentList = Ctx.getParents(parent);
     }
     return NULL;
   }
 
 public:
-  explicit ConstSizeArrReadAccessRewriter(Rewriter &R, CompilerInstance &CI) : R(R), CI(CI) {}
+  explicit ConstSizeArrReadAccessRewriter(ASTContext &Ctx,
+                                  SourceManager &SrcMgr,
+                                  LangOptions &LangOpts,
+                                  Rewriter &R) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
 
   void HandleTranslationUnit(ASTContext &Context) override {
     TranslationUnitDecl *D = Context.getTranslationUnitDecl();
@@ -601,7 +670,7 @@ public:
     std::reverse(idxs.begin(), idxs.end());
 
     std::string source =
-        CompressionCodeGenResolver(fieldDecl->getParent(), R, CI).getGetterExpr(fieldDecl, varName, idxs);
+        CompressionCodeGenResolver(fieldDecl->getParent(), Ctx, SrcMgr, LangOpts, R).getGetterExpr(fieldDecl, varName, idxs);
 
     R.ReplaceText(e->getSourceRange(), source);
     return true;
@@ -610,36 +679,41 @@ public:
 
 class ConstSizeArrWriteAccessRewriter : public ASTConsumer, public RecursiveASTVisitor<ConstSizeArrWriteAccessRewriter> {
 private:
+  ASTContext &Ctx;
+  SourceManager &SrcMgr;
+  LangOptions &LangOpts;
   Rewriter &R;
-  CompilerInstance &CI;
 
   bool hasParentOfKind(Expr &child, ASTNodeKind::NodeKindId kindId) {
-    auto parentList = CI.getASTContext().getParents(child);
+    auto parentList = Ctx.getParents(child);
     while (parentList.size() == 1) {
       auto parent = parentList[0];
       if (parent.getNodeKind().KindId == kindId) {
         return true;
       }
-      parentList = CI.getASTContext().getParents(parent);
+      parentList = Ctx.getParents(parent);
     }
     return false;
   }
 
   template<typename T>
   const T* getParentOfKind(Expr &child, ASTNodeKind::NodeKindId kindId) {
-    auto parentList = CI.getASTContext().getParents(child);
+    auto parentList = Ctx.getParents(child);
     while (parentList.size() == 1) {
       auto parent = parentList[0];
       if (parent.getNodeKind().KindId == kindId) {
         return parent.get<T>();
       }
-      parentList = CI.getASTContext().getParents(parent);
+      parentList = Ctx.getParents(parent);
     }
     return NULL;
   }
 
 public:
-  explicit ConstSizeArrWriteAccessRewriter(Rewriter &R, CompilerInstance &CI) : R(R), CI(CI) {}
+  explicit ConstSizeArrWriteAccessRewriter(ASTContext &Ctx,
+                                  SourceManager &SrcMgr,
+                                  LangOptions &LangOpts,
+                                  Rewriter &R) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
 
   void HandleTranslationUnit(ASTContext &Context) override {
     TranslationUnitDecl *D = Context.getTranslationUnitDecl();
@@ -682,7 +756,7 @@ public:
     std::reverse(idxs.begin(), idxs.end());
 
     std::string source =
-        CompressionCodeGenResolver(fieldDecl->getParent(), R, CI).getSetterExpr(fieldDecl, varName, idxs, val);
+        CompressionCodeGenResolver(fieldDecl->getParent(), Ctx, SrcMgr, LangOpts, R).getSetterExpr(fieldDecl, varName, idxs, val);
 
     R.ReplaceText(binaryExpr->getSourceRange(), source);
     return true;
@@ -691,22 +765,27 @@ public:
 
 class ExprUpdater {
 private:
-  CompilerInstance &CI;
+  ASTContext &Ctx;
+  SourceManager &SrcMgr;
+  LangOptions &LangOpts;
+  Rewriter &R;
 
 public:
-  ExprUpdater(CompilerInstance &CI)
-      : CI(CI) {}
+  ExprUpdater(ASTContext &Ctx,
+              SourceManager &SrcMgr,
+              LangOptions &LangOpts,
+              Rewriter &R) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
 
   std::string HandleStmt(Stmt *stmt, Rewriter *Re = nullptr) {
-    Rewriter &R = Re ? *Re : *(new Rewriter(CI.getSourceManager(), CI.getLangOpts()));
+    Rewriter &R = Re ? *Re : *(new Rewriter(SrcMgr, LangOpts));
 
-    StaticMethodCallUpdater(R, CI).TraverseStmt(stmt);
-    ConstructorExprRewriter(R, CI).TraverseStmt(stmt);
-    FunctionReturnTypeUpdater(R, CI).TraverseStmt(stmt);
-    ReadAccessRewriter(R, CI).TraverseStmt(stmt);
-    ConstSizeArrReadAccessRewriter(R, CI).TraverseStmt(stmt);
-    WriteAccessRewriter(R, CI).TraverseStmt(stmt);
-    ConstSizeArrWriteAccessRewriter(R, CI).TraverseStmt(stmt);
+    StaticMethodCallUpdater(Ctx, SrcMgr, LangOpts, R).TraverseStmt(stmt);
+    ConstructorExprRewriter(Ctx, SrcMgr, LangOpts, R).TraverseStmt(stmt);
+    FunctionReturnTypeUpdater(Ctx, SrcMgr, LangOpts, R).TraverseStmt(stmt);
+    ReadAccessRewriter(Ctx, SrcMgr, LangOpts, R).TraverseStmt(stmt);
+    ConstSizeArrReadAccessRewriter(Ctx, SrcMgr, LangOpts, R).TraverseStmt(stmt);
+    WriteAccessRewriter(Ctx, SrcMgr, LangOpts, R).TraverseStmt(stmt);
+    ConstSizeArrWriteAccessRewriter(Ctx, SrcMgr, LangOpts, R).TraverseStmt(stmt);
 
     std::string newSource = R.getRewrittenText(stmt->getSourceRange());
     return newSource;
