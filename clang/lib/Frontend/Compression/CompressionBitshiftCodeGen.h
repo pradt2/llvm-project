@@ -17,12 +17,12 @@
 #include "llvm/Support/raw_ostream.h"
 #include <cmath>
 
-#include "./Compression/CompressionICodeGen.h"
-#include "./Compression/DelegatingNonIndexedFieldCompressor.h"
-#include "./Compression/DelegatingFieldCompressor.h"
+#include "CompressionICodeGen.h"
+#include "DelegatingNonIndexedFieldCompressor.h"
+#include "DelegatingFieldCompressor.h"
 
-#include "./SemaIR/SemaIR.h"
-#include "./MPI/MpiMappingGenerator.h"
+#include "../SemaIR/SemaIR.h"
+#include "../MPI/MpiMappingGenerator.h"
 
 using namespace clang;
 
