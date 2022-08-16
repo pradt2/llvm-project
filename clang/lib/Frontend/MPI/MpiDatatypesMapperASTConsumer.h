@@ -44,7 +44,7 @@ class MpiDatatypesMapperASTConsumer : public ASTConsumer,
   };
 
 public:
-  MpiDatatypesMapperASTConsumer(CompilerInstance &CI) : CI(CI), R(*CI.getSourceManager().getRewriter()) {}
+  MpiDatatypesMapperASTConsumer(CompilerInstance &CI) : CI(CI), R(CI.getSourceManager().getRewriter()) {}
 
   void HandleTranslationUnit(ASTContext &Context) override {
     MpiSupportAdder(R, CI).HandleTranslationUnit(Context);
