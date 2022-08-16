@@ -352,7 +352,7 @@ static Attr *handleSoaConversionOutputs(Sema &S, Stmt *St, const ParsedAttr &A,
 static Attr *handleSoaConversionTarget(Sema &S, Stmt *St, const ParsedAttr &A,
                                        SourceRange Range) {
   if (A.getNumArgs() != 1) return nullptr;
-  auto expr = S.getASTContext().getSourceManager().getRewriter()->getRewrittenText(A.getArgAsExpr(0)->getSourceRange());
+  auto expr = S.getASTContext().getSourceManager().getRewriter().getRewrittenText(A.getArgAsExpr(0)->getSourceRange());
 
   return ::new (S.Context) SoaConversionTargetAttr(S.Context, A, expr);
 }
@@ -376,7 +376,7 @@ static Attr *handleSoaConversionTargetSize(Sema &S, Stmt *St, const ParsedAttr &
     assert(Eval.Val.hasValue());
     size = std::to_string(Eval.Val.getInt().getExtValue());
   } else {
-    size = S.getASTContext().getSourceManager().getRewriter()->getRewrittenText(A.getArgAsExpr(0)->getSourceRange());
+    size = S.getASTContext().getSourceManager().getRewriter().getRewrittenText(A.getArgAsExpr(0)->getSourceRange());
   }
 
   assert(size.size() != 0);
