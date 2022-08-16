@@ -5,7 +5,7 @@
 #ifndef CLANG_COMPRESSIONBITPACKCODEGEN_H
 #define CLANG_COMPRESSIONBITPACKCODEGEN_H
 
-#include "Compression/CompressionICodeGen.h"
+#include "CompressionICodeGen.h"
 
 class CompressionBitpackCodeGen : public CompressionICodeGen {
 

@@ -1,19 +1,18 @@
 set(LLVM_LINK_COMPONENTS
-  Support
-)
+        Support
+        )
 
 add_clang_library(clangCompressionFrontend
-  CompressionASTConsumer.cpp
+        CompressionASTConsumer.cpp
 
-  LINK_LIBS
-  clangAST
-  clangBasic
-  clangEdit
-  clangFrontend
-  clangLex
-  clangRewrite
-  clangSerialization
+        LINK_LIBS
+        clangAST
+        clangBasic
+        clangEdit
+        clangLex
+        clangRewrite
+        clangSerialization
 
-  DEPENDS
-  omp_gen
-)
+        DEPENDS
+        omp_gen
+        )
