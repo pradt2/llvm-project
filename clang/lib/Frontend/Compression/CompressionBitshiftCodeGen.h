@@ -42,6 +42,7 @@ static bool isCompressionCandidate(FieldDecl *fieldDecl) {
 }
 
 static bool isCompressionCandidate(RecordDecl *recordDecl) {
+  if (!recordDecl) return false; // null record cannot be compressed
   for (auto *field : recordDecl->fields()) {
     if (isCompressionCandidate(field)) return true;
   }
@@ -188,7 +189,9 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
 
   std::string convertMethod(CXXMethodDecl *methodDecl) {
     std::string method;
-
+    SourceLocation begin = methodDecl->getSourceRange().getBegin();
+    SourceLocation end = methodDecl->getBodyRBrace().getLocWithOffset(-1); // method signature location
+    method = R.getRewrittenText(SourceRange(begin, end)) + ";"; // this just copies over the signature without the impl.
     return method;
   }
 
