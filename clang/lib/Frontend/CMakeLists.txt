@@ -1,3 +1,4 @@
+add_subdirectory(Compression)
 add_subdirectory(Rewrite)
 
 set(LLVM_LINK_COMPONENTS
@@ -53,6 +54,7 @@ add_clang_library(clangFrontend
   clangLex
   clangParse
   clangRewrite
+  clangCompressionFrontend
   clangSema
   clangSerialization
   )

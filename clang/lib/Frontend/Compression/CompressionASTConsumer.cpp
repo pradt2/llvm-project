@@ -1,7 +1,7 @@
 #include "CompressionASTConsumer.h"
 #include "CompressionRewriters.h"
 
-void CompressionASTConsumer::HandleTranslationUnit(ASTContext &Context) override {
+void CompressionASTConsumer::HandleTranslationUnit(ASTContext &Context) {
   NewStructForwardDeclAdder(R, CI).HandleTranslationUnit(Context);
   FriendStructAdder(R, CI).HandleTranslationUnit(Context);
   NewStructAdder(R, CI).HandleTranslationUnit(Context);
