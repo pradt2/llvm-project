@@ -739,7 +739,7 @@ public:
     std::string functionName = recordFullyQualifiedName + "::" + recordShortName;
 
     r.ReplaceText(decl->getNameInfo().getSourceRange(), functionName); // replace function name with fully qualified struct name + name
-    method = getMethodStr(decl, r, "noexcept");
+    method = getMethodStr(decl, r); // "noexcept");
     return method;
   }
 

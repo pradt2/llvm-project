@@ -202,29 +202,36 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
 
   std::string convertMethod(CXXMethodDecl *methodDecl) {
     std::string method;
-    if (llvm::isa<CXXConstructorDecl>(methodDecl)) {
-      auto *constr = llvm::cast<CXXConstructorDecl>(methodDecl);
-      if (constr->getNumParams()) { // constructor has args
-        // when the constructor has itself in params (and this happens e.g. with copy constructors)
-        // then we need to change the type of these params to the compressed struct
 
-        // the definition gets this transformation for free, here we need to do this manually
-        for (auto *param : constr->parameters()) {
-          std::string ptrs;
-          QualType actualType = getTypeFromIndirectType(param->getType(), ptrs);
-          if (!actualType->isRecordType() || actualType->getAsRecordDecl() != decl) continue; // constructor arg is not the compressed struct
-          R.ReplaceText(param->getTypeSourceInfo()->getTypeLoc().getSourceRange(), getCompressedStructName() + ptrs);
-        }
-        method = getCompressedStructName() + "(" + R.getRewrittenText(constr->getParametersSourceRange()) + ") noexcept;";
-      } else { // constructor has no args
-        return std::string(); // we already generate a no-args constructor that initialises default fields values
-      }
-      // constructors must have their own name
-    } else {
-      SourceLocation begin = methodDecl->getSourceRange().getBegin();
-      SourceLocation end = methodDecl->getTypeSpecEndLoc(); // method signature location
-      method = R.getRewrittenText(SourceRange(begin, end)) + ";"; // this just copies over the signature without the impl.
+    if (llvm::isa<CXXConstructorDecl>(methodDecl) && methodDecl->getNumParams() == 0) return method; // we already generate a no-args constructor that initialises default fields values
+
+    // we will be changing source in situ in the original class,
+    // so we need to restore it later
+
+    // source range from the beginning of the return type (or name in case of constructors)
+    // to the end of the args list or specifiers such as noexcept
+    SourceRange signatureSourceRange = SourceRange(methodDecl->getSourceRange().getBegin(), methodDecl->getTypeSpecEndLoc());
+    std::string oldSignature = R.getRewrittenText(signatureSourceRange);
+
+    for (auto *param : methodDecl->parameters()) {
+      std::string ptrs;
+      QualType actualType = getTypeFromIndirectType(param->getType(), ptrs);
+      if (!actualType->isRecordType() || actualType->getAsRecordDecl() != decl) continue; // constructor arg is not the compressed struct
+      R.ReplaceText(param->getTypeSourceInfo()->getTypeLoc().getSourceRange(), getCompressedStructName() + ptrs);
     }
+
+    if (llvm::isa<CXXConstructorDecl>(methodDecl)) {
+      // for constructors, we need to change the name of the class
+      // to the name of the compressed struct
+
+      // in constructors, type spec starts where arguments start, together with '('
+      SourceRange classNameRange = SourceRange(methodDecl->getSourceRange().getBegin(), methodDecl->getTypeSpecStartLoc().getLocWithOffset(-1));
+      R.ReplaceText(classNameRange, getCompressedStructName() + " ");
+    }
+
+    method = R.getRewrittenText(signatureSourceRange) + ";"; // this just copies over the signature without the impl.
+
+    R.ReplaceText(signatureSourceRange, oldSignature);
 
     return method;
   }
