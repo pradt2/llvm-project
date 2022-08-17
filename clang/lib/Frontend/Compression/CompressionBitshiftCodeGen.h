@@ -187,13 +187,35 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
     return methods;
   }
 
+  static QualType getTypeFromIndirectType(QualType type, std::string &ptrs) {
+    while (type->isReferenceType() || type->isAnyPointerType()) {
+      if (type->isReferenceType()) {
+        type = type.getNonReferenceType();
+        ptrs += "&";
+      } else if (type->isAnyPointerType()) {
+        type = type->getPointeeType();
+        ptrs += "*";
+      }
+    }
+    return type;
+  }
+
   std::string convertMethod(CXXMethodDecl *methodDecl) {
     std::string method;
     if (llvm::isa<CXXConstructorDecl>(methodDecl)) {
       auto *constr = llvm::cast<CXXConstructorDecl>(methodDecl);
-      SourceRange paramsSourceRange = constr->getParametersSourceRange();
-      if (paramsSourceRange.isValid()) { // constructor has args
-        method = getCompressedStructName() + "(" + R.getRewrittenText(paramsSourceRange) + ");";
+      if (constr->getNumParams()) { // constructor has args
+        // when the constructor has itself in params (and this happens e.g. with copy constructors)
+        // then we need to change the type of these params to the compressed struct
+
+        // the definition gets this transformation for free, here we need to do this manually
+        for (auto *param : constr->parameters()) {
+          std::string ptrs;
+          QualType actualType = getTypeFromIndirectType(param->getType(), ptrs);
+          if (!actualType->isRecordType() || actualType->getAsRecordDecl() != decl) continue; // constructor arg is not the compressed struct
+          R.ReplaceText(param->getTypeSourceInfo()->getTypeLoc().getSourceRange(), getCompressedStructName() + ptrs);
+        }
+        method = getCompressedStructName() + "(" + R.getRewrittenText(constr->getParametersSourceRange()) + ") noexcept;";
       } else { // constructor has no args
         return std::string(); // we already generate a no-args constructor that initialises default fields values
       }
