@@ -524,16 +524,74 @@ public:
     return true;
   }
 
-  bool VisitVarDecl(VarDecl *decl) { // changes local var types, incl. function args
+  std::string templateArgumentToString(const TemplateArgument &arg) {
+    typedef TemplateArgument::ArgKind Kind;
+    switch (arg.getKind()) {
+    case Kind::Type:  {
+      auto argType = arg.getAsType();
+      PrintingPolicy p(LangOpts);
+      p.FullyQualifiedName = true;
+      std::string type = argType.getAsString(p);
+      return type;
+    }
+    case Kind::Integral: {
+      auto argInt = arg.getAsIntegral();
+      std::string argIntStr = toString(argInt, 10);
+      return argIntStr;
+    }
+    case Kind::Expression: {
+      auto *argExpr = arg.getAsExpr();
+      std::string exprStr = R.getRewrittenText(argExpr->getSourceRange());
+      return exprStr;
+    }
+    default: return "Template argument toString() to be implemented!";
+    }
+  }
+
+  void handleTemplates(VarDecl *decl) {
     std::string ptrs = "";
     auto type = getTypeFromIndirectType(decl->getType(), ptrs);
     auto *templType = type->getAs<TemplateSpecializationType>();
-    if (templType) {
-      for (auto &arg : templType->template_arguments()) {
-        arg.dump();
+
+    if (!templType) return ;
+    auto *templSpecDecl = llvm::cast<ClassTemplateSpecializationDecl>(templType->desugar()->getAsCXXRecordDecl());
+
+    std::string templateArgs = "";
+    for (auto &arg : templSpecDecl->getTemplateArgs().asArray()) {
+      if (arg.getKind() != TemplateArgument::ArgKind::Type) {
+        templateArgs += templateArgumentToString(arg) + ", ";
+        continue;
       }
+      auto *recordDecl = arg.getAsType()->getAsRecordDecl();
+      if (!isCompressionCandidate(recordDecl)) {
+        templateArgs += templateArgumentToString(arg) + ", ";
+        continue;
+      }
+      auto compressionCodeGen = CompressionCodeGenResolver(recordDecl, Ctx, SrcMgr, LangOpts, R);
+      templateArgs += compressionCodeGen.getFullyQualifiedCompressedStructName() + ", ";
     }
-    if (!type->isRecordType()) return true;
+    if (templateArgs.length() > 0) {
+      templateArgs.pop_back();
+      templateArgs.pop_back(); // remove trailing ", "
+    }
+
+    std::string templateName = templType->getTemplateName().getAsTemplateDecl()->getQualifiedNameAsString();
+
+    std::string templateInstantiationType = templateName + "<" + templateArgs + ">";
+
+    SourceRange typespecSourceRange = SourceRange(decl->getTypeSpecStartLoc(), decl->getTypeSpecEndLoc());
+
+    R.ReplaceText(typespecSourceRange, templateInstantiationType);
+  }
+
+  bool VisitVarDecl(VarDecl *decl) { // changes local var types, incl. function args
+    std::string ptrs = "";
+    auto type = getTypeFromIndirectType(decl->getType(), ptrs);
+    handleTemplates(decl);
+    if (!type->isRecordType()) {
+      handleTemplates(decl);
+      return true;
+    }
     auto *record = type->getAsRecordDecl();
     if (!isCompressionCandidate(record)) return true;
     auto compressionCodeGen = CompressionCodeGenResolver(record, Ctx, SrcMgr, LangOpts, R);

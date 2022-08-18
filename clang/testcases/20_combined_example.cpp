@@ -5,14 +5,15 @@ struct B {
   bool a;
 };
 
-template<class T>
+template<class T, int X>
 struct S {
 
   void setT(T val) {}
 };
 
 int main() {
-  S<B> s;
+  S<B, 1> s;
+  S<B, 2> g;
 
 //  printf("Bool value: %d", s.getA());
 }
