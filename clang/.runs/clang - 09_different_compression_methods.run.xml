@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="clang - 09_different_compression_methods" type="CMakeRunConfiguration" factoryName="Application" PROGRAM_PARAMS="-cc1 -ast-dump ../../testcases/09_different_compression_methods.cpp" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="Clang" TARGET_NAME="clang" CONFIG_NAME="GCC Debug" RUN_TARGET_PROJECT_NAME="Clang" RUN_TARGET_NAME="clang">
+  <configuration default="false" name="clang - 09_different_compression_methods" type="CMakeRunConfiguration" factoryName="Application" PROGRAM_PARAMS="-cc1 -ast-dump ../../testcases/09_different_compression_methods.cpp" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="Clang" TARGET_NAME="clang" CONFIG_NAME="GCC GDB Debug" RUN_TARGET_PROJECT_NAME="Clang" RUN_TARGET_NAME="clang">
     <method v="2">
       <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
     </method>
