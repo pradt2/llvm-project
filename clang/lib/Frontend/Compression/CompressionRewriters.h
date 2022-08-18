@@ -527,6 +527,12 @@ public:
   bool VisitVarDecl(VarDecl *decl) { // changes local var types, incl. function args
     std::string ptrs = "";
     auto type = getTypeFromIndirectType(decl->getType(), ptrs);
+    auto *templType = type->getAs<TemplateSpecializationType>();
+    if (templType) {
+      for (auto &arg : templType->template_arguments()) {
+        arg.dump();
+      }
+    }
     if (!type->isRecordType()) return true;
     auto *record = type->getAsRecordDecl();
     if (!isCompressionCandidate(record)) return true;
