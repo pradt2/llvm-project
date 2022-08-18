@@ -28,16 +28,19 @@ public:
   unsigned int getCompressedTypeWidth() {
     if (_nonIndexedCompressor) return _nonIndexedCompressor->getCompressedTypeWidth();
     if (_indexedCompressor) return _indexedCompressor->getCompressedTypeWidth();
+    return -1;
   }
 
   std::string getCopyConstructorStmt(std::string thisAccessor, std::string toBeSetVal) {
     if (_nonIndexedCompressor) return _nonIndexedCompressor->getCopyConstructorStmt(thisAccessor, toBeSetVal);
     if (_indexedCompressor) return _indexedCompressor->getCopyConstructorStmt(thisAccessor, toBeSetVal);
+    return "std::string getCopyConstructorStmt() invalid";
   }
 
   std::string getTypeCastToOriginalStmt(std::string thisAccessor, std::string retValFieldAccessor) {
     if (_nonIndexedCompressor) return _nonIndexedCompressor->getTypeCastToOriginalStmt(thisAccessor, retValFieldAccessor);
     if (_indexedCompressor) return _indexedCompressor->getCopyConstructorStmt(thisAccessor, retValFieldAccessor);
+    return "std::string getTypeCastToOriginalStmt() invalid";
   }
 
   void setOffset(unsigned int offset) {
