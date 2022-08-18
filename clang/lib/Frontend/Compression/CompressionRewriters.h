@@ -199,7 +199,6 @@ public:
     //  - field is the member
     Expr *baseExpr = expr->getBase();
     if (llvm::isa<CXXThisExpr>(baseExpr)) {
-      CXXThisExpr *thisExpr = llvm::cast<CXXThisExpr>(baseExpr);
       varName = "this->";
     } else {
       varName = R.getRewrittenText(SourceRange(expr->getBeginLoc(), expr->getMemberLoc().getLocWithOffset(-1)));
@@ -358,7 +357,6 @@ public:
     std::string varName;
     Expr *baseExpr = memberExpr->getBase();
     if (llvm::isa<CXXThisExpr>(baseExpr)) {
-      CXXThisExpr *thisExpr = llvm::cast<CXXThisExpr>(baseExpr);
       varName = "this->";
     } else {
       varName = R.getRewrittenText(SourceRange(memberExpr->getBeginLoc(), memberExpr->getMemberLoc().getLocWithOffset(-1)));
@@ -447,7 +445,6 @@ public:
     std::string varName;
     Expr *baseExpr = memberExpr->getBase();
     if (llvm::isa<CXXThisExpr>(baseExpr)) {
-      CXXThisExpr *thisExpr = llvm::cast<CXXThisExpr>(baseExpr);
       varName = "this->";
     } else {
       varName = R.getRewrittenText(SourceRange(memberExpr->getBeginLoc(), memberExpr->getMemberLoc().getLocWithOffset(-1)));
@@ -554,10 +551,10 @@ public:
     auto *templType = type->getAs<TemplateSpecializationType>();
 
     if (!templType) return ;
-    auto *templSpecDecl = llvm::cast<ClassTemplateSpecializationDecl>(templType->desugar()->getAsCXXRecordDecl());
 
     std::string templateArgs = "";
-    for (auto &arg : templSpecDecl->getTemplateArgs().asArray()) {
+    bool foundCompressionTemplateArg = false;
+    for (auto &arg : templType->template_arguments()) {
       if (arg.getKind() != TemplateArgument::ArgKind::Type) {
         templateArgs += templateArgumentToString(arg) + ", ";
         continue;
@@ -567,9 +564,13 @@ public:
         templateArgs += templateArgumentToString(arg) + ", ";
         continue;
       }
+      foundCompressionTemplateArg = true;
       auto compressionCodeGen = CompressionCodeGenResolver(recordDecl, Ctx, SrcMgr, LangOpts, R);
       templateArgs += compressionCodeGen.getFullyQualifiedCompressedStructName() + ", ";
     }
+
+    if (!foundCompressionTemplateArg) return ; // if no compression-related args were found, no need for rewriting
+
     if (templateArgs.length() > 0) {
       templateArgs.pop_back();
       templateArgs.pop_back(); // remove trailing ", "
@@ -650,7 +651,6 @@ public:
     if (!isCompressionCandidate(decl)) return true;
     auto compressionCodeGen = CompressionCodeGenResolver(decl, Ctx, SrcMgr, LangOpts, R);
     std::string compressedStructName = compressionCodeGen.getCompressedStructName();
-    auto &srcMgr = R.getSourceMgr();
     auto loc = decl->getBraceRange().getBegin();
     R.InsertTextAfterToken(loc, "\n friend struct " + compressedStructName + ";\n");
     return true;
