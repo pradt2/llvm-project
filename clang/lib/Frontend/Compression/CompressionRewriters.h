@@ -121,6 +121,64 @@ private:
   SourceManager &SrcMgr;
   LangOptions &LangOpts;
   Rewriter &R;
+
+  template<typename X>
+  struct Optional {
+    bool some = false;
+    X val;
+
+  private:
+    explicit Optional() {}
+
+  public:
+
+    static Optional<X> empty() {
+      return Optional();
+    }
+
+    Optional(X val) {
+      this->some = true;
+      this->val = val;
+    }
+
+    bool isSome() {
+      return this->some;
+    }
+
+    X getVal() {
+      return this->val;
+    }
+  };
+
+  Optional<DynTypedNode> getParentSkippingExprWithCleanups(Expr *expr) {
+    // Variable declaration by direct constructor invocation exist, e.g. Something__PACKED p(1,2);
+    // This is called 'callinit'
+    // In these cases, calculating type source range as the distance between the start of the declaration, and the start of the arguments
+    // Simply does not work, as it 'swallows' the name that is in between
+    auto parents = Ctx.getParents(*expr);
+    if (parents.size() != 1) {
+      llvm::errs() << "Multiple parents of CXXContstructorExpr\n";
+      Optional<DynTypedNode>::empty();
+    }
+
+    auto parent = parents[0];
+    auto parentNodeKind = parent.getNodeKind();
+
+    // for reasons so obscure I don't even want to know,
+    // sometimes constructor invocations are wrapped in an 'ExprWithCleanups' node
+    if (parentNodeKind.KindId == ASTNodeKind::NKI_ExprWithCleanups) {
+      parents = Ctx.getParents(*parent.get<ExprWithCleanups>());
+      if (parents.size() != 1) {
+        llvm::errs() << "Multiple parents of ExprWithCleanups\n";
+        return Optional<DynTypedNode>::empty();
+      }
+
+      parent = parents[0];
+    }
+
+    return Optional<DynTypedNode>(parent);
+  }
+
 public:
   explicit ConstructorAndInitExprRewriter(ASTContext &Ctx,
                                           SourceManager &SrcMgr,
@@ -142,18 +200,11 @@ public:
 
     SourceLocation typeEnd;
 
-    // Variable declaration by direct constructor invocation exist, e.g. Something__PACKED p(1,2);
-    // This is called 'callinit'
-    // In these cases, calculating type source range as the distance between the start of the declaration, and the start of the arguments
-    // Simply does not work, as it 'swallows' the name that is in between
-    auto parents = Ctx.getParents(*expr);
-    if (parents.size() != 1) {
-      llvm::errs() << "Multiple parents of MemberExpr\n";
-      return;
-    }
-
-    auto parent = parents[0];
+    auto parentOpt = getParentSkippingExprWithCleanups(expr);
+    if (!parentOpt.isSome()) return;
+    auto parent = parentOpt.getVal();
     auto parentNodeKind = parent.getNodeKind();
+
     if (parentNodeKind.KindId == ASTNodeKind::NKI_VarDecl) {
       // I originally wrote this because of callinit variable initialization
       // but chances are that any constructor invocation that directly belongs to a var decl will be 'dealt with'
@@ -182,6 +233,19 @@ public:
     if (!constructType->isRecordType()) return true;
     auto *constructDecl = constructType->getAsRecordDecl();
     if (!isCompressionCandidate(constructDecl)) return true;
+
+    // If this is a 'callinit' declaration, just changing the variable type
+    // will do the trick
+    auto parentOpt = getParentSkippingExprWithCleanups(expr);
+    if (!parentOpt.isSome()) return true;
+    auto parent = parentOpt.getVal();
+    auto parentNodeKind = parent.getNodeKind();
+
+    if (parentNodeKind.KindId == ASTNodeKind::NKI_VarDecl) {
+      auto *varDecl = parent.get<VarDecl>();
+      if (varDecl->getInitStyle() == VarDecl::InitializationStyle::CallInit) return true;
+    }
+
     auto compressionCodeGen = CompressionCodeGenResolver(constructDecl, Ctx, SrcMgr, LangOpts, R);
     R.InsertTextBefore(expr->getBeginLoc(), compressionCodeGen.getFullyQualifiedCompressedStructName() + "(");
     R.InsertTextAfterToken(expr->getEndLoc(), ")");
