@@ -141,6 +141,27 @@ public:
     if (newType.empty()) return ;
 
     SourceLocation typeEnd;
+
+    // Variable declaration by direct constructor invocation exist, e.g. Something__PACKED p(1,2);
+    // This is called 'callinit'
+    // In these cases, calculating type source range as the distance between the start of the declaration, and the start of the arguments
+    // Simply does not work, as it 'swallows' the name that is in between
+    auto parents = Ctx.getParents(*expr);
+    if (parents.size() != 1) {
+      llvm::errs() << "Multiple parents of MemberExpr\n";
+      return;
+    }
+
+    auto parent = parents[0];
+    auto parentNodeKind = parent.getNodeKind();
+    if (parentNodeKind.KindId == ASTNodeKind::NKI_VarDecl) {
+      // I originally wrote this because of callinit variable initialization
+      // but chances are that any constructor invocation that directly belongs to a var decl will be 'dealt with'
+      // by the variable type rewriting itself
+      auto *varDecl = parent.get<VarDecl>();
+      if (varDecl->getInitStyle() == VarDecl::InitializationStyle::CallInit) return;
+    }
+
     if (expr->getNumArgs() == 0) {
       typeEnd = expr->getEndLoc().getLocWithOffset(-2); // this removes the trailing '()' from the constructor invocation
     } else {
@@ -791,7 +812,7 @@ public:
 
   bool VisitFieldDecl(FieldDecl *decl) {
     std::string ptrs = "";
-//    updateTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, decl);
+    updateTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, decl);
     auto type = getTypeFromIndirectType(decl->getType(), ptrs);
     if (!type->isRecordType()) return true;
     auto *record = type->getAsRecordDecl();
