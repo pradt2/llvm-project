@@ -7,5 +7,5 @@ void CompressionASTConsumer::HandleTranslationUnit(ASTContext &Context) {
   NewStructAdder(Ctx, SrcMgr, LangOpts, R).HandleTranslationUnit(Context);
   PragmaPackAdder(Ctx, SrcMgr, LangOpts, R).HandleTranslationUnit(Context);
   FieldDeclUpdater(Ctx, SrcMgr, LangOpts, R).HandleTranslationUnit(Context);
-  GlobalFunctionUpdater(Ctx, SrcMgr, LangOpts, R).HandleTranslationUnit(Context);
+  GlobalFunctionAndVarUpdater(Ctx, SrcMgr, LangOpts, R).HandleTranslationUnit(Context);
 }

@@ -113,6 +113,8 @@ public:
 
 };
 
+std::string getNewTemplateInstantiationType(ASTContext &Ctx, SourceManager &SrcMgr, LangOptions &LangOpts, Rewriter &R, QualType origType);
+
 class ConstructorAndInitExprRewriter : public ASTConsumer, public RecursiveASTVisitor<ConstructorAndInitExprRewriter> {
 private:
   ASTContext &Ctx;
@@ -130,18 +132,38 @@ public:
     TraverseDecl(D);
   }
 
-  bool VisitCXXConstructExpr(CXXConstructExpr *decl) {
-    if (decl->isElidable()) return true;
-    if (decl->getNumArgs() == 0) return true;
-    if (decl->getConstructor()->isImplicit()) return true;
+  void updateTemplateInstantiationExpr(CXXConstructExpr *expr) {
+    auto *type = expr->getType()->getAs<TemplateSpecializationType>();
+    if (!type) return;
+
+    std::string newType = getNewTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, expr->getType());
+
+    if (newType.empty()) return ;
+
+    SourceLocation typeEnd;
+    if (expr->getNumArgs() == 0) {
+      typeEnd = expr->getEndLoc().getLocWithOffset(-2); // this removes the trailing '()' from the constructor invocation
+    } else {
+      Expr *firstArg = expr->getArg(0);
+      typeEnd = firstArg->getBeginLoc().getLocWithOffset(-2); // this removes the '(a' where a is the first letter of the argument name
+    }
+
+    R.ReplaceText(SourceRange(expr->getBeginLoc(), typeEnd), newType);
+  }
+
+  bool VisitCXXConstructExpr(CXXConstructExpr *expr) {
+    if (expr->isElidable()) return true;
+    updateTemplateInstantiationExpr(expr);
+    if (expr->getNumArgs() == 0) return true;
+    if (expr->getConstructor()->isImplicit()) return true;
     std::string ptrs;
-    auto constructType = getTypeFromIndirectType(decl->getType(), ptrs);
+    auto constructType = getTypeFromIndirectType(expr->getType(), ptrs);
     if (!constructType->isRecordType()) return true;
     auto *constructDecl = constructType->getAsRecordDecl();
     if (!isCompressionCandidate(constructDecl)) return true;
     auto compressionCodeGen = CompressionCodeGenResolver(constructDecl, Ctx, SrcMgr, LangOpts, R);
-    R.InsertTextBefore(decl->getBeginLoc(), compressionCodeGen.getFullyQualifiedCompressedStructName() + "(");
-    R.InsertTextAfterToken(decl->getEndLoc(), ")");
+    R.InsertTextBefore(expr->getBeginLoc(), compressionCodeGen.getFullyQualifiedCompressedStructName() + "(");
+    R.InsertTextAfterToken(expr->getEndLoc(), ")");
     return true;
   }
 
@@ -523,17 +545,26 @@ std::string getNewTemplateInstantiationType(ASTContext &Ctx, SourceManager &SrcM
   bool foundCompressionTemplateArg = false;
   for (auto &arg : templType->template_arguments()) {
     if (arg.getKind() != TemplateArgument::ArgKind::Type) {
-      templateArgs += templateArgumentToString(LangOpts, R, arg) + ", ";
-      continue;
+      templateArgs += templateArgumentToString(LangOpts, R, arg) + ", "; continue;
     }
-    auto *recordDecl = arg.getAsType()->getAsRecordDecl();
-    if (!isCompressionCandidate(recordDecl)) {
+
+    auto argAsType = arg.getAsType();
+    auto *recordDecl = argAsType->isRecordType() ? argAsType->getAsRecordDecl() : NULL;
+    if (llvm::isa_and_nonnull<ClassTemplateSpecializationDecl>(recordDecl)) {
+      std::string nestedTemplateArg = getNewTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, arg.getAsType());
+      if (!nestedTemplateArg.empty()) {
+        foundCompressionTemplateArg = true;
+        templateArgs += nestedTemplateArg + ", ";
+      } else {
+        templateArgs += templateArgumentToString(LangOpts, R, arg) + ", ";
+      }
+    } else if (isCompressionCandidate(recordDecl)) {
+      foundCompressionTemplateArg = true;
+      auto compressionCodeGen = CompressionCodeGenResolver(recordDecl, Ctx, SrcMgr, LangOpts, R);
+      templateArgs += compressionCodeGen.getFullyQualifiedCompressedStructName() + ", ";
+    } else {
       templateArgs += templateArgumentToString(LangOpts, R, arg) + ", ";
-      continue;
     }
-    foundCompressionTemplateArg = true;
-    auto compressionCodeGen = CompressionCodeGenResolver(recordDecl, Ctx, SrcMgr, LangOpts, R);
-    templateArgs += compressionCodeGen.getFullyQualifiedCompressedStructName() + ", ";
   }
 
   if (!foundCompressionTemplateArg) return ""; // if no compression-related args were found, no need for rewriting
@@ -558,6 +589,85 @@ void updateTemplateInstantiationType(ASTContext &Ctx, SourceManager &SrcMgr, Lan
   SourceRange typespecSourceRange = SourceRange(decl->getTypeSpecStartLoc(), decl->getTypeSpecEndLoc());
 
   R.ReplaceText(typespecSourceRange, newTemplateInstantiationType);
+}
+
+void updateConstSizeArrayType(ASTContext &Ctx, SourceManager &SrcMgr, LangOptions &LangOpts, Rewriter &R, DeclaratorDecl *decl /** to cover VarDecl and FieldDecl */) {
+  if (!decl->getType()->isConstantArrayType()) return ;
+  auto *arrType = llvm::cast<ConstantArrayType>(decl->getType()->getAsArrayTypeUnsafe());
+
+  std::vector<unsigned int> _dimensions;
+  {
+    auto *dimCountArrType = arrType;
+    while (true) {
+      _dimensions.push_back(dimCountArrType->getSize().getSExtValue());
+      if (dimCountArrType->getElementType()->isConstantArrayType()) {
+        dimCountArrType = llvm::cast<ConstantArrayType>(dimCountArrType->getElementType()->getAsArrayTypeUnsafe());
+      } else {
+        break;
+      }
+    }
+  }
+
+  QualType elementType;
+  {
+    auto *elementFindArrType = arrType;
+    while (true) {
+      if (elementFindArrType->getElementType()->isConstantArrayType()) {
+        elementFindArrType = llvm::cast<ConstantArrayType>(elementFindArrType->getElementType()->getAsArrayTypeUnsafe());
+      } else {
+        elementType = elementFindArrType->getElementType();
+        break;
+      }
+    }
+  }
+
+  if (!elementType->isRecordType()) return;
+
+  auto *recordDecl = elementType->getAsRecordDecl();
+  if (!isCompressionCandidate(recordDecl)) return;
+
+  auto compressionCodeGen = CompressionCodeGenResolver(recordDecl, Ctx, SrcMgr, LangOpts, R);
+  // here we know that the replaced var is a const-size arr,
+  // and since for const-size arrs the type spec range covers whole 'type name[size]' declaration,
+  // the type spec range is a suitable range for the replacement
+  SourceRange sourceRange(decl->getTypeSpecStartLoc(), decl->getTypeSpecEndLoc());
+  std::string compressedStructName = compressionCodeGen.getFullyQualifiedCompressedStructName();
+
+  std::string completeDeclaration = compressedStructName + " " + decl->getNameAsString();
+  for (auto &dim : _dimensions) {
+    completeDeclaration += "[" + std::to_string(dim) + "]";
+  }
+  R.ReplaceText(sourceRange, completeDeclaration);
+}
+
+
+void updateDeclType(Rewriter &R, DeclaratorDecl *decl, std::string typeStr) {
+  // in normal cases, the decl goes like: 'type name;' e.g 'int i;'
+  // in such cases, the TypeSpecStartLoc and TypeSpecEndLoc span only the type and not the name
+  // HOWEVER
+  // in cases of const-sized arrs, the size of the arr goes AFTER the name - 'type name[size];' e.g. int i[2];
+  // and in such cases, the TypeSpecEndLoc points to the end of the size declaration which spans across the name as well
+
+  SourceRange typeSourceRange = SourceRange(decl->getTypeSpecStartLoc(), decl->getTypeSpecEndLoc());
+  SourceRange nameSourceRange = SourceRange(decl->getLocation(), decl->getLocation().getLocWithOffset(decl->getNameAsString().length() -1));
+
+  if (typeSourceRange.fullyContains(nameSourceRange)) {
+    // TODO this will cause problems; this loses any [size] at the end, e.g. int a[2] becomes int a
+    R.ReplaceText(typeSourceRange, typeStr + " " + decl->getNameAsString());
+  } else {
+    R.ReplaceText(typeSourceRange, typeStr);
+  }
+}
+
+void updateVarType(ASTContext &Ctx, SourceManager &SrcMgr, LangOptions &LangOpts, Rewriter &R, DeclaratorDecl *decl) {
+  std::string ptrs = "";
+  auto type = getTypeFromIndirectType(decl->getType(), ptrs);
+  updateTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, decl);
+  updateConstSizeArrayType(Ctx, SrcMgr, LangOpts, R, decl);
+  auto *record = type->getAsRecordDecl();
+  if (!isCompressionCandidate(record)) return;
+  auto compressionCodeGen = CompressionCodeGenResolver(record, Ctx, SrcMgr, LangOpts, R);
+  updateDeclType(R, decl, compressionCodeGen.getFullyQualifiedCompressedStructName() + (ptrs.length() > 0 ? " " + ptrs : ""));
 }
 
 class FunctionUpdater : public ASTConsumer, public RecursiveASTVisitor<FunctionUpdater> {
@@ -601,13 +711,7 @@ public:
   }
 
   bool VisitVarDecl(VarDecl *decl) { // changes local var types, incl. function args
-    std::string ptrs = "";
-    auto type = getTypeFromIndirectType(decl->getType(), ptrs);
-    updateTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, decl);
-    auto *record = type->getAsRecordDecl();
-    if (!isCompressionCandidate(record)) return true;
-    auto compressionCodeGen = CompressionCodeGenResolver(record, Ctx, SrcMgr, LangOpts, R);
-    R.ReplaceText(SourceRange(decl->getTypeSpecStartLoc(), decl->getTypeSpecEndLoc()), compressionCodeGen.getFullyQualifiedCompressedStructName() + (ptrs.length() > 0 ? " " + ptrs : ""));
+    updateVarType(Ctx, SrcMgr, LangOpts, R, decl);
     return true;
   }
 };
@@ -687,13 +791,13 @@ public:
 
   bool VisitFieldDecl(FieldDecl *decl) {
     std::string ptrs = "";
-    updateTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, decl);
+//    updateTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, decl);
     auto type = getTypeFromIndirectType(decl->getType(), ptrs);
     if (!type->isRecordType()) return true;
     auto *record = type->getAsRecordDecl();
     if (!isCompressionCandidate(record)) return true;
     auto compressionCodeGen = CompressionCodeGenResolver(record, Ctx, SrcMgr, LangOpts, R);
-    R.ReplaceText(SourceRange(decl->getTypeSpecStartLoc(), decl->getTypeSpecEndLoc()), compressionCodeGen.getFullyQualifiedCompressedStructName() + (ptrs.length() > 0 ? " " + ptrs : ""));
+    updateDeclType(R, decl, compressionCodeGen.getFullyQualifiedCompressedStructName() + (ptrs.length() > 0 ? " " + ptrs : ""));
     ExprUpdater(Ctx, SrcMgr, LangOpts, R).HandleStmt(decl->getInClassInitializer()); // this converts initializers
     return true;
   }
@@ -845,14 +949,14 @@ public:
   }
 };
 
-class GlobalFunctionUpdater : public ASTConsumer, public RecursiveASTVisitor<GlobalFunctionUpdater> {
+class GlobalFunctionAndVarUpdater : public ASTConsumer, public RecursiveASTVisitor<GlobalFunctionAndVarUpdater> {
 private:
   ASTContext &Ctx;
   SourceManager &SrcMgr;
   LangOptions &LangOpts;
   Rewriter &R;
 public:
-  explicit GlobalFunctionUpdater(ASTContext &Ctx,
+  explicit GlobalFunctionAndVarUpdater(ASTContext &Ctx,
                            SourceManager &SrcMgr,
                            LangOptions &LangOpts,
                            Rewriter &R) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
@@ -871,6 +975,13 @@ public:
       if (record && isCompressionCandidate(record)) return true;
     }
     return FunctionUpdater(Ctx, SrcMgr, LangOpts, R).TraverseDecl(decl);
+  }
+
+  bool VisitVarDecl(VarDecl *decl) {
+    DeclContext *parent = decl->getParentFunctionOrMethod();
+    if (parent) return true;
+    updateVarType(Ctx, SrcMgr, LangOpts, R, decl);
+    return true;
   }
 };
 
