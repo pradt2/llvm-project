@@ -7,6 +7,8 @@
 
 #include "CompressionCodeGenResolver.h"
 
+#define MARKER (std::string() + "/** " + __FILE__ + ":" + std::to_string(__LINE__) + "*/ ")
+
 class SubExprFinder : public ASTConsumer,
                       public RecursiveASTVisitor<SubExprFinder> {
   Expr *child;
@@ -107,7 +109,7 @@ public:
     SourceRange rangeToReplace = expr->getCallee()->getSourceRange();
     CompressionCodeGenResolver compressionCodeGenResolver = CompressionCodeGenResolver(recordDecl, Ctx, SrcMgr, LangOpts, R);
     std::string newSource = compressionCodeGenResolver.getFullyQualifiedCompressedStructName() + "::" + functionDecl->getNameAsString();
-    R.ReplaceText(rangeToReplace, newSource);
+    R.ReplaceText(rangeToReplace, MARKER + newSource);
     return true;
   }
 
@@ -194,6 +196,11 @@ public:
     auto *type = expr->getType()->getAs<TemplateSpecializationType>();
     if (!type) return;
 
+    // sometimes, when variables whose type is a template instantiation are used as function arguments
+    // a MAGICAL new CXXConstructorExpr appears in the AST in place of the function invocation (maybe if arg passed by value?)5
+    // we should do nothing about it
+    if (expr->getSourceRange().getBegin() == expr->getSourceRange().getEnd()) return;
+
     std::string newType = getNewTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, expr->getType());
 
     if (newType.empty()) return ;
@@ -220,7 +227,8 @@ public:
       typeEnd = firstArg->getBeginLoc().getLocWithOffset(-2); // this removes the '(a' where a is the first letter of the argument name
     }
 
-    R.ReplaceText(SourceRange(expr->getBeginLoc(), typeEnd), newType);
+    auto sourceRange = SourceRange(expr->getBeginLoc(), typeEnd);
+    R.ReplaceText(sourceRange,  MARKER + newType);
   }
 
   bool VisitCXXConstructExpr(CXXConstructExpr *expr) {
@@ -247,7 +255,7 @@ public:
     }
 
     auto compressionCodeGen = CompressionCodeGenResolver(constructDecl, Ctx, SrcMgr, LangOpts, R);
-    R.InsertTextBefore(expr->getBeginLoc(), compressionCodeGen.getFullyQualifiedCompressedStructName() + "(");
+    R.InsertTextBefore(expr->getBeginLoc(), MARKER + compressionCodeGen.getFullyQualifiedCompressedStructName() + "(");
     R.InsertTextAfterToken(expr->getEndLoc(), ")");
     return true;
   }
@@ -266,7 +274,7 @@ public:
     source.pop_back();
     source.pop_back();
     source += "}";
-    R.ReplaceText(initListExpr->getSourceRange(),  "(" + source + ")");
+    R.ReplaceText(initListExpr->getSourceRange(),  MARKER + "(" + source + ")");
     return true;
   }
 };
@@ -323,7 +331,7 @@ public:
       std::string source =
           CompressionCodeGenResolver(fieldDecl->getParent(), Ctx, SrcMgr, LangOpts, R).getGetterExpr(fieldDecl, varName);
       R.ReplaceText(SourceRange(expr->getBeginLoc(), expr->getEndLoc()),
-                    source);
+                    MARKER + source);
     }
     return true;
   }
@@ -382,7 +390,7 @@ public:
       auto rhsCurrentExpr = R.getRewrittenText(binaryOp->getRHS()->getSourceRange());
       std::string source =
           CompressionCodeGenResolver(fieldDecl->getParent(), Ctx, SrcMgr, LangOpts, R).getSetterExpr(fieldDecl, varName, rhsCurrentExpr);
-      R.ReplaceText(binaryOp->getSourceRange(), source);
+      R.ReplaceText(binaryOp->getSourceRange(), MARKER + source);
     } else if (parentNodeKind.KindId == ASTNodeKind::NKI_CompoundAssignOperator) {
       llvm::outs() << "To be implemented\n";
     }
@@ -474,7 +482,7 @@ public:
     std::string source =
         CompressionCodeGenResolver(fieldDecl->getParent(), Ctx, SrcMgr, LangOpts, R).getGetterExpr(fieldDecl, varName, idxs);
 
-    R.ReplaceText(e->getSourceRange(), source);
+    R.ReplaceText(e->getSourceRange(), MARKER + source);
     return true;
   }
 };
@@ -564,7 +572,7 @@ public:
     std::string source =
         CompressionCodeGenResolver(fieldDecl->getParent(), Ctx, SrcMgr, LangOpts, R).getSetterExpr(fieldDecl, varName, idxs, val);
 
-    R.ReplaceText(binaryExpr->getSourceRange(), source);
+    R.ReplaceText(binaryExpr->getSourceRange(), MARKER + source);
     return true;
   }
 };
@@ -673,7 +681,7 @@ void updateTemplateInstantiationType(ASTContext &Ctx, SourceManager &SrcMgr, Lan
 
   SourceRange typespecSourceRange = SourceRange(decl->getTypeSpecStartLoc(), decl->getTypeSpecEndLoc());
 
-  R.ReplaceText(typespecSourceRange, newTemplateInstantiationType);
+  R.ReplaceText(typespecSourceRange, MARKER + newTemplateInstantiationType);
 }
 
 void updateConstSizeArrayType(ASTContext &Ctx, SourceManager &SrcMgr, LangOptions &LangOpts, Rewriter &R, DeclaratorDecl *decl /** to cover VarDecl and FieldDecl */) {
@@ -722,7 +730,7 @@ void updateConstSizeArrayType(ASTContext &Ctx, SourceManager &SrcMgr, LangOption
   for (auto &dim : _dimensions) {
     completeDeclaration += "[" + std::to_string(dim) + "]";
   }
-  R.ReplaceText(sourceRange, completeDeclaration);
+  R.ReplaceText(sourceRange, MARKER + completeDeclaration);
 }
 
 
@@ -738,9 +746,9 @@ void updateDeclType(Rewriter &R, DeclaratorDecl *decl, std::string typeStr) {
 
   if (typeSourceRange.fullyContains(nameSourceRange)) {
     // TODO this will cause problems; this loses any [size] at the end, e.g. int a[2] becomes int a
-    R.ReplaceText(typeSourceRange, typeStr + " " + decl->getNameAsString());
+    R.ReplaceText(typeSourceRange, MARKER + typeStr + " " + decl->getNameAsString());
   } else {
-    R.ReplaceText(typeSourceRange, typeStr);
+    R.ReplaceText(typeSourceRange, MARKER + typeStr);
   }
 }
 
@@ -783,7 +791,7 @@ public:
 
     std::string newTemplateType = getNewTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, returnType);
     if (!newTemplateType.empty()) {
-      R.ReplaceText(decl->getReturnTypeSourceRange(), newTemplateType);
+      R.ReplaceText(decl->getReturnTypeSourceRange(), MARKER + newTemplateType);
       return true;
     }
 
@@ -791,7 +799,7 @@ public:
     auto *record = returnType->getAsRecordDecl();
     if (!isCompressionCandidate(record)) return true;
     auto compressionCodeGen = CompressionCodeGenResolver(record, Ctx, SrcMgr, LangOpts, R);
-    R.ReplaceText(decl->getReturnTypeSourceRange(), compressionCodeGen.getFullyQualifiedCompressedStructName() + (ptrs.length() > 0 ? " " + ptrs : ""));
+    R.ReplaceText(decl->getReturnTypeSourceRange(), MARKER + compressionCodeGen.getFullyQualifiedCompressedStructName() + (ptrs.length() > 0 ? " " + ptrs : ""));
     return true;
   }
 
@@ -824,7 +832,7 @@ public:
     while ((decl = decl->getPreviousDecl())) {
       auto compressionCodeGen = CompressionCodeGenResolver(decl, Ctx, SrcMgr, LangOpts, R);
       std::string compressedStructName = compressionCodeGen.getCompressedStructName();
-      R.InsertTextAfterToken(decl->getEndLoc(), ";\n struct " + compressedStructName + ";\n");
+      R.InsertTextAfterToken(decl->getEndLoc(), MARKER + ";\n struct " + compressedStructName + ";\n");
     }
     return true;
   }
@@ -852,7 +860,7 @@ public:
     auto compressionCodeGen = CompressionCodeGenResolver(decl, Ctx, SrcMgr, LangOpts, R);
     std::string compressedStructName = compressionCodeGen.getCompressedStructName();
     auto loc = decl->getBraceRange().getBegin();
-    R.InsertTextAfterToken(loc, "\n friend struct " + compressedStructName + ";\n");
+    R.InsertTextAfterToken(loc, MARKER + "\n friend struct " + compressedStructName + ";\n");
     return true;
   }
 };
@@ -930,8 +938,8 @@ public:
 
   bool VisitRecordDecl(RecordDecl *d) {
     if (!this->compressibleTypeFieldsFinder.doesContainCompressibleStructs(d)) return true;
-    R.InsertTextBefore(d->getBeginLoc(), "#pragma pack(push, 1)\n");
-    R.InsertTextAfterToken(d->getEndLoc(), ";\n#pragma pack(pop)\n");
+    R.InsertTextBefore(d->getBeginLoc(), MARKER + "#pragma pack(push, 1)\n");
+    R.InsertTextAfterToken(d->getEndLoc(), MARKER + ";\n#pragma pack(pop)\n");
     return true;
   }
 };
@@ -1029,7 +1037,7 @@ public:
     }
     compressedStructDef += "\n" + methods;
 
-    R.InsertTextAfterToken(decl->getEndLoc(), ";\n" + compressedStructDef);
+    R.InsertTextAfterToken(decl->getEndLoc(), MARKER + ";\n" + compressedStructDef);
     return true;
   }
 };
