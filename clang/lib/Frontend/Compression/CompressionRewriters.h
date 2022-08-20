@@ -217,6 +217,11 @@ public:
       // but chances are that any constructor invocation that directly belongs to a var decl will be 'dealt with'
       // by the variable type rewriting itself
       auto *varDecl = parent.get<VarDecl>();
+
+      if (varDecl->getNameAsString() == "myIterator") {
+        newType = getNewTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, expr->getType());
+      }
+
       if (varDecl->getInitStyle() == VarDecl::InitializationStyle::CallInit) return;
     }
 
@@ -1062,6 +1067,9 @@ public:
   }
 
   bool VisitFunctionDecl(FunctionDecl *decl) {
+    if (decl->getNameAsString() == "method") {
+      llvm::outs() << "method\n";
+    }
     DeclContext *parent = decl->getParent();
     if (parent && parent->isRecord()) {
       RecordDecl *record = llvm::cast<RecordDecl>(parent);
