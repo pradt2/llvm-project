@@ -54,7 +54,7 @@ struct SemaRecordType : SemaType {
   bool isRecordType() override { return true; }
 };
 
-std::unique_ptr<SemaType> fromQualType(QualType type, ASTContext &C) {
+inline std::unique_ptr<SemaType> fromQualType(QualType type, ASTContext &C) {
   if (type->isBuiltinType()) {
     std::unique_ptr<SemaPrimitiveType> semaType = std::make_unique<SemaPrimitiveType>();
     auto *builtinType = type->getAs<BuiltinType>();
@@ -94,7 +94,7 @@ struct SemaFieldDecl {
   std::unique_ptr<SemaType> type;
 };
 
-std::unique_ptr<SemaFieldDecl> fromFieldDecl(SemaRecordDecl &parent, FieldDecl *decl) {
+inline std::unique_ptr<SemaFieldDecl> fromFieldDecl(SemaRecordDecl &parent, FieldDecl *decl) {
   auto semaFieldDecl = std::make_unique<SemaFieldDecl>();
   semaFieldDecl->name = decl->getNameAsString();
   semaFieldDecl->parent = &parent;
@@ -102,7 +102,7 @@ std::unique_ptr<SemaFieldDecl> fromFieldDecl(SemaRecordDecl &parent, FieldDecl *
   return semaFieldDecl;
 }
 
-std::unique_ptr<SemaFieldDecl> fromFieldDecl(FieldDecl *decl) {
+inline std::unique_ptr<SemaFieldDecl> fromFieldDecl(FieldDecl *decl) {
   auto semaRecordDecl = fromRecordDecl(decl->getParent());
   return fromFieldDecl(*semaRecordDecl, decl);
 }
@@ -113,7 +113,7 @@ struct SemaRecordDecl {
   std::vector<std::unique_ptr<SemaFieldDecl>> fields;
 };
 
-std::unique_ptr<SemaRecordDecl> fromRecordDecl(RecordDecl *decl) {
+inline std::unique_ptr<SemaRecordDecl> fromRecordDecl(RecordDecl *decl) {
   auto semaRecordDecl = std::make_unique<SemaRecordDecl>();
   std::string name = decl->getASTContext().getTypeDeclType(decl).getAsString();
   semaRecordDecl->name = name;
@@ -136,7 +136,7 @@ std::unique_ptr<SemaRecordDecl> fromRecordDecl(RecordDecl *decl) {
   return semaRecordDecl;
 }
 
-std::string toSource(SemaType &type) {
+inline std::string toSource(SemaType &type) {
   if (type.isPrimitiveType()) {
     auto kind = ((SemaPrimitiveType&) type).typeKind;
     switch (kind) {
@@ -180,7 +180,7 @@ std::string toSource(SemaType &type) {
   }
 }
 
-std::string toSource(SemaFieldDecl &decl) {
+inline std::string toSource(SemaFieldDecl &decl) {
   if (decl.type->isPrimitiveType() || decl.type->isEnumType() || decl.type->isRecordType()) {
     return toSource(*decl.type) + " " + decl.name;
   }
