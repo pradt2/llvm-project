@@ -705,12 +705,7 @@ public:
     FunctionDecl *d = expr->getDirectCallee();
     if (!d || !d->isTemplateInstantiation() || !d->getTemplateSpecializationArgs()) return true;
 
-    std::string templateArgs = getNewTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, d->getTemplateSpecializationArgs()->asArray());
-
-    if (templateArgs.empty()) return true;
-
     SourceLocation typeEnd;
-
     if (expr->getNumArgs() == 0) {
       typeEnd = expr->getEndLoc().getLocWithOffset(-2); // this removes the trailing '()' from the function invocation
     } else {
@@ -718,9 +713,27 @@ public:
       typeEnd = firstArg->getBeginLoc().getLocWithOffset(-2); // this removes the '(a' where a is the first letter of the argument name
     }
 
-    std::string newType = d->getQualifiedNameAsString() + "<" + templateArgs + ">";
-
     SourceRange range = SourceRange(expr->getBeginLoc(), typeEnd);
+    if (range.getBegin() >= range.getEnd()) return true;
+
+    // calls to std::vector methods such as .insert() are secretly template instantiations, even though no template arguments are present at call site
+    // I couldn't figure out how to detect these 'implicit' template instantiations, so here we bluntly detect '<' and '>' chars as signs of explicit template instantiations
+    std::string invocation = R.getRewrittenText(range);
+    if (invocation.find('<') == std::string::npos || invocation.find('>') == std::string::npos) return true;
+
+    // sometimes the range would eat the '(', esp. when the function is called like this
+    // function(
+    //    arg1,
+    //    ...
+    // );
+    std::string potentiallyMissingParenthesis = "";
+    if (invocation.find('(') != std::string::npos) potentiallyMissingParenthesis = "(";
+
+    std::string templateArgs = getNewTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, d->getTemplateSpecializationArgs()->asArray());
+
+    if (templateArgs.empty()) return true;
+
+    std::string newType = d->getQualifiedNameAsString() + "<" + templateArgs + ">" + potentiallyMissingParenthesis;
 
     R.ReplaceText(range, MARKER + newType);
 
