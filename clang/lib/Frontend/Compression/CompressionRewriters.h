@@ -973,15 +973,16 @@ public:
 
     std::string method;
 
-    SourceRange declRange = decl->getSourceRange();
+//    SourceRange declRange = decl->getSourceRange(); // keywords like 'static' are also in this source range, and they are disallowed in function definitions
+    SourceRange declRange = SourceRange(decl->getReturnTypeSourceRange().getBegin(), decl->getSourceRange().getEnd());
     SourceRange bodyRange = decl->getBody()->getSourceRange();
 
 
     if (declRange.fullyContains(bodyRange)) {
-      method = R.getRewrittenText(decl->getSourceRange()); // for when the body is provided in the h file in the declaration
+      method = R.getRewrittenText(declRange); // for when the body is provided in the h file in the declaration
     } else {
       // for when the decl and body are split into different (h and cpp) files
-      method = R.getRewrittenText(decl->getSourceRange()) // method signature
+      method = R.getRewrittenText(declRange) // method signature
                + " "
                + noexceptStr // I don't know why this is sometimes necessary
                              // but sometimes in Peano's compressed constructors I get
