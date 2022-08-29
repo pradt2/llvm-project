@@ -218,10 +218,6 @@ public:
       // by the variable type rewriting itself
       auto *varDecl = parent.get<VarDecl>();
 
-      if (varDecl->getNameAsString() == "myIterator") {
-        newType = getNewTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, expr->getType());
-      }
-
       if (varDecl->getInitStyle() == VarDecl::InitializationStyle::CallInit) return;
     }
 
@@ -233,6 +229,7 @@ public:
     }
 
     auto sourceRange = SourceRange(expr->getBeginLoc(), typeEnd);
+    if (sourceRange.getBegin() >= sourceRange.getEnd()) return ; // Sometimes simple function calls that involve std::vector get all the way to here, but the source range is invalid
     R.ReplaceText(sourceRange,  MARKER + newType);
   }
 
@@ -632,37 +629,42 @@ std::string templateArgumentToString(LangOptions &LangOpts, Rewriter &R, const T
   }
 }
 
-std::string getNewTemplateInstantiationType(ASTContext &Ctx, SourceManager &SrcMgr, LangOptions &LangOpts, Rewriter &R, QualType origType) {
-  std::string ptrs = "";
-  auto type = getTypeFromIndirectType(origType, ptrs);
-  auto *templType = type->getAs<TemplateSpecializationType>();
-
-  if (!templType) return "";
+std::string getNewTemplateInstantiationType(ASTContext &Ctx, SourceManager &SrcMgr, LangOptions &LangOpts, Rewriter &R, llvm::ArrayRef<TemplateArgument> argsList) {
 
   std::string templateArgs = "";
   bool foundCompressionTemplateArg = false;
-  for (auto &arg : templType->template_arguments()) {
+  for (auto &arg : argsList) {
     if (arg.getKind() != TemplateArgument::ArgKind::Type) {
       templateArgs += templateArgumentToString(LangOpts, R, arg) + ", "; continue;
     }
 
-    auto argAsType = arg.getAsType();
+    std::string argPtrs = "";
+    auto argAsType = getTypeFromIndirectType(arg.getAsType(), argPtrs);
     auto *recordDecl = argAsType->isRecordType() ? argAsType->getAsRecordDecl() : NULL;
     if (llvm::isa_and_nonnull<ClassTemplateSpecializationDecl>(recordDecl)) {
-      std::string nestedTemplateArg = getNewTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, arg.getAsType());
+      std::string nestedTemplateArg = getNewTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, argAsType);
       if (!nestedTemplateArg.empty()) {
         foundCompressionTemplateArg = true;
-        templateArgs += nestedTemplateArg + ", ";
+        templateArgs += nestedTemplateArg;
       } else {
-        templateArgs += templateArgumentToString(LangOpts, R, arg) + ", ";
+        templateArgs += templateArgumentToString(LangOpts, R, arg);
+      }
+    } else if (llvm::isa<TemplateSpecializationType>(argAsType)) {
+      std::string newType = getNewTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, argAsType);
+      if (newType.empty()) {
+        templateArgs += templateArgumentToString(LangOpts, R, arg);
+      } else {
+        foundCompressionTemplateArg = true;
+        templateArgs += newType;
       }
     } else if (isCompressionCandidate(recordDecl)) {
       foundCompressionTemplateArg = true;
       auto compressionCodeGen = CompressionCodeGenResolver(recordDecl, Ctx, SrcMgr, LangOpts, R);
-      templateArgs += compressionCodeGen.getFullyQualifiedCompressedStructName() + ", ";
+      templateArgs += compressionCodeGen.getFullyQualifiedCompressedStructName();
     } else {
-      templateArgs += templateArgumentToString(LangOpts, R, arg) + ", ";
+      templateArgs += templateArgumentToString(LangOpts, R, arg);
     }
+    templateArgs += argPtrs + ", ";
   }
 
   if (!foundCompressionTemplateArg) return ""; // if no compression-related args were found, no need for rewriting
@@ -672,9 +674,35 @@ std::string getNewTemplateInstantiationType(ASTContext &Ctx, SourceManager &SrcM
     templateArgs.pop_back(); // remove trailing ", "
   }
 
-  std::string templateName = templType->getTemplateName().getAsTemplateDecl()->getQualifiedNameAsString();
+  return templateArgs;
 
-  std::string templateInstantiationType = templateName + "<" + templateArgs + ">";
+}
+
+std::string getNewTemplateInstantiationType(ASTContext &Ctx, SourceManager &SrcMgr, LangOptions &LangOpts, Rewriter &R, const TemplateSpecializationType *templType) {
+  return getNewTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, templType->template_arguments());
+}
+
+std::string getNewTemplateInstantiationType(ASTContext &Ctx, SourceManager &SrcMgr, LangOptions &LangOpts, Rewriter &R, const ClassTemplateSpecializationDecl *templType) {
+    return getNewTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, templType->getTemplateInstantiationArgs().asArray());
+}
+
+std::string getNewTemplateInstantiationType(ASTContext &Ctx, SourceManager &SrcMgr, LangOptions &LangOpts, Rewriter &R, QualType origType) {
+  std::string ptrs = "";
+  auto type = getTypeFromIndirectType(origType, ptrs);
+
+  std::string templateArgs = "";
+  std::string templateName = "";
+  if (auto *templateType = type->getAs<TemplateSpecializationType>()) {
+    templateArgs = getNewTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, templateType);
+    templateName = templateType->getTemplateName().getAsTemplateDecl()->getQualifiedNameAsString();
+  } else if (auto *classType = type->isRecordType() && llvm::isa<ClassTemplateSpecializationDecl>(type->getAsRecordDecl()) ? llvm::cast<ClassTemplateSpecializationDecl>(type->getAsRecordDecl()) : NULL) {
+    templateArgs = getNewTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, classType);
+    templateName = classType->getQualifiedNameAsString();
+  }
+
+  if (templateArgs.empty()) return "";
+
+  std::string templateInstantiationType = templateName + "<" + templateArgs + ">" + ptrs;
 
   return templateInstantiationType;
 }
@@ -860,7 +888,23 @@ public:
     TraverseDecl(D);
   }
 
+  void handleBaseClasses(CXXRecordDecl *decl) {
+    if (!decl->hasDefinition() || decl->getNumBases() == 0) return ;
+
+    for (auto baseClass : decl->bases()) {
+      auto type = baseClass.getType();
+      auto newType = getNewTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, type);
+      if (newType.empty()) continue ;
+      auto range = baseClass.getTypeSourceInfo()->getTypeLoc().getSourceRange();
+      R.ReplaceText(range, MARKER + newType);
+    }
+  }
+
   bool VisitCXXRecordDecl(CXXRecordDecl *decl) {
+    if (decl->getNameAsString() == "Y") {
+      decl = decl;
+    }
+    handleBaseClasses(decl);
     if (!isCompressionCandidate(decl)) return true;
     auto compressionCodeGen = CompressionCodeGenResolver(decl, Ctx, SrcMgr, LangOpts, R);
     std::string compressedStructName = compressionCodeGen.getCompressedStructName();
