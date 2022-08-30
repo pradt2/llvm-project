@@ -1080,7 +1080,12 @@ public:
     std::string method;
 
 //    SourceRange declRange = decl->getSourceRange(); // keywords like 'static' are also in this source range, and they are disallowed in function definitions
-    SourceRange declRange = SourceRange(decl->getReturnTypeSourceRange().getBegin(), decl->getSourceRange().getEnd());
+    SourceRange declRange;
+    if (decl->getReturnTypeSourceRange().isValid()) {
+      declRange = SourceRange(decl->getReturnTypeSourceRange().getBegin(), decl->getSourceRange().getEnd());
+    } else {
+      declRange = decl->getSourceRange(); // constructors don't have a valid return type source range, but we can use the entire source range here because constructors aren't static
+    }
     SourceRange bodyRange = decl->getBody()->getSourceRange();
 
 
