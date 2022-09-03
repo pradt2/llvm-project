@@ -67,6 +67,20 @@ public:
   }
 };
 
+template<typename T>
+const T* getParentNodeOfType(ASTContext &Ctx, const Expr *E, ASTNodeKind::NodeKindId nodeKind) {
+  auto parents = Ctx.getParents(*E);
+  auto parent = parents[0];
+  while (!parents.empty()) {
+    parent = parents[0];
+    if (parent.getNodeKind().KindId == nodeKind) break;
+    parents = Ctx.getParents(parent);
+  }
+
+  if (parents.empty()) return NULL;
+  return parent.get<T>();
+}
+
 QualType getTypeFromIndirectType(QualType type, std::string &ptrs) {
   while (type->isReferenceType() || type->isAnyPointerType()) {
     if (type->isReferenceType()) {
@@ -397,6 +411,33 @@ private:
   LangOptions &LangOpts;
   Rewriter &R;
 
+  bool isAssignOpcode(BinaryOperatorKind kind) {
+    switch (kind) {
+    case BinaryOperatorKind::BO_Assign:
+    case BinaryOperatorKind::BO_AddAssign:
+    case BinaryOperatorKind::BO_RemAssign:
+    case BinaryOperatorKind::BO_MulAssign:
+    case BinaryOperatorKind::BO_DivAssign:
+    case BinaryOperatorKind::BO_AndAssign:
+    case BinaryOperatorKind::BO_OrAssign:
+    case BinaryOperatorKind::BO_ShlAssign:
+    case BinaryOperatorKind::BO_ShrAssign:
+    case BinaryOperatorKind::BO_XorAssign:
+      return true;
+    default:
+      return false;
+    }
+  }
+
+  bool inLHSOfBinaryOperator(Expr *E) {
+    const Expr *parent = E;
+    while (const BinaryOperator *op = getParentNodeOfType<BinaryOperator>(Ctx, parent, ASTNodeKind::NodeKindId::NKI_BinaryOperator)) {
+      if (isAssignOpcode(op->getOpcode()) && SubExprFinder().containsSubExpr(op->getLHS(), E)) return true;
+      parent = op;
+    }
+    return false;
+  }
+
 public:
   explicit ReadAccessRewriter(ASTContext &Ctx,
                               SourceManager &SrcMgr,
@@ -409,13 +450,7 @@ public:
     auto *fieldDecl = llvm::cast<FieldDecl>(memberDecl);
     if (fieldDecl == nullptr) return true;
     if (!isNonIndexAccessCompressionCandidate(fieldDecl)) return true;
-
-    auto parents =
-        Ctx.getParents(*expr);
-    if (parents.size() != 1) {
-      llvm::outs() << "Multiple parents of MemberExpr\n";
-      return false;
-    }
+    if (inLHSOfBinaryOperator(expr)) return true;
 
     std::string varName;
 
@@ -428,21 +463,10 @@ public:
     } else {
       varName = R.getRewrittenText(SourceRange(expr->getBeginLoc(), expr->getMemberLoc().getLocWithOffset(-1)));
     }
+//SrcMgr.getSpellingLoc(expr->getBeginLoc()).dump(SrcMgr)
+    std::string source = CompressionCodeGenResolver(fieldDecl->getParent(), Ctx, SrcMgr, LangOpts, R).getGetterExpr(fieldDecl, varName);
+    R.ReplaceText(SourceRange(expr->getBeginLoc(), expr->getEndLoc()),MARKER + source);
 
-    auto parent = parents[0];
-    auto parentNodeKind = parent.getNodeKind();
-    if (parentNodeKind.KindId ==
-        ASTNodeKind::NodeKindId::NKI_ImplicitCastExpr) {
-      auto *implicitCast = parent.get<ImplicitCastExpr>();
-      if (implicitCast->getCastKind() != CastKind::CK_LValueToRValue)
-        return true;
-      // value is read here, we know by the implicit lvalue to rvalue cast
-
-      std::string source =
-          CompressionCodeGenResolver(fieldDecl->getParent(), Ctx, SrcMgr, LangOpts, R).getGetterExpr(fieldDecl, varName);
-      R.ReplaceText(SourceRange(expr->getBeginLoc(), expr->getEndLoc()),
-                    MARKER + source);
-    }
     return true;
   }
 
