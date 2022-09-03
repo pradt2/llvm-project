@@ -5,79 +5,60 @@
 #ifndef CLANG_INTLIKEBITARRAYCOMPRESSOR_H
 #define CLANG_INTLIKEBITARRAYCOMPRESSOR_H
 
-class IntLikeBitArrayCompressor : public AbstractBitArrayCompressor, public NonIndexedFieldCompressor {
+class IntLikeBitArrayCompressor : public AbstractBitArrayCompressor2, public NonIndexedFieldCompressor {
   long _rangeMin, _rangeMax;
 
-  long getCompressionConstant() {
-    return _rangeMin;
+  std::string typeStr;
+
+  unsigned int getCompressedTypeWidthPrivate() {
+    unsigned int valueRange = std::abs(_rangeMax - _rangeMin + 1);
+    unsigned int size = ceil(log2(valueRange));
+    return size;
   }
 
 public:
 
   explicit IntLikeBitArrayCompressor() {}
 
-  IntLikeBitArrayCompressor(unsigned int tableCellSize, std::string tableName, std::string typeStr, long rangeMin, long rangeMax)
-      : AbstractBitArrayCompressor(tableCellSize, tableName, typeStr), _rangeMin(rangeMin), _rangeMax(rangeMax) {}
+  IntLikeBitArrayCompressor(TableSpec tableSpec, unsigned int offset, FieldDecl *fd)
+      : IntLikeBitArrayCompressor(tableSpec, offset, fd->getType(), fd->attrs()) {}
 
-  IntLikeBitArrayCompressor(unsigned int tableCellSize, std::string tableName, FieldDecl *fd)
-      : IntLikeBitArrayCompressor(tableCellSize, tableName, fd->getType(), fd->attrs()) {}
-
-  IntLikeBitArrayCompressor(unsigned int tableCellSize, std::string tableName, QualType type, Attrs attrs)
-      : AbstractBitArrayCompressor(tableCellSize, tableName, type.getAsString()) {
+  IntLikeBitArrayCompressor(TableSpec tableSpec, unsigned int offset, QualType type, Attrs attrs)
+      : AbstractBitArrayCompressor2(tableSpec, {offset, 0}), typeStr(type.getAsString()) {
     for (auto *attr : attrs) {
       if (!llvm::isa<CompressRangeAttr>(attr)) continue;
       auto *compressRangeAttr = llvm::cast<CompressRangeAttr>(attr);
       _rangeMin = compressRangeAttr->getMinValue();
       _rangeMax = compressRangeAttr->getMaxValue();
     }
+    this->area = {this->area.offset, this->getCompressedTypeWidthPrivate()};
   }
 
-  void setOffset(unsigned int offset) override {
-    this->_offset = offset;
-  }
-
-  std::string getTypeName() override { return _typeStr; }
+  std::string getTypeName() override { return this->typeStr; }
 
   unsigned int getCompressedTypeWidth() override {
-    unsigned int valueRange = std::abs(_rangeMax - _rangeMin + 1);
-    unsigned int size = ceil(log2(valueRange));
-    return size;
+      return this->getCompressedTypeWidthPrivate();
   }
 
-  std::string getGetterExpr(std::string thisAccessor) override {
-    std::string tableView = getTableViewExpr(thisAccessor);
-    std::string afterFetchMask = std::to_string(getAfterFetchMask()) + "U";
-    std::string bitshiftAgainstLeftMargin = std::to_string(getBitsMarginToLeftTableViewEdge()) + "U";
-    std::string compressionConstant = std::to_string(getCompressionConstant());
-    std::string getter = "(" + tableView + " & " + afterFetchMask + ")";
-    getter = "(" + getter + " >> " + bitshiftAgainstLeftMargin + ")";
-    getter = "(" + getter + " + " + compressionConstant + ")";
-    getter = "((" + _typeStr + ") " + getter + ")";
-    return getter;
+  std::string getGetterExpr() override {
+    std::string getterExpr = this->fetch();
+    getterExpr = "(" + getterExpr + " + " + std::to_string(this->_rangeMin) + ")";
+    getterExpr = "((" + this->typeStr + ") " + getterExpr + ")";
+    return getterExpr;
   }
 
-  std::string getSetterExpr(std::string thisAccessor, std::string toBeSetValue) override {
-    std::string tableView = getTableViewExpr(thisAccessor, false);
-    std::string afterFetchMask = std::to_string(getAfterFetchMask()) + "U";
-    std::string beforeStoreMask = std::to_string(getBeforeStoreMask()) + "U";
-    std::string bitshiftAgainstLeftMargin = std::to_string(getBitsMarginToLeftTableViewEdge()) + "U";
-    std::string compressionConstant = std::to_string(getCompressionConstant());
-    toBeSetValue = "(" + toBeSetValue + ")";
-    toBeSetValue = "(" + toBeSetValue + " - " + compressionConstant + ")";
-    toBeSetValue = "(" + toBeSetValue + " << " + bitshiftAgainstLeftMargin + ")";
-    toBeSetValue = "(" + toBeSetValue + " & " + afterFetchMask + ")"; // makes sure overflown values do not impact other fields
-    std::string valueExpr = "(" + tableView + " & " + beforeStoreMask + ")";
-    valueExpr = "(" + valueExpr + " | " + toBeSetValue + ")";
-    std::string setterStmt = tableView + " = " + valueExpr;
-    return setterStmt;
+  std::string getSetterExpr(std::string toBeSetValue) override {
+    toBeSetValue = "((" + toBeSetValue + ") - " + std::to_string(this->_rangeMin) + ")";
+    std::string setterExpr = this->store(toBeSetValue);
+    return setterExpr;
   }
 
-  std::string getCopyConstructorStmt(std::string thisAccessor, std::string toBeSetVal) override {
-    return getSetterExpr(thisAccessor, toBeSetVal) + ";";
+  std::string getCopyConstructorStmt(std::string toBeSetVal) override {
+    return getSetterExpr(toBeSetVal);
   }
 
-  std::string getTypeCastToOriginalStmt(std::string thisAccessor, std::string retValFieldAccessor) override {
-    return retValFieldAccessor + " = " + getGetterExpr(thisAccessor) + ";";
+  std::string getTypeCastToOriginalStmt(std::string retValFieldAccessor) override {
+    return retValFieldAccessor + " = " + getGetterExpr();
   }
 
   bool supports(FieldDecl *d) override {
