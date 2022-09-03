@@ -15,10 +15,10 @@ public:
   virtual unsigned int getCompressedTypeWidth() = 0;
   virtual void setOffset(unsigned int offset) = 0;
   virtual std::string getTypeName() = 0;
-  virtual std::string getGetterExpr(std::string thisAccessor) = 0;
-  virtual std::string getSetterExpr(std::string thisAccessor, std::string toBeSetValue) = 0;
-  virtual std::string getCopyConstructorStmt(std::string thisAccessor, std::string toBeSetVal) = 0;
-  virtual std::string getTypeCastToOriginalStmt(std::string thisAccessor, std::string retValFieldAccessor) = 0;
+  virtual std::string getGetterExpr() = 0;
+  virtual std::string getSetterExpr(std::string toBeSetValue) = 0;
+  virtual std::string getCopyConstructorStmt(std::string toBeSetVal) = 0;
+  virtual std::string getTypeCastToOriginalStmt(std::string retValFieldAccessor) = 0;
 };
 
 #endif // CLANG_NONINDEXEDFIELDCOMPRESSOR_H
