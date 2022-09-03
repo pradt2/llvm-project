@@ -228,7 +228,7 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
     std::string source = getAccessToType(type, targetRef.str()) + "[" + idx + "].";
 
     std::vector<FieldDecl*> fieldDecls = resolveFieldDecl(getMostLikelyIterableType(type)->getAsRecordDecl(), fieldPath);
-    for (int i = 0; i < fieldDecls.size() - 1; i++) {
+    for (unsigned long i = 0; i < fieldDecls.size() - 1; i++) {
       source = getAccessToType(fieldDecls[i]->getType(), source + fieldDecls[i]->getNameAsString()) + ".";
     }
 
@@ -241,7 +241,7 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
     std::string source = getAccessToType(type, targetRef.str()) + ".";
 
     std::vector<FieldDecl*> fieldDecls = resolveFieldDecl(getMostLikelyIterableType(type)->getAsRecordDecl(), fieldPath);
-    for (int i = 0; i < fieldDecls.size() - 1; i++) {
+    for (unsigned long i = 0; i < fieldDecls.size() - 1; i++) {
       source = getAccessToType(fieldDecls[i]->getType(), source + fieldDecls[i]->getNameAsString()) + ".";
     }
 

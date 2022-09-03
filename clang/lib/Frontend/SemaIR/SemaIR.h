@@ -85,7 +85,7 @@ inline std::unique_ptr<SemaType> fromQualType(QualType type, ASTContext &C) {
     return semaType;
   }
   llvm::errs() << "Unsupported type for SemaIR representation " << __FILE__ << ":" << __LINE__ << "\n";
-  type->dump();
+  exit(1);
 }
 
 struct SemaFieldDecl {
