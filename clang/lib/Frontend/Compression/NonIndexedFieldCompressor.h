@@ -13,7 +13,6 @@ public:
   virtual bool supports(FieldDecl *fd) = 0;
   virtual bool supports(QualType type, Attrs attrs) = 0;
   virtual unsigned int getCompressedTypeWidth() = 0;
-  virtual void setOffset(unsigned int offset) = 0;
   virtual std::string getTypeName() = 0;
   virtual std::string getGetterExpr() = 0;
   virtual std::string getSetterExpr(std::string toBeSetValue) = 0;
