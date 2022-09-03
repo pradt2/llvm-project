@@ -5,14 +5,18 @@
 #ifndef CLANG_CONSTANTSIZEARRAYBITARRAYCOMPRESSOR_H
 #define CLANG_CONSTANTSIZEARRAYBITARRAYCOMPRESSOR_H
 
-#include "AbstractBitArrayCompressor.h"
 #include "DelegatingNonIndexedFieldCompressor.h"
 
-class ConstantSizeArrayBitArrayCompressor : public AbstractBitArrayCompressor {
+class ConstantSizeArrayBitArrayCompressor {
   std::vector<unsigned int> _dimensions;
   std::string _fieldName;
   std::string _structName;
-  std::unique_ptr<NonIndexedFieldCompressor> _elementCompressor;
+  TableSpec tableSpec;
+  unsigned int offset;
+  std::string thisAccessor;
+  QualType elementType;
+  Attrs attrs;
+  unsigned int elementCompressedWidth;
 
   unsigned int getTotalElements() {
     unsigned int counter = 1;
@@ -36,14 +40,19 @@ class ConstantSizeArrayBitArrayCompressor : public AbstractBitArrayCompressor {
     return "(" + idx + ")";
   }
 
-  std::string getElementGetter(std::string thisAccessor, unsigned int elementIndex) {
-    _elementCompressor->setOffset(_offset + elementIndex * _elementCompressor->getCompressedTypeWidth());
-    return _elementCompressor->getGetterExpr(thisAccessor);
+  DelegatingNonIndexedFieldCompressor getElementCompressor(unsigned int elementIdx) {
+      unsigned int elementOffset = this->offset + this->elementCompressedWidth * elementIdx;
+      return DelegatingNonIndexedFieldCompressor(this->tableSpec, elementOffset, this->_structName, this->elementType, this->attrs);
   }
 
-  std::string getElementSetter(std::string thisAccessor, unsigned int elementIndex, std::string toBeSetValExpr) {
-    _elementCompressor->setOffset(_offset + elementIndex * _elementCompressor->getCompressedTypeWidth());
-    return _elementCompressor->getSetterExpr(thisAccessor, toBeSetValExpr);
+  std::string getElementGetter(unsigned int elementIndex) {
+    std::string elementGetter = this->getElementCompressor(elementIndex).getGetterExpr();
+    return elementGetter;
+  }
+
+  std::string getElementSetter(unsigned int elementIndex, std::string toBeSetValExpr) {
+    std::string elementSetter = this->getElementCompressor(elementIndex).getSetterExpr(toBeSetValExpr);
+    return elementSetter;
   }
 
   void populateDimensions(const ConstantArrayType *arrType) {
@@ -58,20 +67,19 @@ class ConstantSizeArrayBitArrayCompressor : public AbstractBitArrayCompressor {
   }
 
 public:
-  ConstantSizeArrayBitArrayCompressor() {}
+  ConstantSizeArrayBitArrayCompressor() : attrs(llvm::SmallVector<Attr *, 4>()) {}
 
-  ConstantSizeArrayBitArrayCompressor(unsigned int tableCellSize, std::string tableName, std::string typeStr, std::vector<unsigned int> dimensions, std::string fieldName, std::string structName, QualType elementType, Attrs attrs)
-      : AbstractBitArrayCompressor(tableCellSize, tableName, typeStr), _dimensions(dimensions), _fieldName(fieldName), _structName(structName) {}
+  ConstantSizeArrayBitArrayCompressor(TableSpec tableSpec, unsigned int offset, std::string structName, std::string thisAccessor, FieldDecl *fd)
+      : ConstantSizeArrayBitArrayCompressor(tableSpec, offset, fd->getNameAsString(), structName, thisAccessor, fd->getType(), fd->attrs()) {}
 
-  ConstantSizeArrayBitArrayCompressor(unsigned int tableCellSize, std::string tableName, std::string structName, FieldDecl *fd)
-      : ConstantSizeArrayBitArrayCompressor(tableCellSize, tableName, fd->getNameAsString(), structName, fd->getType(), fd->attrs()) {}
-
-  ConstantSizeArrayBitArrayCompressor(unsigned int tableCellSize, std::string tableName, std::string fieldName, std::string structName, QualType type, Attrs attrs)
-      : AbstractBitArrayCompressor(tableCellSize, tableName, type.getAsString()), _fieldName(fieldName), _structName(structName) {
+  ConstantSizeArrayBitArrayCompressor(TableSpec tableSpec, unsigned int offset, std::string fieldName, std::string structName, std::string thisAccessor, QualType type, Attrs attrs)
+      :  _fieldName(fieldName), _structName(structName), tableSpec(tableSpec), offset(offset), thisAccessor(thisAccessor), attrs(attrs) {
     auto *arrType = llvm::cast<ConstantArrayType>(type->getAsArrayTypeUnsafe());
     populateDimensions(arrType);
-    auto elementType = getElementType(arrType);
-    _elementCompressor = std::make_unique<DelegatingNonIndexedFieldCompressor>(tableCellSize, tableName, structName, elementType, attrs);
+    this->elementType = getElementType(arrType);
+
+    this->elementCompressedWidth = DelegatingNonIndexedFieldCompressor(this->tableSpec, this->offset, this->_structName, this->elementType, this->attrs)
+                                       .getCompressedTypeWidth();
   }
 
   static QualType getElementType(const ConstantArrayType *arrType) {
@@ -87,15 +95,14 @@ public:
     return elementType;
   }
 
-  unsigned int getCompressedTypeWidth() override {
-    unsigned int elementCompressedTypeWidth = _elementCompressor->getCompressedTypeWidth();
+  unsigned int getCompressedTypeWidth() {
     unsigned int totalElements = getTotalElements();
-    return elementCompressedTypeWidth * totalElements;
+    return this->elementCompressedWidth * totalElements;
   }
 
   std::string getGetterMethod() {
     std::vector<std::string> idxs;
-    std::string method = _elementCompressor->getTypeName() + " get__" + _fieldName + "(";
+    std::string method = this->elementType.getAsString() + " get__" + _fieldName + "(";
     for (unsigned int i = 0; i < _dimensions.size(); i++) {
       std::string idx = "idx" + std::to_string(i);
       idxs.push_back(idx);
@@ -108,9 +115,9 @@ public:
     method += "switch (linearIdx) {\n";
     unsigned int totalSize = getTotalElements();
     for (unsigned int i = 0; i < totalSize; i++) {
-      method += "case " + std::to_string(i) + ": return " + getElementGetter("this->", i) + ";\n";
+      method += "case " + std::to_string(i) + ": return " + getElementGetter(i) + ";\n";
     }
-    method += "default: return (" + _elementCompressor->getTypeName() + ") 0;\n";
+    method += "default: return (" + this->elementType.getAsString() + ") 0;\n";
     method += "}\n"; // close switch
     method += "}\n"; // close method
     return method;
@@ -124,12 +131,12 @@ public:
       idxs.push_back(idx);
       method += "unsigned int " + idx + ", ";
     }
-    method += _elementCompressor->getTypeName() + " val) {\n";
+    method += this->elementType.getAsString() + " val) {\n";
     method += "unsigned int linearIdx = " + getLinearItemIndex(idxs) + ";\n";
     method += "switch (linearIdx) {\n";
     unsigned int totalSize = getTotalElements();
     for (unsigned int i = 0; i < totalSize; i++) {
-      method += "case " + std::to_string(i) + ": " + getElementSetter("this->", i, "val") + "; break;\n";
+      method += "case " + std::to_string(i) + ": " + getElementSetter(i, "val") + "; break;\n";
     }
     method += "default: break;\n";
     method += "}\n"; // close switch
@@ -137,7 +144,7 @@ public:
     return method;
   }
 
-  std::string getGetterExpr(std::string thisAccessor, std::vector<std::string> idxExprs) {
+  std::string getGetterExpr(std::vector<std::string> idxExprs) {
     std::string methodInvocation = thisAccessor + "get__" + _fieldName + "(";
     for (unsigned int i = 0; i < idxExprs.size(); i++) {
       methodInvocation += idxExprs[i] + ", ";
@@ -148,7 +155,7 @@ public:
     return methodInvocation;
   }
 
-  std::string getSetterExpr(std::string thisAccessor, std::vector<std::string> idxExprs, std::string toBeSetValue) {
+  std::string getSetterExpr(std::vector<std::string> idxExprs, std::string toBeSetValue) {
     std::string methodInvocation = thisAccessor + "set__" + _fieldName + "(";
     for (unsigned int i = 0; i < idxExprs.size(); i++) {
       methodInvocation += idxExprs[i] + ", ";
@@ -158,16 +165,14 @@ public:
     return methodInvocation;
   }
 
-  void setOffset(unsigned int offset) {
-      this->_offset = offset;
-  };
-
-  std::string getCopyConstructorStmt(std::string thisAccessor, std::string toBeSetVal) {
-    return "/** TODO to be implemented **/";
+  std::string getCopyConstructorStmt(std::string toBeSetVal) {
+    llvm::errs() << "Copy constructor stmt for arrays is not implemented yet";
+    exit(1);
   }
 
-  std::string getTypeCastToOriginalStmt(std::string thisAccessor, std::string retValFieldAccessor) {
-    return "/** TODO to be implemented **/";
+  std::string getTypeCastToOriginalStmt(std::string retValFieldAccessor) {
+    llvm::errs() << "Type cast to Original Type stmt for arrays is not implemented yet";
+    exit(1);
   }
 
   bool supports(FieldDecl *d) {

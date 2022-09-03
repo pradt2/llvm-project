@@ -1,12 +1,8 @@
-#include <vector>
+#include <stdio.h>
 
 struct X {
-
-  [[clang::pack]]
-  bool a;
-
+  [[clang::pack]] bool a, b;
 };
 
-void method() {
-  std::vector<X>::iterator myIterator;
+int main() {
 }

@@ -65,7 +65,6 @@ unsigned int MAX_CHUNK_SIZE = 64;
 class AbstractBitArrayCompressor2 {
 
   TableSpec spec;
-  TableArea area;
 
   std::string getReadingChunkType(unsigned int chunkSize) {
     switch (chunkSize) {
@@ -177,6 +176,8 @@ class AbstractBitArrayCompressor2 {
   }
 
 protected:
+  TableArea area;
+
   AbstractBitArrayCompressor2() {}
 
   AbstractBitArrayCompressor2(TableSpec spec, TableArea area)

@@ -17,11 +17,11 @@ public:
 
   DelegatingFieldCompressor() {}
 
-  DelegatingFieldCompressor(unsigned int tableCellSize, std::string tableName, std::string structName, FieldDecl *fd) {
+  DelegatingFieldCompressor(TableSpec tableSpec, unsigned int offset, std::string structName, std::string thisAccessor, FieldDecl *fd) {
     if (DelegatingNonIndexedFieldCompressor().supports(fd)) {
-      _nonIndexedCompressor = std::make_unique<DelegatingNonIndexedFieldCompressor>(tableCellSize, tableName, structName, fd);
+      _nonIndexedCompressor = std::make_unique<DelegatingNonIndexedFieldCompressor>(tableSpec, offset, structName, fd);
     } else if (ConstantSizeArrayBitArrayCompressor().supports(fd)) {
-      _indexedCompressor = std::make_unique<ConstantSizeArrayBitArrayCompressor>(tableCellSize, tableName, structName, fd);
+      _indexedCompressor = std::make_unique<ConstantSizeArrayBitArrayCompressor>(tableSpec, offset, structName, thisAccessor, fd);
     }
   }
 
@@ -31,21 +31,18 @@ public:
     return -1;
   }
 
-  std::string getCopyConstructorStmt(std::string thisAccessor, std::string toBeSetVal) {
-    if (_nonIndexedCompressor) return _nonIndexedCompressor->getCopyConstructorStmt(thisAccessor, toBeSetVal);
-    if (_indexedCompressor) return _indexedCompressor->getCopyConstructorStmt(thisAccessor, toBeSetVal);
-    return "std::string getCopyConstructorStmt() invalid";
+  std::string getCopyConstructorStmt(std::string toBeSetVal) {
+    if (_nonIndexedCompressor) return _nonIndexedCompressor->getCopyConstructorStmt(toBeSetVal);
+    if (_indexedCompressor) return _indexedCompressor->getCopyConstructorStmt(toBeSetVal);
+    llvm::errs() << "std::string getCopyConstructorStmt() invalid";
+    exit(1);
   }
 
-  std::string getTypeCastToOriginalStmt(std::string thisAccessor, std::string retValFieldAccessor) {
-    if (_nonIndexedCompressor) return _nonIndexedCompressor->getTypeCastToOriginalStmt(thisAccessor, retValFieldAccessor);
-    if (_indexedCompressor) return _indexedCompressor->getCopyConstructorStmt(thisAccessor, retValFieldAccessor);
-    return "std::string getTypeCastToOriginalStmt() invalid";
-  }
-
-  void setOffset(unsigned int offset) {
-    if (_nonIndexedCompressor) _nonIndexedCompressor->setOffset(offset);
-    if (_indexedCompressor) _indexedCompressor->setOffset(offset);
+  std::string getTypeCastToOriginalStmt(std::string retValFieldAccessor) {
+    if (_nonIndexedCompressor) return _nonIndexedCompressor->getTypeCastToOriginalStmt(retValFieldAccessor);
+    if (_indexedCompressor) return _indexedCompressor->getCopyConstructorStmt(retValFieldAccessor);
+    llvm::errs() << "std::string getTypeCastToOriginalStmt() invalid";
+    exit(1);
   }
 
   bool supports(FieldDecl *fd) {

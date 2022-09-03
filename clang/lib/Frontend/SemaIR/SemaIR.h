@@ -178,6 +178,8 @@ inline std::string toSource(SemaType &type) {
     sizes = toSource(*arrType->elementType) + sizes;
     return sizes;
   }
+  llvm::errs() << "SemaIR toSource not implemented for the type";
+  exit(1);
 }
 
 inline std::string toSource(SemaFieldDecl &decl) {
@@ -192,6 +194,8 @@ inline std::string toSource(SemaFieldDecl &decl) {
     } while (arrType.elementType->isConstSizeArrType());
     return toSource(*arrType.elementType) + " " + decl.name + " " + sizes;
   }
+  llvm::errs() << "SemaIR toSource not implemented for the type";
+  exit(1);
 }
 
 #endif // CLANG_SEMAIR_H
