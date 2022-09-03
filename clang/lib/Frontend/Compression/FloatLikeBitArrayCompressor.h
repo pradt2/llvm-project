@@ -5,25 +5,27 @@
 #ifndef CLANG_FLOATLIKEBITARRAYCOMPRESSOR_H
 #define CLANG_FLOATLIKEBITARRAYCOMPRESSOR_H
 
-#include "AbstractBitArrayCompressor.h"
+#include "AbstractBitArrayCompressor2.h"
 
 
-class FloatLikeBitArrayCompressor : public AbstractBitArrayCompressor, public NonIndexedFieldCompressor {
+class FloatLikeBitArrayCompressor : public AbstractBitArrayCompressor2, public NonIndexedFieldCompressor {
   std::string _structName;
+  std::string typeStr;
   unsigned int _originalTypeWidth, _headSize, _mantissaSize;
+
+  unsigned int getCompressedTypeWidthPrivate() {
+    return _headSize + _mantissaSize;
+  }
 
 public:
 
   explicit FloatLikeBitArrayCompressor() {}
 
-  FloatLikeBitArrayCompressor(unsigned int tableCellSize, std::string tableName, std::string typeStr, std::string structName, unsigned int originalTypeWidth, unsigned int headSize, unsigned int mantissaSize)
-      : AbstractBitArrayCompressor(tableCellSize, tableName, typeStr), _structName(structName), _originalTypeWidth(originalTypeWidth), _headSize(headSize), _mantissaSize(mantissaSize) {}
+  FloatLikeBitArrayCompressor(TableSpec tableSpec, unsigned int offset, std::string structName, FieldDecl *fd)
+      : FloatLikeBitArrayCompressor(tableSpec, offset, structName, fd->getType(), fd->attrs()) {}
 
-  FloatLikeBitArrayCompressor(unsigned int tableCellSize, std::string tableName, std::string structName, FieldDecl *fd)
-      : FloatLikeBitArrayCompressor(tableCellSize, tableName, structName, fd->getType(), fd->attrs()) {}
-
-  FloatLikeBitArrayCompressor(unsigned int tableCellSize, std::string tableName, std::string structName, QualType type, Attrs attrs)
-      : AbstractBitArrayCompressor(tableCellSize, tableName, type.getAsString()), _structName(structName) {
+  FloatLikeBitArrayCompressor(TableSpec tableSpec, unsigned int offset, std::string structName, QualType type, Attrs attrs)
+      : AbstractBitArrayCompressor2(tableSpec, {offset, 0}), _structName(structName), typeStr(type.getAsString()) {
 
     switch (type->getAs<BuiltinType>()->getKind()) {
     case BuiltinType::Float : _originalTypeWidth = 32; break;
@@ -41,54 +43,38 @@ public:
       if (!llvm::isa<CompressTruncateMantissaAttr>(attr)) continue;
       _mantissaSize = llvm::cast<CompressTruncateMantissaAttr>(attr)->getMantissaSize();
     }
+
+    this->area = {this->area.offset, this->getCompressedTypeWidthPrivate()};
   }
 
-  void setOffset(unsigned int offset) override {
-    this->_offset = offset;
-  }
-
-  std::string getTypeName() override { return _typeStr; }
+  std::string getTypeName() override { return this->typeStr; }
 
   unsigned int getCompressedTypeWidth() override {
-    return _headSize + _mantissaSize;
+    return this->getCompressedTypeWidthPrivate();
   }
 
-  std::string getGetterExpr(std::string thisAccessor) override {
-    std::string tableView = getTableViewExpr(thisAccessor);
-    std::string afterFetchMask = std::to_string(getAfterFetchMask()) + "U";
-    std::string bitshiftAgainstLeftMargin = std::to_string(getBitsMarginToLeftTableViewEdge()) + "U";
-    std::string getter = "(" + tableView + " & " + afterFetchMask + ")";
-    std::string intType = getIntegerTypeForSize(_originalTypeWidth, false);
+  std::string getGetterExpr() override {
+    std::string getterExpr = this->fetch();
     std::string truncatedBits = std::to_string(_originalTypeWidth - getCompressedTypeWidth()) + "U";
-    getter = "(" + getter + " >> " + bitshiftAgainstLeftMargin + ")";
-    getter = "((" + intType + ") " + getter + ")";
-    getter = "(" + getter + " << " + truncatedBits + ")";
-    getter = _structName + "::conv_" + _typeStr + "(" + getter + ").fp";
-    return getter;
+    getterExpr = "(" + getterExpr + " << " + truncatedBits + ")";
+    getterExpr = _structName + "::conv_" + this->typeStr + "(" + getterExpr + ").fp";
+    return getterExpr;
   }
 
-  std::string getSetterExpr(std::string thisAccessor, std::string toBeSetValue) override {
-    std::string tableView = getTableViewExpr(thisAccessor, false);
-    std::string afterFetchMask = std::to_string(getAfterFetchMask()) + "U";
-    std::string beforeStoreMask = std::to_string(getBeforeStoreMask()) + "U";
-    std::string bitshiftAgainstLeftMargin = std::to_string(getBitsMarginToLeftTableViewEdge()) + "U";
+  std::string getSetterExpr(std::string toBeSetValue) override {
+    toBeSetValue = _structName + "::conv_" + this->typeStr + "(" + toBeSetValue + ").i";
     std::string truncatedBits = std::to_string(_originalTypeWidth - getCompressedTypeWidth()) + "U";
-    toBeSetValue = _structName + "::conv_" + _typeStr + "(" + toBeSetValue + ").i";
     toBeSetValue = "(" + toBeSetValue + " >> " + truncatedBits + ")";
-    toBeSetValue = "(" + toBeSetValue + " << " + bitshiftAgainstLeftMargin + ")";
-    toBeSetValue = "(" + toBeSetValue + " & " + afterFetchMask + ")"; // makes sure overflown values do not impact other fields
-    std::string valueExpr = "(" + tableView + " & " + beforeStoreMask + ")";
-    valueExpr = "(" + valueExpr + " | " + toBeSetValue + ")";
-    std::string setterStmt = tableView + " = " + valueExpr;
+    std::string setterStmt = this->store(toBeSetValue);
     return setterStmt;
   }
 
-  std::string getCopyConstructorStmt(std::string thisAccessor, std::string toBeSetVal) override {
-    return getSetterExpr(thisAccessor, toBeSetVal) + ";";
+  std::string getCopyConstructorStmt(std::string toBeSetVal) override {
+    return getSetterExpr(toBeSetVal);
   }
 
-  std::string getTypeCastToOriginalStmt(std::string thisAccessor, std::string retValFieldAccessor) override {
-    return retValFieldAccessor + " = " + getGetterExpr(thisAccessor) + ";";
+  std::string getTypeCastToOriginalStmt(std::string retValFieldAccessor) override {
+    return retValFieldAccessor + " = " + getGetterExpr();
   }
 
   bool supports(FieldDecl *d) override {

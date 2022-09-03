@@ -14,8 +14,8 @@ public:
 
   explicit BoolBitArrayCompressor() {}
 
-  explicit BoolBitArrayCompressor(TableSpec spec, TableArea area)
-      : AbstractBitArrayCompressor2(spec, area) {}
+  explicit BoolBitArrayCompressor(TableSpec spec, unsigned int offset)
+      : AbstractBitArrayCompressor2(spec, {offset, 1}) {}
 
   unsigned int getCompressedTypeWidth() override {
     return 1;
