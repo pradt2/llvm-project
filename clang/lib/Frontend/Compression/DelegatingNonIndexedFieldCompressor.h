@@ -22,7 +22,8 @@ public:
       : DelegatingNonIndexedFieldCompressor(tableCellSize, tableName, structName, fd->getType(), fd->attrs()) {}
 
   DelegatingNonIndexedFieldCompressor(unsigned int tableCellSize, std::string tableName, std::string structName, QualType type, Attrs attrs) {
-    if (BoolBitArrayCompressor().supports(type, attrs)) {
+    if (BoolBitArrayCompressor(TableSpec(), TableArea())
+            .supports(type, attrs)) {
       _delegate = std::make_unique<BoolBitArrayCompressor>(tableCellSize, tableName);
     } else if (IntLikeBitArrayCompressor().supports(type, attrs)) {
       _delegate = std::make_unique<IntLikeBitArrayCompressor>(tableCellSize, tableName, type, attrs);

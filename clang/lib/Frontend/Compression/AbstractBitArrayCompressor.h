@@ -78,7 +78,8 @@ protected:
   unsigned long getAfterFetchMask() {
     unsigned long compressedTypeSize = getCompressedTypeWidth();
     unsigned long leftMargin = getBitsMarginToLeftTableViewEdge();
-    unsigned long mask = (1UL << compressedTypeSize) - 1;
+    unsigned long mask = (1UL << compressedTypeSize);
+    mask -= 1;
     mask = mask << leftMargin;
     return mask;
   }
