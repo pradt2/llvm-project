@@ -100,9 +100,15 @@ public:
     return this->elementCompressedWidth * totalElements;
   }
 
+  std::string getElementTypeStr() {
+    std::string elementTypeStr = this->elementType.getAsString();
+    if (elementTypeStr == "_Bool") return "bool";
+    return elementTypeStr;
+  }
+
   std::string getGetterMethod() {
     std::vector<std::string> idxs;
-    std::string method = this->elementType.getAsString() + " get__" + _fieldName + "(";
+    std::string method = this->getElementTypeStr() + " get__" + _fieldName + "(";
     for (unsigned int i = 0; i < _dimensions.size(); i++) {
       std::string idx = "idx" + std::to_string(i);
       idxs.push_back(idx);
@@ -117,7 +123,7 @@ public:
     for (unsigned int i = 0; i < totalSize; i++) {
       method += "case " + std::to_string(i) + ": return " + getElementGetter(i) + ";\n";
     }
-    method += "default: return (" + this->elementType.getAsString() + ") 0;\n";
+    method += "default: return (" + this->getElementTypeStr() + ") 0;\n";
     method += "}\n"; // close switch
     method += "}\n"; // close method
     return method;
@@ -131,7 +137,7 @@ public:
       idxs.push_back(idx);
       method += "unsigned int " + idx + ", ";
     }
-    method += this->elementType.getAsString() + " val) {\n";
+    method += this->getElementTypeStr() + " val) {\n";
     method += "unsigned int linearIdx = " + getLinearItemIndex(idxs) + ";\n";
     method += "switch (linearIdx) {\n";
     unsigned int totalSize = getTotalElements();
@@ -166,13 +172,13 @@ public:
   }
 
   std::string getCopyConstructorStmt(std::string toBeSetVal) {
-    llvm::errs() << "Copy constructor stmt for arrays is not implemented yet";
-    exit(1);
+    llvm::errs() << "Copy constructor stmt for arrays is not implemented yet\n";
+    return "/** copy constructor stmt for const size arr TO BE IMPLEMENTED */";
   }
 
   std::string getTypeCastToOriginalStmt(std::string retValFieldAccessor) {
     llvm::errs() << "Type cast to Original Type stmt for arrays is not implemented yet";
-    exit(1);
+    return "/** type cast to original stmt for const size arr TO BE IMPLEMENTED */";
   }
 
   bool supports(FieldDecl *d) {
