@@ -51,7 +51,7 @@ struct ReadingChunk {
 
   // mask 000011111100000
   unsigned long hillMask() {
-    return ((1UL << this->howManyDesiredBitsThisChunkContains) - 1) << this->lsbMargin;
+    return (this->howManyDesiredBitsThisChunkContains == 64 ? UINT64_MAX : ((1UL << this->howManyDesiredBitsThisChunkContains) - 1)) << this->lsbMargin;
   }
 
   unsigned long valleyMask() {

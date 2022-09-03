@@ -74,7 +74,7 @@ public:
   }
 
   std::string getTypeCastToOriginalStmt(std::string retValFieldAccessor) override {
-    return retValFieldAccessor + " = " + getGetterExpr();
+    return retValFieldAccessor + " = " + getGetterExpr() + ";";
   }
 
   bool supports(FieldDecl *d) override {
