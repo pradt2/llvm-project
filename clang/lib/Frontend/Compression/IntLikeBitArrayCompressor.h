@@ -5,6 +5,8 @@
 #ifndef CLANG_INTLIKEBITARRAYCOMPRESSOR_H
 #define CLANG_INTLIKEBITARRAYCOMPRESSOR_H
 
+#include "Utils.h"
+
 class IntLikeBitArrayCompressor : public AbstractBitArrayCompressor2, public NonIndexedFieldCompressor {
   long _rangeMin, _rangeMax;
 
@@ -42,13 +44,13 @@ public:
 
   std::string getGetterExpr() override {
     std::string getterExpr = this->fetch();
-    getterExpr = "(" + getterExpr + " + " + std::to_string(this->_rangeMin) + ")";
+    getterExpr = "(" + getterExpr + " + " + to_constant(this->_rangeMin) + ")";
     getterExpr = "((" + this->typeStr + ") " + getterExpr + ")";
     return getterExpr;
   }
 
   std::string getSetterExpr(std::string toBeSetValue) override {
-    toBeSetValue = "((" + toBeSetValue + ") - " + std::to_string(this->_rangeMin) + ")";
+    toBeSetValue = "((" + toBeSetValue + ") - " + to_constant(this->_rangeMin) + ")";
     std::string setterExpr = this->store(toBeSetValue);
     return setterExpr;
   }
@@ -58,7 +60,7 @@ public:
   }
 
   std::string getTypeCastToOriginalStmt(std::string retValFieldAccessor) override {
-    return retValFieldAccessor + " = " + getGetterExpr();
+    return retValFieldAccessor + " = " + getGetterExpr() + ";";
   }
 
   bool supports(FieldDecl *d) override {
