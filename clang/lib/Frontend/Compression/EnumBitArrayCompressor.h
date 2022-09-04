@@ -5,6 +5,7 @@
 #ifndef CLANG_ENUMBITARRAYCOMPRESSOR_H
 #define CLANG_ENUMBITARRAYCOMPRESSOR_H
 
+#include "Utils.h"
 #include "AbstractBitArrayCompressor2.h"
 
 class EnumBitArrayCompressor : public AbstractBitArrayCompressor2, public NonIndexedFieldCompressor {
@@ -50,13 +51,14 @@ public:
 
   std::string getGetterExpr() override {
     std::string getterExpr = this->fetch();
-    getterExpr = "(" + getterExpr + " + " + std::to_string(this->_valMin) + ")";
+    getterExpr = "(" + getterExpr + " + " + to_constant(this->_valMin) + ")";
     getterExpr = "((" + this->typeStr + ") " + getterExpr + ")";
     return getterExpr;
   }
 
   std::string getSetterExpr(std::string toBeSetValue) override {
-    toBeSetValue = "((" + toBeSetValue + ") - " + std::to_string(this->_valMin) + ")";
+    toBeSetValue = "((" + this->_intTypeStr + ") " + toBeSetValue + ")";
+    toBeSetValue = "((" + toBeSetValue + ") - " + to_constant(this->_valMin) + ")";
     std::string setterExpr = this->store(toBeSetValue);
     return setterExpr;
   }
@@ -66,7 +68,7 @@ public:
   }
 
   std::string getTypeCastToOriginalStmt(std::string retValFieldAccessor) override {
-    return retValFieldAccessor + " = " + getGetterExpr();
+    return retValFieldAccessor + " = " + getGetterExpr() + ";";
   }
 
   bool supports(FieldDecl *d) override {
