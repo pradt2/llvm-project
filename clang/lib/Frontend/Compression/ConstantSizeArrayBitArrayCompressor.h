@@ -117,7 +117,7 @@ public:
     }
     method.pop_back();
     method.pop_back(); // removing the trailing ', '
-    method += ") {\n";
+    method += ") const {\n";
     method += "unsigned int linearIdx = " + getLinearItemIndex(idxs) + ";\n";
     method += "switch (linearIdx) {\n";
     unsigned int totalSize = getTotalElements();

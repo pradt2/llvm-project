@@ -156,7 +156,7 @@ class AbstractBitArrayCompressor2 {
   }
 
   std::string readChunk(ReadingChunk &chunk) {
-    std::string expr = "reinterpret_cast<" + chunk.numericalType + "&>(" + this->spec.tableAccessor + "[" + to_constant(chunk.cellIdx) + "])"; // access table
+    std::string expr = "reinterpret_cast<const " + chunk.numericalType + "&>(" + this->spec.tableAccessor + "[" + to_constant(chunk.cellIdx) + "])"; // access table
     expr = "(" + expr + " & " + to_constant(chunk.hillMask()) + ")";  // clear out bits that don't belong to the compressed value
     expr = "( (" + this->getContainerType() + ") " + expr + " )"; // widen out the read area to the target size
     int totalOffset = chunk.offsetWithinDesiredBitsOfTheDesiredBitsThisChunkContains - chunk.lsbMargin;
