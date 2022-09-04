@@ -5,16 +5,64 @@
 #ifndef CLANG_FLOATLIKEBITARRAYCOMPRESSOR_H
 #define CLANG_FLOATLIKEBITARRAYCOMPRESSOR_H
 
+#include "Utils.h"
 #include "AbstractBitArrayCompressor2.h"
 
 
 class FloatLikeBitArrayCompressor : public AbstractBitArrayCompressor2, public NonIndexedFieldCompressor {
   std::string _structName;
-  std::string typeStr;
-  unsigned int _originalTypeWidth, _headSize, _mantissaSize;
+  const BuiltinType *originalType;
+  unsigned int _mantissaSize;
+
+  unsigned int getOriginalHeadSize() {
+    switch (originalType->getKind()) {
+    case BuiltinType::Float : return 1 + 8;
+    case BuiltinType::Double : return 1 + 11;
+    case BuiltinType::LongDouble: return 1 + 15;
+    default:
+      llvm::errs() << "FloatLikeBitArrayCompressor: Unsupported floating point type for compression\n";
+      exit(1);
+    }
+  }
+
+  unsigned int getOriginalMantissaSize() {
+    switch (originalType->getKind()) {
+    case BuiltinType::Float : return 23;
+    case BuiltinType::Double : return 52;
+    case BuiltinType::LongDouble: return 112;
+    default:
+      llvm::errs() << "FloatLikeBitArrayCompressor: Unsupported floating point type for compression\n";
+      exit(1);
+    }
+  }
+
+  std::string getOriginalTypeAsString() {
+    switch (originalType->getKind()) {
+    case BuiltinType::Float : return "float";
+    case BuiltinType::Double : return "double";
+    case BuiltinType::LongDouble: return "long double";
+    default:
+      llvm::errs() << "FloatLikeBitArrayCompressor: Unsupported floating point type for compression\n";
+      exit(1);
+    }
+  }
+
+  std::string getCorrespondingNumericalTypeAsString() {
+    switch (originalType->getKind()) {
+    case BuiltinType::Float : return "unsigned int";
+    case BuiltinType::Double : return "unsigned long";
+    default:
+      llvm::errs() << "FloatLikeBitArrayCompressor: Unsupported floating point type for compression\n";
+      exit(1);
+    }
+  }
 
   unsigned int getCompressedTypeWidthPrivate() {
-    return _headSize + _mantissaSize;
+    return getOriginalHeadSize() + _mantissaSize;
+  }
+
+  unsigned int getOriginalTypeWidth() {
+    return getOriginalHeadSize() + getOriginalMantissaSize();
   }
 
 public:
@@ -25,19 +73,7 @@ public:
       : FloatLikeBitArrayCompressor(tableSpec, offset, structName, fd->getType(), fd->attrs()) {}
 
   FloatLikeBitArrayCompressor(TableSpec tableSpec, unsigned int offset, std::string structName, QualType type, Attrs attrs)
-      : AbstractBitArrayCompressor2(tableSpec, {offset, 0}), _structName(structName), typeStr(type.getAsString()) {
-
-    switch (type->getAs<BuiltinType>()->getKind()) {
-    case BuiltinType::Float : _originalTypeWidth = 32; break;
-    case BuiltinType::Double : _originalTypeWidth = 64; break;
-    default: llvm::errs() << "FloatLikeBitArrayCompressor: Unsupported floating point type for compression\n";
-    }
-
-    switch (type->getAs<BuiltinType>()->getKind()) {
-    case BuiltinType::Float : _headSize = 1 + 8; _mantissaSize = 23; break;
-    case BuiltinType::Double : _headSize = 1 + 11; _mantissaSize = 52; break;
-    default: llvm::errs() << "FloatLikeBitArrayCompressor: Unsupported floating point type for compression\n";
-    }
+      : AbstractBitArrayCompressor2(tableSpec, {offset, 0}), _structName(structName), originalType(type->getAs<BuiltinType>()) {
 
     for (auto *attr : attrs) {
       if (!llvm::isa<CompressTruncateMantissaAttr>(attr)) continue;
@@ -47,7 +83,7 @@ public:
     this->area = {this->area.offset, this->getCompressedTypeWidthPrivate()};
   }
 
-  std::string getTypeName() override { return this->typeStr; }
+  std::string getTypeName() override { return this->getOriginalTypeAsString(); }
 
   unsigned int getCompressedTypeWidth() override {
     return this->getCompressedTypeWidthPrivate();
@@ -55,15 +91,17 @@ public:
 
   std::string getGetterExpr() override {
     std::string getterExpr = this->fetch();
-    std::string truncatedBits = std::to_string(_originalTypeWidth - getCompressedTypeWidth()) + "U";
+    std::string truncatedBits = to_constant(this->getOriginalTypeWidth() - getCompressedTypeWidth());
+    getterExpr = "((" + this->getCorrespondingNumericalTypeAsString() + ") " + getterExpr + ")";
     getterExpr = "(" + getterExpr + " << " + truncatedBits + ")";
-    getterExpr = _structName + "::conv_" + this->typeStr + "(" + getterExpr + ").fp";
+    getterExpr = _structName + "::conv_" + this->getOriginalTypeAsString() + "(" + getterExpr + ").fp";
     return getterExpr;
   }
 
   std::string getSetterExpr(std::string toBeSetValue) override {
-    toBeSetValue = _structName + "::conv_" + this->typeStr + "(" + toBeSetValue + ").i";
-    std::string truncatedBits = std::to_string(_originalTypeWidth - getCompressedTypeWidth()) + "U";
+    toBeSetValue = "((" + this->getOriginalTypeAsString() + ") " + toBeSetValue + ")";
+    toBeSetValue = _structName + "::conv_" + this->getOriginalTypeAsString() + "(" + toBeSetValue + ").i";
+    std::string truncatedBits = to_constant(this->getOriginalTypeWidth() - getCompressedTypeWidth());
     toBeSetValue = "(" + toBeSetValue + " >> " + truncatedBits + ")";
     std::string setterStmt = this->store(toBeSetValue);
     return setterStmt;

@@ -6,6 +6,7 @@
 #define CLANG_ABSTRACTBITARRAYCOMPRESSOR2_H
 
 #include <tuple>
+#include "Utils.h"
 
 struct TableSpec {
   std::string tableAccessor;
@@ -155,22 +156,22 @@ class AbstractBitArrayCompressor2 {
   }
 
   std::string readChunk(ReadingChunk &chunk) {
-    std::string expr = "reinterpret_cast<" + chunk.numericalType + "&>(" + this->spec.tableAccessor + "[" + std::to_string(chunk.cellIdx) + "])"; // access table
-    expr = "(" + expr + " & " + std::to_string(chunk.hillMask()) + ")";  // clear out bits that don't belong to the compressed value
+    std::string expr = "reinterpret_cast<" + chunk.numericalType + "&>(" + this->spec.tableAccessor + "[" + to_constant(chunk.cellIdx) + "])"; // access table
+    expr = "(" + expr + " & " + to_constant(chunk.hillMask()) + ")";  // clear out bits that don't belong to the compressed value
     expr = "( (" + this->getContainerType() + ") " + expr + " )"; // widen out the read area to the target size
     int totalOffset = chunk.offsetWithinDesiredBitsOfTheDesiredBitsThisChunkContains - chunk.lsbMargin;
     std::string shiftDir = totalOffset >= 0 ? " << " : " >> ";
-    expr = "(" + expr + shiftDir + std::to_string(abs(totalOffset)) + ")";  // position the read bits as they should appear in the container
+    expr = "(" + expr + shiftDir + to_constant((unsigned int) abs(totalOffset)) + ")";  // position the read bits as they should appear in the container
     return expr;
   }
 
   std::string writeChunk(ReadingChunk &chunk, std::string valAccessor) {
-    std::string tableAccess = "reinterpret_cast<" + chunk.numericalType + "&>(" + this->spec.tableAccessor + "[" + std::to_string(chunk.cellIdx) + "])"; // access table
-    std::string tableValueWithClearedOutTargetBits = "(" + tableAccess + " & " + std::to_string(chunk.valleyMask()) + ")";  // clear out bits that belong to the compressed value
-    std::string valueBits = "(" + valAccessor + " >> " + std::to_string(chunk.offsetWithinDesiredBitsOfTheDesiredBitsThisChunkContains) + ")"; // bring the desired bits to the start
-    valueBits = "(" + valueBits + " & " + std::to_string((chunk.howManyDesiredBitsThisChunkContains == 64 ? UINT64_MAX : 1UL << chunk.howManyDesiredBitsThisChunkContains) - 1) + ")"; // clear out undesired bits from the value
+    std::string tableAccess = "reinterpret_cast<" + chunk.numericalType + "&>(" + this->spec.tableAccessor + "[" + to_constant(chunk.cellIdx) + "])"; // access table
+    std::string tableValueWithClearedOutTargetBits = "(" + tableAccess + " & " + to_constant(chunk.valleyMask()) + ")";  // clear out bits that belong to the compressed value
+    std::string valueBits = "(" + valAccessor + " >> " + to_constant(chunk.offsetWithinDesiredBitsOfTheDesiredBitsThisChunkContains) + ")"; // bring the desired bits to the start
+    valueBits = "(" + valueBits + " & " + to_constant((chunk.howManyDesiredBitsThisChunkContains == 64 ? UINT64_MAX : ((1UL << chunk.howManyDesiredBitsThisChunkContains) - 1))) + ")"; // clear out undesired bits from the value
     valueBits = "( (" + chunk.numericalType + ") " + valueBits + ")"; // cast to the numerical type of the table access
-    valueBits = "(" + valueBits + " << " + std::to_string(chunk.lsbMargin) + ")"; // align the value bits with the margin of the table
+    valueBits = "(" + valueBits + " << " + to_constant(chunk.lsbMargin) + ")"; // align the value bits with the margin of the table
     std::string stmt = tableAccess + " = " + tableValueWithClearedOutTargetBits + " | " + valueBits + ";";
     return stmt;
   }
