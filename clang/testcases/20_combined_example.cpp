@@ -61,17 +61,39 @@ int main2() {
 }
 
 struct X3 {
+
+
+  [[clang::truncate_mantissa(52)]]
+  double dou[7];
+
   [[clang::pack]]
   bool a[2];
 };
 
 int main() {
   X3 a;
+
   a.a[0] = true;
   a.a[1] = false;
 
+  a.dou[0] = 0.2;
+  a.dou[1] = 0.1;
+  a.dou[2] = 0.2;
+  a.dou[3] = 0.1;
+  a.dou[4] = 0.2;
+  a.dou[5] = 0.1;
+  a.dou[6] = 0.2;
+
   myassert(a.a[0] == true, "one");
   myassert(a.a[1] == false, "two");
+
+  myassert(a.dou[0] == 0.2, "d0");
+  myassert(a.dou[1] == 0.1, "d1");
+  myassert(a.dou[2] == 0.2, "d2");
+  myassert(a.dou[3] == 0.1, "d3");
+  myassert(a.dou[4] == 0.2, "d4");
+  myassert(a.dou[5] == 0.1, "d5");
+  myassert(a.dou[6] == 0.2, "d6");
 
   return 0;
 }
