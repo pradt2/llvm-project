@@ -6,6 +6,7 @@
 #define CLANG_CONSTANTSIZEARRAYBITARRAYCOMPRESSOR_H
 
 #include "DelegatingNonIndexedFieldCompressor.h"
+#include "Utils.h"
 
 class ConstantSizeArrayBitArrayCompressor {
   std::vector<unsigned int> _dimensions;
@@ -35,7 +36,7 @@ class ConstantSizeArrayBitArrayCompressor {
       for (unsigned long j = i + 1; j < _dimensions.size(); j++) {
         multiplier *= _dimensions[j];
       }
-      idx += " + " + idxAccessors[i] + " * " + std::to_string(multiplier);
+      idx += " + " + idxAccessors[i] + " * " + to_constant(multiplier);
     }
     return "(" + idx + ")";
   }
@@ -121,7 +122,7 @@ public:
     method += "switch (linearIdx) {\n";
     unsigned int totalSize = getTotalElements();
     for (unsigned int i = 0; i < totalSize; i++) {
-      method += "case " + std::to_string(i) + ": return " + getElementGetter(i) + ";\n";
+      method += "case " + to_constant(i) + ": return " + getElementGetter(i) + ";\n";
     }
     method += "default: return (" + this->getElementTypeStr() + ") 0;\n";
     method += "}\n"; // close switch
@@ -142,7 +143,7 @@ public:
     method += "switch (linearIdx) {\n";
     unsigned int totalSize = getTotalElements();
     for (unsigned int i = 0; i < totalSize; i++) {
-      method += "case " + std::to_string(i) + ": " + getElementSetter(i, "val") + "; break;\n";
+      method += "case " + to_constant(i) + ": " + getElementSetter(i, "val") + "; break;\n";
     }
     method += "default: break;\n";
     method += "}\n"; // close switch
