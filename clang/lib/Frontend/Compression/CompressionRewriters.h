@@ -108,20 +108,6 @@ bool inLHSOfBinaryAssignOperator(ASTContext &Ctx, Expr *E) {
   return false;
 }
 
-QualType getTypeFromIndirectType(QualType type, std::string &ptrs) {
-  while (type->isReferenceType() || type->isAnyPointerType()) {
-    if (type->isReferenceType()) {
-      type = type.getNonReferenceType();
-      ptrs += "&";
-    } else if (type->isAnyPointerType()) {
-      type = type->getPointeeType();
-      ptrs += "*";
-    }
-  }
-  return type;
-}
-
-
 std::string templateArgumentToString(LangOptions &LangOpts, Rewriter &R, const TemplateArgument &arg) {
   typedef TemplateArgument::ArgKind Kind;
   switch (arg.getKind()) {
