@@ -2,14 +2,16 @@
 // Created by p on 16/02/2022.
 //
 
-#ifndef CLANG_INTLIKEBITARRAYCOMPRESSOR_H
-#define CLANG_INTLIKEBITARRAYCOMPRESSOR_H
+#ifndef CLANG_INTLIKEBITFIELDCOMPRESSOR_H
+#define CLANG_INTLIKEBITFIELDCOMPRESSOR_H
 
 #include "Utils.h"
 
-class IntLikeBitArrayCompressor : public AbstractBitArrayCompressor2, public NonIndexedFieldCompressor {
+class IntLikeBitfieldCompressor : public NonIndexedFieldBitfieldCompressor {
   long _rangeMin, _rangeMax;
 
+  std::string thisAccessor;
+  std::string fieldName;
   std::string typeStr;
 
   unsigned int getCompressedTypeWidthPrivate() {
@@ -20,20 +22,19 @@ class IntLikeBitArrayCompressor : public AbstractBitArrayCompressor2, public Non
 
 public:
 
-  explicit IntLikeBitArrayCompressor() {}
+  explicit IntLikeBitfieldCompressor() {}
 
-  IntLikeBitArrayCompressor(TableSpec tableSpec, unsigned int offset, FieldDecl *fd)
-      : IntLikeBitArrayCompressor(tableSpec, offset, fd->getType(), fd->attrs()) {}
+  IntLikeBitfieldCompressor(std::string thisAccessor, FieldDecl *fd)
+      : IntLikeBitfieldCompressor(thisAccessor, fd->getNameAsString(), fd->getType(), fd->attrs()) {}
 
-  IntLikeBitArrayCompressor(TableSpec tableSpec, unsigned int offset, QualType type, Attrs attrs)
-      : AbstractBitArrayCompressor2(tableSpec, {offset, 0}), typeStr(type.getAsString()) {
+  IntLikeBitfieldCompressor(std::string thisAccessor, std::string fieldName, QualType type, Attrs attrs)
+      : thisAccessor(thisAccessor), fieldName(fieldName), typeStr(type.getAsString()) {
     for (auto *attr : attrs) {
       if (!llvm::isa<CompressRangeAttr>(attr)) continue;
       auto *compressRangeAttr = llvm::cast<CompressRangeAttr>(attr);
       _rangeMin = compressRangeAttr->getMinValue();
       _rangeMax = compressRangeAttr->getMaxValue();
     }
-    this->area = {this->area.offset, this->getCompressedTypeWidthPrivate()};
   }
 
   std::string getTypeName() override { return this->typeStr; }
@@ -43,15 +44,15 @@ public:
   }
 
   std::string getGetterExpr() override {
-    std::string getterExpr = this->fetch();
-    getterExpr = "(" + getterExpr + " + " + to_constant(this->_rangeMin) + ")";
+    std::string getterExpr = this->thisAccessor + this->fieldName;
     getterExpr = "((" + this->typeStr + ") " + getterExpr + ")";
+    getterExpr = "(" + getterExpr + " + " + to_constant(this->_rangeMin) + ")";
     return getterExpr;
   }
 
   std::string getSetterExpr(std::string toBeSetValue) override {
     toBeSetValue = "((" + toBeSetValue + ") - " + to_constant(this->_rangeMin) + ")";
-    std::string setterExpr = this->store(toBeSetValue);
+    std::string setterExpr = this->thisAccessor + this->fieldName + " = " + toBeSetValue + ";";
     return setterExpr;
   }
 
