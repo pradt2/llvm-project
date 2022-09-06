@@ -5,8 +5,8 @@
 #ifndef CLANG_COMPRESSIONCODEGENDELEGATE_H
 #define CLANG_COMPRESSIONCODEGENDELEGATE_H
 
-#include "./CompressionBitshiftCodeGen.h"
-#include "./CompressionBitpackCodeGen.h"
+#include "Bitfield/CompressionBitfieldCodeGen.h"
+#include "Bitshift/CompressionBitshiftCodeGen.h"
 
 class CompressionCodeGenResolver : public CompressionICodeGen {
 
@@ -27,11 +27,11 @@ public:
         this->codeGen = std::make_unique<CompressionBitshiftCodeGen>(d, Ctx, SrcMgr, LangOpts, R);
         return;
       case CompressionMethodAttr::CompressionMethodType::Bitpack:
-        this->codeGen = std::make_unique<CompressionBitpackCodeGen>(d, Ctx, SrcMgr, LangOpts, R);
+        this->codeGen = std::make_unique<CompressionBitfieldCodeGen>(d, Ctx, SrcMgr, LangOpts, R);
         return;
       }
     }
-    this->codeGen = std::make_unique<CompressionBitshiftCodeGen>(d, Ctx, SrcMgr, LangOpts, R);
+    this->codeGen = std::make_unique<CompressionBitfieldCodeGen>(d, Ctx, SrcMgr, LangOpts, R);
   }
 
   std::string getCompressedStructName() override {

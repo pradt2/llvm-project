@@ -2,28 +2,21 @@
 // Created by p on 16/02/2022.
 //
 
-#ifndef CLANG_CONSTANTSIZEARRAYBITARRAYCOMPRESSOR_H
-#define CLANG_CONSTANTSIZEARRAYBITARRAYCOMPRESSOR_H
+#ifndef CLANG_CONSTANTSIZEARRAYBITFIELDCOMPRESSOR_H
+#define CLANG_CONSTANTSIZEARRAYBITFIELDCOMPRESSOR_H
 
-#include "DelegatingNonIndexedFieldCompressor.h"
-#include "Utils.h"
+#include "DelegatingNonIndexedFieldBitfieldCompressor.h"
+#include "../Utils.h"
+#include <vector>
 
-class ConstantSizeArrayBitArrayCompressor {
+class ConstantSizeArrayBitfieldCompressor {
   std::vector<unsigned int> _dimensions;
   std::string _fieldName;
   std::string _structName;
-  TableSpec tableSpec;
-  unsigned int offset;
   std::string thisAccessor;
   QualType elementType;
   Attrs attrs;
   unsigned int elementCompressedWidth;
-
-  unsigned int getTotalElements() {
-    unsigned int counter = 1;
-    for (auto dim : _dimensions) counter *= dim;
-    return counter;
-  }
 
   std::string getLinearItemIndex(std::vector<std::string> idxAccessors) {
     if (idxAccessors.size() != _dimensions.size()) {
@@ -41,9 +34,8 @@ class ConstantSizeArrayBitArrayCompressor {
     return "(" + idx + ")";
   }
 
-  DelegatingNonIndexedFieldCompressor getElementCompressor(unsigned int elementIdx) {
-      unsigned int elementOffset = this->offset + this->elementCompressedWidth * elementIdx;
-      return DelegatingNonIndexedFieldCompressor(this->tableSpec, elementOffset, this->_structName, this->elementType, this->attrs);
+  DelegatingNonIndexedFieldBitfieldCompressor getElementCompressor(unsigned int elementIdx) {
+      return DelegatingNonIndexedFieldBitfieldCompressor(this->_structName,this->thisAccessor, this->_fieldName + std::to_string(elementIdx), this->elementType, this->attrs);
   }
 
   std::string getElementGetter(unsigned int elementIndex) {
@@ -68,18 +60,18 @@ class ConstantSizeArrayBitArrayCompressor {
   }
 
 public:
-  ConstantSizeArrayBitArrayCompressor() : attrs(llvm::SmallVector<Attr *, 4>()) {}
+  ConstantSizeArrayBitfieldCompressor() : attrs(llvm::SmallVector<Attr *, 4>()) {}
 
-  ConstantSizeArrayBitArrayCompressor(TableSpec tableSpec, unsigned int offset, std::string structName, std::string thisAccessor, FieldDecl *fd)
-      : ConstantSizeArrayBitArrayCompressor(tableSpec, offset, fd->getNameAsString(), structName, thisAccessor, fd->getType(), fd->attrs()) {}
+  ConstantSizeArrayBitfieldCompressor(std::string structName, std::string thisAccessor, FieldDecl *fd)
+      : ConstantSizeArrayBitfieldCompressor(fd->getNameAsString(), structName, thisAccessor, fd->getType(), fd->attrs()) {}
 
-  ConstantSizeArrayBitArrayCompressor(TableSpec tableSpec, unsigned int offset, std::string fieldName, std::string structName, std::string thisAccessor, QualType type, Attrs attrs)
-      :  _fieldName(fieldName), _structName(structName), tableSpec(tableSpec), offset(offset), thisAccessor(thisAccessor), attrs(attrs) {
+  ConstantSizeArrayBitfieldCompressor(std::string fieldName, std::string structName, std::string thisAccessor, QualType type, Attrs attrs)
+      :  _fieldName(fieldName), _structName(structName), thisAccessor(thisAccessor), attrs(attrs) {
     auto *arrType = llvm::cast<ConstantArrayType>(type->getAsArrayTypeUnsafe());
     populateDimensions(arrType);
     this->elementType = getElementType(arrType);
 
-    this->elementCompressedWidth = DelegatingNonIndexedFieldCompressor(this->tableSpec, this->offset, this->_structName, this->elementType, this->attrs)
+    this->elementCompressedWidth = DelegatingNonIndexedFieldBitfieldCompressor(this->_structName, this->thisAccessor, this->_fieldName, this->elementType, this->attrs)
                                        .getCompressedTypeWidth();
   }
 
@@ -96,9 +88,19 @@ public:
     return elementType;
   }
 
+  unsigned int getTotalElements() {
+    unsigned int counter = 1;
+    for (auto dim : _dimensions) counter *= dim;
+    return counter;
+  }
+
   unsigned int getCompressedTypeWidth() {
     unsigned int totalElements = getTotalElements();
     return this->elementCompressedWidth * totalElements;
+  }
+
+  unsigned int getElementCompressedTypeWidth() {
+    return this->elementCompressedWidth;
   }
 
   std::string getElementTypeStr() {
@@ -198,4 +200,4 @@ public:
 
 };
 
-#endif // CLANG_CONSTANTSIZEARRAYBITARRAYCOMPRESSOR_H
+#endif // CLANG_CONSTANTSIZEARRAYBITSHIFTCOMPRESSOR_H
