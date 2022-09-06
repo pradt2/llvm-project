@@ -56,7 +56,7 @@ struct ReadingChunk {
   }
 
   unsigned long valleyMask() {
-    unsigned long chunkSizeMask = this->chunkSize == 64 ? UINT64_MAX : ((1 << this->chunkSize) - 1); // the bitshift trick does not work for the biggest chunk as (1 << 64 -1) equals 0
+    unsigned long chunkSizeMask = this->chunkSize == 64 ? UINT64_MAX : ((1UL << this->chunkSize) - 1); // the bitshift trick does not work for the biggest chunk as (1 << 64 -1) equals 0
     return ~hillMask() & chunkSizeMask;
   }
 };
