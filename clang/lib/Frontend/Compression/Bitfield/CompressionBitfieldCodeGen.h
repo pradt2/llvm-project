@@ -1,5 +1,5 @@
-#ifndef CLANG_COMPRESSIONBITSHIFTCODEGEN_H
-#define CLANG_COMPRESSIONBITSHIFTCODEGEN_H
+#ifndef CLANG_COMPRESSIONBITFIELDCODEGEN_H
+#define CLANG_COMPRESSIONBITFIELDCODEGEN_H
 
 #include "clang/Frontend/ASTConsumers.h"
 #include "clang/AST/AST.h"
@@ -17,40 +17,20 @@
 #include "llvm/Support/raw_ostream.h"
 #include <cmath>
 
-#include "CompressionICodeGen.h"
-#include "DelegatingNonIndexedFieldCompressor.h"
-#include "DelegatingFieldCompressor.h"
+#include "../../MPI/MpiMappingGenerator.h"
+#include "../../SemaIR/SemaIR.h"
 
-#include "../SemaIR/SemaIR.h"
-#include "../MPI/MpiMappingGenerator.h"
+#include "../CompressionICodeGen.h"
+
+#include "DelegatingFieldBitfieldCompressor.h"
+#include "DelegatingNonIndexedFieldBitfieldCompressor.h"
+
+
 
 using namespace clang;
 
-static bool isNonIndexAccessCompressionCandidate(FieldDecl *fd) {
-  if (DelegatingNonIndexedFieldCompressor().supports(fd)) return true;
-  return false;
-}
+class CompressionBitfieldCodeGen : public CompressionICodeGen {
 
-static bool isIndexAccessCompressionCandidate(FieldDecl *fd) {
-  if (ConstantSizeArrayBitArrayCompressor().supports(fd)) return true;
-  return false;
-}
-
-static bool isCompressionCandidate(FieldDecl *fieldDecl) {
-  if (DelegatingFieldCompressor().supports(fieldDecl)) return true;
-  return false;
-}
-
-static bool isCompressionCandidate(RecordDecl *recordDecl) {
-  if (!recordDecl) return false; // null record cannot be compressed
-  for (auto *field : recordDecl->fields()) {
-    if (isCompressionCandidate(field)) return true;
-  }
-  return false;
-}
-
-class CompressionBitshiftCodeGen : public CompressionICodeGen {
-  const std::string tableName = "__bitstore";
   unsigned int tableCellSize = 8;
   SemaPrimitiveType tableCellSemaType = SemaPrimitiveType::getForKind(BuiltinType::Kind::Char_U);
   RecordDecl *decl;
@@ -59,24 +39,24 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
   LangOptions &LangOpts;
   Rewriter &R;
 
+  std::string getIntegerTypeForSize(unsigned int size, bool isConst = false) {
+    std::string type = isConst ? "const " : "";
+    if (size <= 8) type += "unsigned char";
+    else if (size <= 16) type += "unsigned short";
+    else if (size <= 32) type += "unsigned int";
+    else if (size <= 64) type += "unsigned long";
+    else type += "<invalid type>";
+    return type;
+  }
+
   unsigned int getTableCellsNeeded() {
     double bitCounter = 0;
     for (auto *field : decl->fields()) {
       if (!isCompressionCandidate(field)) continue;
-      bitCounter += DelegatingFieldCompressor({}, 0, "mock", "mock", field).getCompressedTypeWidth();
+      bitCounter += DelegatingFieldBitfieldCompressor("mock", "mock", field).getCompressedTypeWidth();
     }
     unsigned int cellsNeeded = ceil(bitCounter / tableCellSize);
     return cellsNeeded;
-  }
-
-  unsigned int getFieldOffset(FieldDecl *fd) {
-    double bitCounter = 0;
-    for (auto *field : decl->fields()) {
-      if (!isCompressionCandidate(field)) continue;
-      if (field == fd) break;
-      bitCounter += DelegatingFieldCompressor({}, 0, "mock", "mock", field).getCompressedTypeWidth();
-    }
-    return bitCounter;
   }
 
   std::string getOriginalStructName() {
@@ -84,7 +64,7 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
   }
 
   std::string getOriginalFullyQualifiedStructName() {
-      return decl->getQualifiedNameAsString();
+    return decl->getQualifiedNameAsString();
   }
 
   std::string getEmptyConstructor() {
@@ -94,8 +74,7 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
       if (!field->hasInClassInitializer()) continue;
       std::string init = R.getRewrittenText(field->getInClassInitializer()->getSourceRange());
       if (isCompressionCandidate(field)) {
-        TableSpec tableSpec = {"this->" + tableName, tableCellSize, getTableCellsNeeded()};
-        auto compressor = DelegatingFieldCompressor(tableSpec, getFieldOffset(field), getCompressedStructShortName(), "this->", field);
+        auto compressor = DelegatingFieldBitfieldCompressor(getCompressedStructShortName(), "this->", field);
         constructor += compressor.getCopyConstructorStmt(init) + "\n";
       }
       else {
@@ -112,8 +91,7 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
     constructor += " (" + getOriginalFullyQualifiedStructName() + " &&" + localVarName + ") { ";
     for (auto *field : decl->fields()) {
       if (isCompressionCandidate(field)) {
-        TableSpec tableSpec = {"this->" + tableName, tableCellSize, getTableCellsNeeded()};
-        auto compressor = DelegatingFieldCompressor(tableSpec, getFieldOffset(field), getCompressedStructShortName(), "this->", field);
+        auto compressor = DelegatingFieldBitfieldCompressor(getCompressedStructShortName(), "this->", field);
         constructor += compressor.getCopyConstructorStmt(localVarName + "." + field->getNameAsString()) + "\n";
       }
       else {
@@ -128,8 +106,7 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
     std::string typeCast = "operator " + getOriginalFullyQualifiedStructName() + "() { " + getOriginalFullyQualifiedStructName() + " val ;\n";
     for (auto *field : decl->fields()) {
       if (isCompressionCandidate(field)) {
-        TableSpec tableSpec = {"this->" + tableName, tableCellSize, getTableCellsNeeded()};
-        auto compressor = DelegatingFieldCompressor(tableSpec, getFieldOffset(field), getCompressedStructShortName(), "this->", field);
+        auto compressor = DelegatingFieldBitfieldCompressor(getCompressedStructShortName(), "this->", field);
         typeCast += compressor.getTypeCastToOriginalStmt("val." + field->getNameAsString()) + "\n";
       } else {
         typeCast += "val." + field->getNameAsString() + " = this->" + field->getNameAsString() + ";\n";
@@ -140,13 +117,37 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
     return typeCast;
   }
 
+  std::string getBitpackStruct() {
+    std::string bitpackStruct = "struct __attribute__((packed)) {\n";
+    for (auto *field : decl->fields()) {
+      if (!isCompressionCandidate(field)) continue;
+      QualType elementType;
+      if (field->getType()->isConstantArrayType()) {
+        auto compressor = ConstantSizeArrayBitfieldCompressor("s", "t", field);
+        unsigned int totalElements = compressor.getTotalElements();
+        for (unsigned int i = 0; i < totalElements; i++) {
+          unsigned int elementWidth = compressor.getElementCompressedTypeWidth();
+          std::string storageType = getIntegerTypeForSize(elementWidth);
+          bitpackStruct += storageType + " " +  field->getNameAsString() + std::to_string(i) + " : " + std::to_string(elementWidth) + ";\n";
+        }
+      } else {
+        auto compressor = DelegatingFieldBitfieldCompressor("s", "t", field);
+        unsigned int elementWidth = compressor.getCompressedTypeWidth();
+        std::string storageType = getIntegerTypeForSize(elementWidth);
+        bitpackStruct += storageType + " " + field->getNameAsString() + " : " + std::to_string(elementWidth) + ";\n";
+      }
+    }
+    bitpackStruct += "};\n";
+    return bitpackStruct;
+  };
+
   std::string getConversionStructs() {
     std::string structs = "";
     for (auto *field : decl->fields()) {
       if (!isCompressionCandidate(field)) continue;
       QualType elementType;
       if (field->getType()->isConstantArrayType()) {
-        elementType = ConstantSizeArrayBitArrayCompressor::getElementType(llvm::cast<ConstantArrayType>(field->getType()));
+        elementType = ConstantSizeArrayBitfieldCompressor::getElementType(llvm::cast<ConstantArrayType>(field->getType()));
       } else {
         elementType = field->getType();
       }
@@ -159,7 +160,7 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
       if (!isCompressionCandidate(field)) continue;
       QualType elementType;
       if (field->getType()->isConstantArrayType()) {
-        elementType = ConstantSizeArrayBitArrayCompressor::getElementType(llvm::cast<ConstantArrayType>(field->getType()));
+        elementType = ConstantSizeArrayBitfieldCompressor::getElementType(llvm::cast<ConstantArrayType>(field->getType()));
       } else {
         elementType = field->getType();
       }
@@ -174,9 +175,8 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
   std::string getConstSizeArrCompressionMethods() {
     std::string methods;
     for (auto *field : decl->fields()) {
-      if (!ConstantSizeArrayBitArrayCompressor().supports(field)) continue;
-      TableSpec tableSpec = {"this->" + tableName, tableCellSize, getTableCellsNeeded()};
-      auto compressor = ConstantSizeArrayBitArrayCompressor(tableSpec, getFieldOffset(field), getCompressedStructShortName(), "this->", field);
+      if (!ConstantSizeArrayBitfieldCompressor().supports(field)) continue;
+      auto compressor = ConstantSizeArrayBitfieldCompressor(getCompressedStructShortName(), "this->", field);
       methods += compressor.getGetterMethod() + ";\n";
       methods += compressor.getSetterMethod() + ";\n";
     }
@@ -185,19 +185,6 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
       methods.pop_back();
     }
     return methods;
-  }
-
-  static QualType getTypeFromIndirectType(QualType type, std::string &ptrs) {
-    while (type->isReferenceType() || type->isAnyPointerType()) {
-      if (type->isReferenceType()) {
-        type = type.getNonReferenceType();
-        ptrs += "&";
-      } else if (type->isAnyPointerType()) {
-        type = type->getPointeeType();
-        ptrs += "*";
-      }
-    }
-    return type;
   }
 
   std::string convertMethod(CXXMethodDecl *methodDecl) {
@@ -301,28 +288,17 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
     std::unique_ptr<SemaPrimitiveType> elementType = std::make_unique<SemaPrimitiveType>();
     elementType->typeKind = tableCellSemaType.typeKind;
 
-    std::unique_ptr<SemaConstSizeArrType> arrType = std::make_unique<SemaConstSizeArrType>();
-    arrType->size = getTableCellsNeeded();
-    arrType->elementType = std::move(elementType);
-
-    std::unique_ptr<SemaFieldDecl> tableFieldDecl = std::make_unique<SemaFieldDecl>();
-    tableFieldDecl->name = tableName;
-    tableFieldDecl->type = std::move(arrType);
-    tableFieldDecl->parent = &record;
-
     std::vector<std::unique_ptr<SemaFieldDecl>> fields;
 
     for (auto *field : decl->fields()) {
       if (isCompressionCandidate(field)) continue;
-       std::unique_ptr<SemaFieldDecl> fieldDecl = fromFieldDecl(record, field);
-       fields.push_back(std::move(fieldDecl));
+      std::unique_ptr<SemaFieldDecl> fieldDecl = fromFieldDecl(record, field);
+      fields.push_back(std::move(fieldDecl));
     }
 
     std::sort(fields.begin(), fields.end(), [] (std::unique_ptr<SemaFieldDecl> const& a, std::unique_ptr<SemaFieldDecl> const& b) {
       return a->type->getSize() > b->type->getSize();
     });
-
-    fields.push_back(std::move(tableFieldDecl));
 
     return fields;
   }
@@ -350,10 +326,10 @@ class CompressionBitshiftCodeGen : public CompressionICodeGen {
 
 public:
 
-  explicit CompressionBitshiftCodeGen(RecordDecl *d, ASTContext &Ctx,
-                                                      SourceManager &SrcMgr,
-                                                      LangOptions &LangOpts,
-                                                      Rewriter &R) : decl(d), Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
+  explicit CompressionBitfieldCodeGen(RecordDecl *d, ASTContext &Ctx,
+                                      SourceManager &SrcMgr,
+                                      LangOptions &LangOpts,
+                                      Rewriter &R) : decl(d), Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
 
   std::string getCompressedStructName() override {
     return getCompressedStructShortName();
@@ -379,6 +355,7 @@ public:
     for (const auto &fieldDecl : recordDecl->fields) {
       fieldsDecl += toSource(*fieldDecl) += ";\n";
     }
+    std::string bitpackStruct = getBitpackStruct();
     std::string emptyConstructor = getEmptyConstructor();
     std::string fromOriginalConstructor = getFromOriginalTypeConstructor();
     std::string typeCastToOriginal = getTypeCastToOriginal();
@@ -393,6 +370,7 @@ public:
     std::string structDef = "struct __attribute__((packed)) " + recordDecl->fullyQualifiedName + " {\n"
                             + typedefs + "\n"
                             + fieldsDecl + ";\n"
+                            + bitpackStruct + ";\n"
                             + emptyConstructor + ";\n"
                             + fromOriginalConstructor + ";\n"
                             + typeCastToOriginal + ";\n"
@@ -405,25 +383,21 @@ public:
   }
 
   std::string getGetterExpr(FieldDecl *fieldDecl, std::string thisAccessor) override {
-    TableSpec tableSpec = {thisAccessor + tableName, tableCellSize, getTableCellsNeeded()};
-    auto delegate = DelegatingNonIndexedFieldCompressor(tableSpec, getFieldOffset(fieldDecl), getCompressedStructShortName(), fieldDecl);
+    auto delegate = DelegatingNonIndexedFieldBitfieldCompressor(getCompressedStructShortName(), thisAccessor, fieldDecl);
     return delegate.getGetterExpr();
   }
 
   std::string getSetterExpr(FieldDecl *fieldDecl, std::string thisAccessor, std::string toBeSetValue) override {
-    TableSpec tableSpec = {thisAccessor + tableName, tableCellSize, getTableCellsNeeded()};
-    auto delegate = DelegatingNonIndexedFieldCompressor(tableSpec, getFieldOffset(fieldDecl), getCompressedStructShortName(), fieldDecl);
+    auto delegate = DelegatingNonIndexedFieldBitfieldCompressor(getCompressedStructShortName(), thisAccessor, fieldDecl);
     return delegate.getSetterExpr(toBeSetValue);
   }
 
   std::string getGetterExpr(FieldDecl *fieldDecl, std::string thisAccessor, std::vector<std::string> idxs) override {
-    TableSpec tableSpec = {thisAccessor + tableName, tableCellSize, getTableCellsNeeded()};
-    auto delegate = ConstantSizeArrayBitArrayCompressor(tableSpec, getFieldOffset(fieldDecl), getCompressedStructShortName(), thisAccessor, fieldDecl);
+    auto delegate = ConstantSizeArrayBitfieldCompressor(getCompressedStructShortName(), thisAccessor, fieldDecl);
     return delegate.getGetterExpr(idxs);
   }
   std::string getSetterExpr(FieldDecl *fieldDecl, std::string thisAccessor, std::vector<std::string> idxs, std::string toBeSetValue) override {
-    TableSpec tableSpec = {thisAccessor + tableName, tableCellSize, getTableCellsNeeded()};
-    auto delegate = ConstantSizeArrayBitArrayCompressor(tableSpec, getFieldOffset(fieldDecl), getCompressedStructShortName(), thisAccessor, fieldDecl);
+    auto delegate = ConstantSizeArrayBitfieldCompressor(getCompressedStructShortName(), thisAccessor, fieldDecl);
     return delegate.getSetterExpr(idxs, toBeSetValue);
   }
 };

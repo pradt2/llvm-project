@@ -6,6 +6,8 @@
 #define CLANG_COMPRESSIONICODEGEN_H
 
 #include "../SemaIR/SemaIR.h"
+#include "Bitshift/DelegatingFieldCompressor.h"
+#include "Bitshift/DelegatingNonIndexedFieldCompressor.h"
 
 class CompressionICodeGen {
 
@@ -29,5 +31,41 @@ public:
   virtual std::string getSetterExpr(FieldDecl *fieldDecl, std::string thisAccessor, std::vector<std::string> idxs, std::string toBeSetValue) = 0;
 
 };
+
+bool isNonIndexAccessCompressionCandidate(FieldDecl *fd) {
+  if (DelegatingNonIndexedFieldCompressor().supports(fd)) return true;
+  return false;
+}
+
+bool isIndexAccessCompressionCandidate(FieldDecl *fd) {
+  if (ConstantSizeArrayBitArrayCompressor().supports(fd)) return true;
+  return false;
+}
+
+bool isCompressionCandidate(FieldDecl *fieldDecl) {
+  if (DelegatingFieldCompressor().supports(fieldDecl)) return true;
+  return false;
+}
+
+bool isCompressionCandidate(RecordDecl *recordDecl) {
+  if (!recordDecl) return false; // null record cannot be compressed
+  for (auto *field : recordDecl->fields()) {
+    if (isCompressionCandidate(field)) return true;
+  }
+  return false;
+}
+
+QualType getTypeFromIndirectType(QualType type, std::string &ptrs) {
+  while (type->isReferenceType() || type->isAnyPointerType()) {
+    if (type->isReferenceType()) {
+      type = type.getNonReferenceType();
+      ptrs += "&";
+    } else if (type->isAnyPointerType()) {
+      type = type->getPointeeType();
+      ptrs += "*";
+    }
+  }
+  return type;
+}
 
 #endif // CLANG_COMPRESSIONICODEGEN_H
