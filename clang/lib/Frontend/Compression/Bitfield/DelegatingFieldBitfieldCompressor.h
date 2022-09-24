@@ -40,7 +40,7 @@ public:
 
   std::string getTypeCastToOriginalStmt(std::string retValFieldAccessor) {
     if (_nonIndexedCompressor) return _nonIndexedCompressor->getTypeCastToOriginalStmt(retValFieldAccessor);
-    if (_indexedCompressor) return _indexedCompressor->getCopyConstructorStmt(retValFieldAccessor);
+    if (_indexedCompressor) return _indexedCompressor->getTypeCastToOriginalStmt(retValFieldAccessor);
     llvm::errs() << "std::string getTypeCastToOriginalStmt() invalid";
     exit(1);
   }

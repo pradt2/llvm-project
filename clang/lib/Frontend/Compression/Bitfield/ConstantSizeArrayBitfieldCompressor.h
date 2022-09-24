@@ -175,13 +175,73 @@ public:
   }
 
   std::string getCopyConstructorStmt(std::string toBeSetVal) {
-    llvm::errs() << "Copy constructor stmt for arrays is not implemented yet\n";
-    return "/** copy constructor stmt for const size arr TO BE IMPLEMENTED */";
+    std::string copyStmts;
+
+    unsigned int totalSize = getTotalElements();
+
+    unsigned int *multipliers = new unsigned int [this->_dimensions.size()];
+
+    for (unsigned int i = 0; i < this->_dimensions.size(); i++) {
+      unsigned int counter = 1;
+      for (unsigned int j = i+1; j < this->_dimensions.size(); j++) {
+        counter *= this->_dimensions[j];
+      }
+      multipliers[i] = counter;
+    }
+
+    for (unsigned int i = 0; i < totalSize; i++) {
+      unsigned int index = i;
+      std::string idxs;
+      for (unsigned int dimI = 0; dimI < this->_dimensions.size() -1; dimI++) {
+        unsigned int idx = index / multipliers[dimI];
+        index = index % multipliers[dimI];
+        idxs += "[" + std::to_string(idx) + "]";
+      }
+
+      idxs += "[" + std::to_string(index) + "]";
+
+      copyStmts += getElementSetter(i, toBeSetVal + idxs) + "\n";
+
+    }
+
+    delete[] multipliers;
+
+    return copyStmts;
   }
 
   std::string getTypeCastToOriginalStmt(std::string retValFieldAccessor) {
-    llvm::errs() << "Type cast to Original Type stmt for arrays is not implemented yet";
-    return "/** type cast to original stmt for const size arr TO BE IMPLEMENTED */";
+    std::string copyStmts;
+
+    unsigned int totalSize = getTotalElements();
+
+    unsigned int *multipliers = new unsigned int [this->_dimensions.size()];
+
+    for (unsigned int i = 0; i < this->_dimensions.size(); i++) {
+      unsigned int counter = 1;
+      for (unsigned int j = i+1; j < this->_dimensions.size(); j++) {
+        counter *= this->_dimensions[j];
+      }
+      multipliers[i] = counter;
+    }
+
+    for (unsigned int i = 0; i < totalSize; i++) {
+      unsigned int index = i;
+      std::string idxs;
+      for (unsigned int dimI = 0; dimI < this->_dimensions.size() -1; dimI++) {
+        unsigned int idx = index / multipliers[dimI];
+        index = index % multipliers[dimI];
+        idxs += "[" + std::to_string(idx) + "]";
+      }
+
+      idxs += "[" + std::to_string(index) + "]";
+
+      copyStmts += retValFieldAccessor + idxs + " = " + getElementGetter(i) + ";\n";
+
+    }
+
+    delete[] multipliers;
+
+    return copyStmts;
   }
 
   bool supports(FieldDecl *d) {
