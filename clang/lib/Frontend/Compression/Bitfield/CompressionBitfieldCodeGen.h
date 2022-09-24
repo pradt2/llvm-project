@@ -88,14 +88,14 @@ class CompressionBitfieldCodeGen : public CompressionICodeGen {
   std::string getFromOriginalTypeConstructor() {
     std::string constructor = getCompressedStructShortName();
     std::string localVarName = "__arg0";
-    constructor += " (" + getOriginalFullyQualifiedStructName() + " &&" + localVarName + ") { ";
+    constructor += " (" + getOriginalFullyQualifiedStructName() + " &&" + localVarName + ") {\n";
     for (auto *field : decl->fields()) {
       if (isCompressionCandidate(field)) {
         auto compressor = DelegatingFieldBitfieldCompressor(getCompressedStructShortName(), "this->", field);
         constructor += compressor.getCopyConstructorStmt(localVarName + "." + field->getNameAsString()) + "\n";
       }
       else {
-        constructor += "this->" + field->getNameAsString() + " = " + localVarName + "." + field->getNameAsString() + "; ";
+        constructor += "this->" + field->getNameAsString() + " = " + localVarName + "." + field->getNameAsString() + ";\n";
       }
     }
     constructor += "}";
