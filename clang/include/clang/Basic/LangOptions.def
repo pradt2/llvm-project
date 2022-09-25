@@ -362,6 +362,10 @@ LANGOPT(MpiAttributesLanguageExtension, 1, 0,
         "MPI attributes language extension such as [[clang::map_mpi_datatype]] attribute")
 LANGOPT(SoaConversionAttributesLanguageExtension, 1, 0,
         "SOA conversion attributes language extension such as [[clang::soa_conv_target]] attribute")
+LANGOPT(PostprocessingOutputDump, 1, 0,
+        "Dump post-processed output to stdout")
+LANGOPT(PostprocessingOutputSave, 1, 0,
+        "Save post-processed output to /tmp")
 ENUM_LANGOPT(GC, GCMode, 2, NonGC, "Objective-C Garbage Collection mode")
 BENIGN_ENUM_LANGOPT(ValueVisibilityMode, Visibility, 3, DefaultVisibility,
              "default visibility for functions and variables [-fvisibility]")

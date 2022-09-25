@@ -56,6 +56,10 @@
 #include <sys/resource.h>
 #endif
 
+#include <fstream>
+#include <stdio.h>
+#include <unistd.h>
+
 using namespace clang;
 using namespace llvm::opt;
 
@@ -93,6 +97,47 @@ public:
   void dump() {
     for (auto &entry : buffers) {
       llvm::outs() << entry.first << "\n" << entry.second << "\n\n";
+    }
+  }
+
+  void saveToDisk() {
+    for (auto &entry : buffers) {
+      auto filename = entry.first;
+      auto contents = entry.second;
+
+      char buff[PATH_MAX];
+      getcwd( buff, PATH_MAX );
+      std::string cwd( buff );
+      cwd += "/";
+
+      std::string targetPath = "/tmp/clang" + cwd + filename.str();
+      std::string targetParent = targetPath.substr(0, targetPath.find_last_of('/'));
+
+      std::string command = "mkdir -p " + targetParent;
+      system(command.c_str());
+
+      command = "touch " + targetPath;
+      system(command.c_str());
+
+      FILE *F = fopen(targetPath.c_str(), "r+");
+
+      if (!F) continue;
+
+      fseek(F, 0L, SEEK_END);
+      auto size = ftell(F);
+
+      if (size > 0) {
+        fclose(F);
+        continue;
+      }
+
+      rewind(F);
+
+      fputs(contents.str().c_str(), F);
+
+      fflush(F);
+
+      fclose(F);
     }
   }
 };
@@ -380,7 +425,13 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
       Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
     }
 
-    rewrittenSourcesHandler.dump();
+    if (Clang.get()->getLangOpts().PostprocessingOutputDump) {
+      rewrittenSourcesHandler.dump();
+    }
+
+    if (Clang.get()->getLangOpts().PostprocessingOutputSave) {
+      rewrittenSourcesHandler.saveToDisk();
+    }
 
   } else {
     Result = ExecuteCompilerInvocation(Clang.get());

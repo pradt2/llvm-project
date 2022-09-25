@@ -7254,6 +7254,16 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-D__SOA_CONVERSION_ATTRIBUTES_EXTENSION__");
   }
 
+  if (Args.hasFlag(options::OPT_fpostprocessing_output_dump,
+                   options::OPT_fno_postprocessing_output_dump, false)) {
+    CmdArgs.push_back("-fpostprocessing-output-dump");
+  }
+
+  if (Args.hasFlag(options::OPT_fpostprocessing_output_save,
+                   options::OPT_fno_postprocessing_output_save, false)) {
+    CmdArgs.push_back("-fpostprocessing-output-save");
+  }
+
   if (Args.hasFlag(options::OPT_fapple_pragma_pack,
                    options::OPT_fno_apple_pragma_pack, false))
     CmdArgs.push_back("-fapple-pragma-pack");

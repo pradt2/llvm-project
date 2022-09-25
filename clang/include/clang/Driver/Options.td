@@ -1897,6 +1897,14 @@ defm soa_conversion_attributes_language_extension : BoolFOption<"soa-conversion-
   LangOpts<"SoaConversionAttributesLanguageExtension">, DefaultFalse,
   PosFlag<SetTrue, [CC1Option], "SOA conversion attributes such as [[clang::soa_conv_target]] attribute">,
   NegFlag<SetFalse>>;
+defm postprocessing_output_dump : BoolFOption<"postprocessing-output-dump",
+    LangOpts<"PostprocessingOutputDump">, DefaultFalse,
+    PosFlag<SetTrue, [CC1Option], "Dump postprocessed output to stdout">,
+    NegFlag<SetFalse>>;
+defm postprocessing_output_save : BoolFOption<"postprocessing-output-save",
+    LangOpts<"PostprocessingOutputSave">, DefaultFalse,
+    PosFlag<SetTrue, [CC1Option], "Save postprocessed output to /tmp">,
+    NegFlag<SetFalse>>;
 def fcf_runtime_abi_EQ : Joined<["-"], "fcf-runtime-abi=">, Group<f_Group>,
     Visibility<[ClangOption, CC1Option]>,
     Values<"unspecified,standalone,objc,swift,swift-5.0,swift-4.2,swift-4.1">,
