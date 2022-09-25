@@ -124,9 +124,9 @@ public:
       if (!F) continue;
 
       fseek(F, 0L, SEEK_END);
-      auto size = ftell(F);
+      auto size = (unsigned long) ftell(F);
 
-      if (size > 0) {
+      if (size >= contents.str().size() ) {
         fclose(F);
         continue;
       }
