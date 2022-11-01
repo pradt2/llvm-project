@@ -58,6 +58,21 @@ public:
 //===----------------------------------------------------------------------===//
 // AST Consumer Actions
 //===----------------------------------------------------------------------===//
+class ForceFloatLiteralAction : public ASTFrontendAction {
+protected:
+  std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &CI,
+                                                 StringRef InFile) override;
+};
+
+class ForceFloatAction : public ASTFrontendAction {
+public:
+  std::map<std::string, std::string> &fileMap;
+  explicit ForceFloatAction(std::map<std::string, std::string> &fileMap) : fileMap(fileMap) {}
+protected:
+  std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &CI,
+                                                 StringRef InFile) override;
+};
+
 class SoaConvertAction : public ASTFrontendAction {
 protected:
   std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &CI,
