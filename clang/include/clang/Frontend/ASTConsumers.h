@@ -28,6 +28,10 @@ class LangOptions;
 class Preprocessor;
 class TargetOptions;
 
+std::unique_ptr<ASTConsumer> CreateForceFloatLiteralASTConsumer(CompilerInstance &CI);
+
+std::unique_ptr<ASTConsumer> CreateForceFloatASTConsumer(CompilerInstance &CI, std::map<std::string, std::string> &fileMap);
+
 std::unique_ptr<ASTConsumer> CreateSoaConversionASTConsumer(CompilerInstance &CI);
 
 std::unique_ptr<ASTConsumer> CreateCompressionASTConsumer(CompilerInstance &CI);
