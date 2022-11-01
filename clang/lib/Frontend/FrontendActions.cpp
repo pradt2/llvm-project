@@ -92,6 +92,16 @@ ReadPCHAndPreprocessAction::CreateASTConsumer(CompilerInstance &CI,
 // AST Consumer Actions
 //===----------------------------------------------------------------------===//
 std::unique_ptr<ASTConsumer>
+ForceFloatLiteralAction::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
+  return CreateForceFloatLiteralASTConsumer(CI);
+}
+
+std::unique_ptr<ASTConsumer>
+ForceFloatAction::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
+  return CreateForceFloatASTConsumer(CI, fileMap);
+}
+
+std::unique_ptr<ASTConsumer>
 SoaConvertAction::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
   return CreateSoaConversionASTConsumer(CI);
 }
