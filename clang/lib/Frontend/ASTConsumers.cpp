@@ -164,6 +164,16 @@ namespace {
 } // end anonymous namespace
 
 std::unique_ptr<ASTConsumer>
+clang::CreateForceFloatLiteralASTConsumer(CompilerInstance &CI) {
+  return std::make_unique<ForceFloatLiteralASTConsumer>(CI.getASTContext(), CI.getSourceManager(), CI.getLangOpts(), CI.getSourceManager().getRewriter());
+}
+
+std::unique_ptr<ASTConsumer>
+clang::CreateForceFloatASTConsumer(CompilerInstance &CI, std::map<std::string, std::string> &fileMap) {
+  return std::make_unique<ForceFloatASTConsumer>(CI.getASTContext(), CI.getSourceManager(), CI.getLangOpts(), CI.getPreprocessorOpts(), fileMap);
+}
+
+std::unique_ptr<ASTConsumer>
 clang::CreateSoaConversionASTConsumer(CompilerInstance &CI) {
   return std::make_unique<SoaConversionASTConsumer>(CI);
 }
