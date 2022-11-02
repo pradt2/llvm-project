@@ -37,6 +37,9 @@ bool ForceFloatASTConsumer::VisitDecl(Decl *D) {
   auto path = entry->getName(); //SrcMgr.getFilename also possible
   if (path.startswith(llvm::StringRef("/usr"))) return true;
   if (path.contains(llvm::StringRef("/lib/gcc/x86_64-pc-linux-gnu"))) return true;
+  if (path.contains(llvm::StringRef("/include/c++/"))) return true;
+  if (path.contains(llvm::StringRef("/lib/clang/"))) return true;
+//  llvm::outs() << path << "\n";
   fileMap[path.str()] = "";
   return true;
 }
