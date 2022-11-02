@@ -287,7 +287,7 @@ private:
     }
   };
 
-  Optional<DynTypedNode> getParentSkippingExprWithCleanups(Expr *expr) {
+  Optional<DynTypedNode> getParentSkippingExprWithCleanups(const Expr *expr) {
     // Variable declaration by direct constructor invocation exist, e.g. Something__PACKED p(1,2);
     // This is called 'callinit'
     // In these cases, calculating type source range as the distance between the start of the declaration, and the start of the arguments
@@ -327,7 +327,7 @@ public:
     TraverseDecl(D);
   }
 
-  void updateTemplateInstantiationExpr(CXXConstructExpr *expr) {
+  void updateTemplateInstantiationExpr(const CXXConstructExpr *expr) {
     auto *type = expr->getType()->getAs<TemplateSpecializationType>();
     if (!type) return;
 
@@ -359,7 +359,7 @@ public:
     if (expr->getNumArgs() == 0) {
       typeEnd = expr->getEndLoc().getLocWithOffset(-2); // this removes the trailing '()' from the constructor invocation
     } else {
-      Expr *firstArg = expr->getArg(0);
+      auto *firstArg = expr->getArg(0);
       typeEnd = firstArg->getBeginLoc().getLocWithOffset(-2); // this removes the '(a' where a is the first letter of the argument name
     }
 
@@ -368,10 +368,22 @@ public:
     R.ReplaceText(sourceRange,  MARKER + newType);
   }
 
-  bool VisitCXXConstructExpr(CXXConstructExpr *expr) {
+
+  // for some reason the VisitCXXConstructorExpr method below explicitly ignores zero-arg constructor invocations.
+  // I can't remember why. Perhaps to avoid generating nested constructor invocations; there might have been an issue with multiple AST nodes being generated per invocation.
+  // Anyway, we can't ignore the zero-arg invocations in 'new' constructor invocations, hence this method.
+  bool VisitCXXNewExpr(CXXNewExpr *expr) {
+    auto *constructorExpr = expr->getConstructExpr();
+    if (!constructorExpr) return true;
+    if (constructorExpr->getNumArgs() != 0) return true; // the VisitCXXConstructExpr method below will handle it
+    visitConstructorExpr(constructorExpr, false);
+    return true;
+  }
+
+  bool visitConstructorExpr(const CXXConstructExpr *expr, bool ignoreZeroArgCalls = true) {
     if (expr->isElidable()) return true;
     updateTemplateInstantiationExpr(expr);
-    if (expr->getNumArgs() == 0) return true;
+    if (expr->getNumArgs() == 0 && ignoreZeroArgCalls) return true;
     if (expr->getConstructor()->isImplicit()) return true;
     std::string ptrs;
     auto constructType = getTypeFromIndirectType(expr->getType(), ptrs);
@@ -395,6 +407,10 @@ public:
     R.InsertTextBefore(expr->getBeginLoc(), MARKER + compressionCodeGen.getGlobalNsFullyQualifiedCompressedStructName() + "(");
     R.InsertTextAfterToken(expr->getEndLoc(), ")");
     return true;
+  }
+
+  bool VisitCXXConstructExpr(CXXConstructExpr *expr) {
+    visitConstructorExpr(expr);
   }
 
   bool VisitInitListExpr(InitListExpr *initListExpr) {
