@@ -339,6 +339,16 @@ public:
     return getOriginalFullyQualifiedStructName() + "__PACKED";
   }
 
+  std::string getGlobalNsFullyQualifiedCompressedStructName() override {
+    std::string fqn = getFullyQualifiedCompressedStructName();
+    if (llvm::StringRef(fqn).contains(':') && !llvm::StringRef(fqn).startswith(llvm::StringRef(":"))) {
+      // Fully qualified name contains namespaces but doesn't start with the global namespace prefix '::'
+      // so we want to add it
+      fqn = "::" + fqn;
+    }
+    return fqn;
+  }
+
   std::unique_ptr<SemaRecordDecl> getSemaRecordDecl() override {
     std::string structName = getCompressedStructName();
     std::unique_ptr<SemaRecordDecl> recordDecl = std::make_unique<SemaRecordDecl>();

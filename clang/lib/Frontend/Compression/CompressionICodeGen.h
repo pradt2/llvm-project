@@ -18,6 +18,8 @@ public:
 
   virtual std::string getFullyQualifiedCompressedStructName() = 0;
 
+  virtual std::string getGlobalNsFullyQualifiedCompressedStructName() = 0;
+
   virtual std::unique_ptr<SemaRecordDecl> getSemaRecordDecl() = 0;
 
   virtual std::string getCompressedStructDef() = 0;
