@@ -410,7 +410,7 @@ public:
   }
 
   bool VisitCXXConstructExpr(CXXConstructExpr *expr) {
-    visitConstructorExpr(expr);
+    return visitConstructorExpr(expr);
   }
 
   bool VisitInitListExpr(InitListExpr *initListExpr) {
