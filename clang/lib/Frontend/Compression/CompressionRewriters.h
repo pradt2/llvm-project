@@ -191,7 +191,7 @@ std::string getNewTemplateInstantiationType(ASTContext &Ctx, SourceManager &SrcM
 }
 
 std::string getNewTemplateInstantiationType(ASTContext &Ctx, SourceManager &SrcMgr, LangOptions &LangOpts, Rewriter &R, const ClassTemplateSpecializationDecl *templType) {
-  return getNewTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, templType->getTemplateInstantiationArgs().asArray());
+  return getNewTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, templType->getTemplateArgs().asArray());
 }
 
 std::string getNewTemplateInstantiationType(ASTContext &Ctx, SourceManager &SrcMgr, LangOptions &LangOpts, Rewriter &R, QualType origType) {
@@ -679,6 +679,8 @@ public:
   bool VisitCallExpr(CallExpr *expr) {
     FunctionDecl *d = expr->getDirectCallee();
     if (!d || !d->isTemplateInstantiation() || !d->getTemplateSpecializationArgs()) return true;
+
+
 
     SourceLocation typeEnd;
     if (expr->getNumArgs() == 0) {
