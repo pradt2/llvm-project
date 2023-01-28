@@ -32,6 +32,29 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
       return nullptr;
   }
 
+  template<typename Attr>
+  const std::vector<const Attr*> getAttrs(Stmt *S) {
+      auto const *stmt = dyn_cast_or_null<AttributedStmt>(S);
+      if (!stmt) {
+        for (auto parent: CI.getASTContext().getParentMapContext().getParents(*S)) {
+          if (parent.getNodeKind().KindId != ASTNodeKind::NodeKindId::NKI_AttributedStmt) {
+            continue;
+          }
+          auto *genericStmt = parent.get<Stmt>();
+          if (!llvm::isa<AttributedStmt>(genericStmt)) continue;
+          stmt = llvm::cast<AttributedStmt>(genericStmt);
+          break;
+        }
+      }
+      std::vector<const Attr*> attrs;
+      if (!stmt) return attrs;
+      for (auto *attr : stmt->getAttrs()) {
+        if (!llvm::isa<Attr>(attr)) continue;
+        attrs.push_back(llvm::cast<Attr>(attr));
+      }
+      return attrs;
+  }
+
   FunctionDecl *getLoopParentFunctionDecl(Stmt *S) {
     DynTypedNode node = DynTypedNode::create(*S);
     while (true) {
@@ -191,111 +214,340 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
     return fieldsDecls;
   }
 
-  FieldDecl *getNestedFieldDecl(RecordDecl *decl, llvm::StringRef fieldPath) {
-    auto *fieldDecl = resolveFieldDecl(decl, fieldPath).back();
-    return fieldDecl;
-  }
+  QualType getTypeOfExpr(RecordDecl *decl, llvm::StringRef path) {
 
-  std::vector<FieldDecl *> getFieldsForSoa(RecordDecl *decl, llvm::StringRef *fields, unsigned int fieldsCount) {
-    std::vector<FieldDecl *> foundFields;
-    for (unsigned int i = 0; i < fieldsCount; i++) {
-      auto *newField = getNestedFieldDecl(decl, fields[i]);
-      foundFields.push_back(newField);
+    std::vector<std::string> fragments = splitString(path, ".");
+    for (size_t i = 0; i < fragments.size(); i++) {
+      auto fragment = fragments[i];
+
+      QualType itemType;
+
+      if (llvm::StringRef(fragment).endswith("()")) {
+        // it's a method call
+
+        auto methodName = fragment;
+        methodName.pop_back();
+        methodName.pop_back(); // remove the '()'
+
+        if (!llvm::isa<CXXRecordDecl>(decl)) {
+          // method call on a declaration that cannot have methods
+          llvm::errs() << __FILE__ << ":" << __LINE__ << " Method call on a declaration type that does not allow methods";
+          exit(1);
+        }
+
+        auto *cxxRecordDecl = llvm::cast<CXXRecordDecl>(decl);
+
+        CXXMethodDecl *methodDecl = nullptr;
+        for (auto *method : cxxRecordDecl->methods()) {
+          if (method->getNameAsString() != methodName) continue; // TODO what about inherited methods?
+          methodDecl = method; // TODO what about overloads?
+          break;
+        }
+
+        if (methodDecl == nullptr) {
+          llvm::errs() << __FILE__ << ":" << __LINE__ << " Could not find method: " << methodName;
+          exit(1);
+        }
+
+        itemType = methodDecl->getType();
+      } else {
+        // it's a field
+
+        FieldDecl *fieldDecl = nullptr;
+        for (auto *field : decl->fields()) {
+          if (field->getNameAsString() != fragment) continue ;
+          fieldDecl = field;
+          break ;
+        }
+
+        if (fieldDecl == nullptr) {
+          llvm::errs() << __FILE__ << ":" << __LINE__ << " Could not find field: " << fragment;
+          exit(1);
+        }
+
+        itemType = fieldDecl->getType();
+      }
+
+      // if this is the last item (no more .field or .method() accesses, then return it)
+      if (i == fragments.size() - 1) return itemType;
+
+      // it isn't the last item, so it must be RecordDecl to have fields or methods
+      if (!itemType->isRecordType()) {
+        llvm::errs() << __FILE__ << ":" << __LINE__ << " Type of " << fragment << " is not a RecordType";
+        exit(1);
+      }
+
+      decl = itemType->getAsRecordDecl();
     }
-    return foundFields;
+
+    llvm::errs() << __FILE__ << ":" << __LINE__ << " Cannot determine expression type";
+    exit(1);
   }
 
-  std::string getSoaDef(llvm::StringRef targetRef, std::vector<FieldDecl *> fromFieldDecls, llvm::StringRef size) {
+  struct SoaField {
+    std::string name;
+    QualType type;
+    llvm::StringRef inputAccessPath;
+    llvm::StringRef outputAccessPath;
+  };
+
+  std::vector<SoaField> getFieldsForSoa(RecordDecl *decl, std::vector<const SoaConversionDataItemAttr*> conversionDataAttrs) {
+    std::vector<SoaField> fields;
+
+    int i = 0;
+    for (auto *item : conversionDataAttrs) {
+
+      auto type = getTypeOfExpr(decl, item->getInput());
+      std::string name = "_" + std::to_string(i);
+
+      fields.push_back({
+          name,
+          type,
+          item->getInput(),
+          item->getOutput()
+      });
+
+      i++;
+    }
+    return fields;
+  }
+
+  std::string getSoaDef(llvm::StringRef targetRef, std::vector<SoaField> soaFields, llvm::StringRef size, ASTContext &Ctx) {
     std::string instanceName = targetRef.str() + "__SoA__instance";
     std::string sourceCode = "struct " + targetRef.str() + "__SoA {\n";
-    for (auto *field : fromFieldDecls) {
-      auto type = toSource(*fromQualType(field->getType(), field->getASTContext()));
-      auto name = field->getNameAsString();
-      sourceCode += "    " + type + " * " + "(" + name + ");\n";
+    for (auto field : soaFields) {
+      auto type = toSource(*fromQualType(field.type, Ctx));
+      sourceCode += "    " + type + " * " + "(" + field.name + ");\n";
     }
     sourceCode += "\n} " + instanceName + ";\n\n";
 
-    for (auto *field : fromFieldDecls) {
-      auto type = toSource(*fromQualType(field->getType(), field->getASTContext()));
-      auto name = field->getNameAsString();
-      sourceCode += instanceName + "." + name + " = new " + type + "[" + size.str() + "];\n";
+    for (auto field : soaFields) {
+      auto type = toSource(*fromQualType(field.type, Ctx));
+      sourceCode += instanceName + "." + field.name + " = new " + type + "[" + size.str() + "];\n";
     }
 
     return sourceCode;
   }
 
-  std::string buildReadAccess(llvm::StringRef targetRef, QualType type, std::string idx, llvm::StringRef fieldPath) {
-    std::string source = getAccessToType(type, targetRef.str()) + "[" + idx + "].";
+  std::string buildReadAccess(llvm::StringRef targetRef, QualType type, std::string idx, llvm::StringRef accessPath) {
+    // always ends in such a way that it's accessible via the '.' syntax
+    // i.e. all pointers are always dereferenced
+    auto source = targetRef.str() + "[" + idx + "]";
 
-    std::vector<FieldDecl*> fieldDecls = resolveFieldDecl(getMostLikelyIterableType(type)->getAsRecordDecl(), fieldPath);
-    for (unsigned long i = 0; i < fieldDecls.size() - 1; i++) {
-      source = getAccessToType(fieldDecls[i]->getType(), source + fieldDecls[i]->getNameAsString()) + ".";
-    }
-
-    source += fieldDecls[fieldDecls.size() - 1]->getNameAsString();
-
-    return source;
+    return buildReadAccess(llvm::StringRef(source), type, accessPath);
   }
 
-  std::string buildReadAccess(llvm::StringRef targetRef, QualType type, llvm::StringRef fieldPath) {
-    std::string source = getAccessToType(type, targetRef.str()) + ".";
+  std::string buildReadAccess(llvm::StringRef targetRef, QualType type, llvm::StringRef accessPath) {
+    std::string source = targetRef.str();
 
-    std::vector<FieldDecl*> fieldDecls = resolveFieldDecl(getMostLikelyIterableType(type)->getAsRecordDecl(), fieldPath);
-    for (unsigned long i = 0; i < fieldDecls.size() - 1; i++) {
-      source = getAccessToType(fieldDecls[i]->getType(), source + fieldDecls[i]->getNameAsString()) + ".";
+    auto *decl = getMostLikelyIterableType(type)->getAsRecordDecl();
+
+    std::vector<std::string> fragments = splitString(accessPath, ".");
+    for (size_t i = 0; i < fragments.size(); i++) {
+      auto fragment = fragments[i];
+
+      QualType itemType;
+
+      if (llvm::StringRef(fragment).endswith("()")) {
+        // it's a method call
+
+        auto methodName = fragment;
+        methodName.pop_back();
+        methodName.pop_back(); // remove the '()'
+
+        if (!llvm::isa<CXXRecordDecl>(decl)) {
+          // method call on a declaration that cannot have methods
+          llvm::errs() << __FILE__ << ":" << __LINE__ << " Method call on a declaration type that does not allow methods";
+          exit(1);
+        }
+
+        auto *cxxRecordDecl = llvm::cast<CXXRecordDecl>(decl);
+
+        CXXMethodDecl *methodDecl = nullptr;
+        for (auto *method : cxxRecordDecl->methods()) {
+          if (method->getNameAsString() != methodName) continue; // TODO what about inherited methods?
+          methodDecl = method; // TODO what about overloads?
+          break;
+        }
+
+        if (methodDecl == nullptr) {
+          llvm::errs() << __FILE__ << ":" << __LINE__ << " Could not find method: " << methodName;
+          exit(1);
+        }
+
+        itemType = methodDecl->getType();
+        source += "." + fragment;
+        source = getAccessToType(itemType, source);
+
+      } else {
+        // it's a field
+
+        FieldDecl *fieldDecl = nullptr;
+        for (auto *field : decl->fields()) {
+          if (field->getNameAsString() != fragment) continue ;
+          fieldDecl = field;
+          break ;
+        }
+
+        if (fieldDecl == nullptr) {
+          llvm::errs() << __FILE__ << ":" << __LINE__ << " Could not find field: " << fragment;
+          exit(1);
+        }
+
+        itemType = fieldDecl->getType();
+        source += "." + fragment;
+        source = getAccessToType(itemType, source);
+      }
+
+      // if this is the last item (no more .field or .method() accesses, then return it)
+      if (i == fragments.size() - 1) return source;
+
+      // it isn't the last item, so it must be RecordDecl to have fields or methods
+      if (!itemType->isRecordType()) {
+        llvm::errs() << __FILE__ << ":" << __LINE__ << " Type of " << fragment << " is not a RecordType";
+        exit(1);
+      }
+
+      decl = itemType->getAsRecordDecl();
     }
 
-    source += fieldDecls[fieldDecls.size() - 1]->getNameAsString();
-
-    return source;
+    llvm::errs() << __FILE__ << ":" << __LINE__ << " Cannot determine expression type";
+    exit(1);
   }
 
-  std::string getSoaConversionForLoop(llvm::StringRef targetRef, QualType type, RecordDecl *decl, llvm::StringRef *fieldPaths, unsigned int fieldPathsCount, llvm::StringRef size) {
+  std::string buildWriteStmt(llvm::StringRef targetRef, QualType type, llvm::StringRef accessPath, std::string newValue) {
+    std::string source = targetRef.str();
+
+    auto *decl = getMostLikelyIterableType(type)->getAsRecordDecl();
+
+    std::vector<std::string> fragments = splitString(accessPath, ".");
+    for (size_t i = 0; i < fragments.size(); i++) {
+      auto fragment = fragments[i];
+
+      QualType itemType;
+
+      bool lastItemMethod = false;
+
+      if (llvm::StringRef(fragment).endswith("()")) {
+        // it's a method call
+
+        auto methodName = fragment;
+        methodName.pop_back();
+        methodName.pop_back(); // remove the '()'
+
+        if (!llvm::isa<CXXRecordDecl>(decl)) {
+          // method call on a declaration that cannot have methods
+          llvm::errs() << __FILE__ << ":" << __LINE__ << " Method call on a declaration type that does not allow methods";
+          exit(1);
+        }
+
+        auto *cxxRecordDecl = llvm::cast<CXXRecordDecl>(decl);
+
+        CXXMethodDecl *methodDecl = nullptr;
+        for (auto *method : cxxRecordDecl->methods()) {
+          if (method->getNameAsString() != methodName) continue; // TODO what about inherited methods?
+          methodDecl = method; // TODO what about overloads?
+          break;
+        }
+
+        if (methodDecl == nullptr) {
+          llvm::errs() << __FILE__ << ":" << __LINE__ << " Could not find method: " << methodName;
+          exit(1);
+        }
+
+        itemType = methodDecl->getType();
+        source += "." + fragment;
+        source = getAccessToType(itemType, source);
+        lastItemMethod = true;
+      } else {
+        // it's a field
+
+        FieldDecl *fieldDecl = nullptr;
+        for (auto *field : decl->fields()) {
+          if (field->getNameAsString() != fragment) continue ;
+          fieldDecl = field;
+          break ;
+        }
+
+        if (fieldDecl == nullptr) {
+          llvm::errs() << __FILE__ << ":" << __LINE__ << " Could not find field: " << fragment;
+          exit(1);
+        }
+
+        itemType = fieldDecl->getType();
+        source += "." + fragment;
+        source = getAccessToType(itemType, source);
+        lastItemMethod = false;
+      }
+
+      // if this is the last item (no more .field or .method() accesses)
+      if (i == fragments.size() - 1) {
+        if (!lastItemMethod) return source + " = " + newValue + ";";
+
+        source.pop_back(); // remove ')'
+
+        return source + newValue + ");";
+      }
+
+      // it isn't the last item, so it must be RecordDecl to have fields or methods
+      if (!itemType->isRecordType()) {
+        llvm::errs() << __FILE__ << ":" << __LINE__ << " Type of " << fragment << " is not a RecordType";
+        exit(1);
+      }
+
+      decl = itemType->getAsRecordDecl();
+    }
+
+    llvm::errs() << __FILE__ << ":" << __LINE__ << " Cannot determine expression type";
+    exit(1);
+  }
+
+  std::string getSoaConversionForLoop(llvm::StringRef targetRef, QualType type, std::vector<SoaField> soaFields, llvm::StringRef size) {
     std::string soaName = targetRef.str() + "__SoA__instance";
     std::string idxName = targetRef.str() + "__SoA__instance__iter";
     std::string sourceCode = "for (int " + idxName + " = 0; " + idxName + " < " + size.str() + "; " + idxName + "++) {\n";
-    for (unsigned int i = 0; i < fieldPathsCount; i++) {
-      std::string fieldName = getNestedFieldDecl(decl, fieldPaths[i])->getNameAsString();
-      sourceCode += soaName + "." + fieldName + "[" + idxName + "] = " + buildReadAccess(targetRef, type, idxName, fieldPaths[i]) + ";\n";
+    for (auto field: soaFields) {
+      std::string fieldName = field.name;
+      sourceCode += soaName + "." + fieldName + "[" + idxName + "] = " + buildReadAccess(targetRef, type, idxName, field.inputAccessPath) + ";\n";
     }
     sourceCode += "}\n";
     return sourceCode;
   }
 
-  std::string getSoaConversionForRangeLoop(llvm::StringRef targetRef, QualType type, RecordDecl *decl, llvm::StringRef *fieldPaths, unsigned int fieldPathsCount, llvm::StringRef size) {
+  std::string getSoaConversionForRangeLoop(llvm::StringRef targetRef, QualType type, std::vector<SoaField> soaFields) {
     std::string soaName = targetRef.str() + "__SoA__instance";
     std::string idxName = targetRef.str() + "__SoA__instance__iter";
     std::string sourceCode = "{ unsigned int " + idxName + " = 0;\n";
     sourceCode += "for (auto &element : " + targetRef.str() + ") {\n";
-    for (unsigned int i = 0; i < fieldPathsCount; i++) {
-      std::string fieldName = getNestedFieldDecl(decl, fieldPaths[i])->getNameAsString();
-      sourceCode += soaName + "." + fieldName + "[" + idxName + "] = " + buildReadAccess("element", type, fieldPaths[i]) + ";\n";
+    for (auto field: soaFields) {
+      std::string fieldName = field.name;
+      sourceCode += soaName + "." + fieldName + "[" + idxName + "] = " + buildReadAccess("element", type, field.inputAccessPath) + ";\n";
     }
     sourceCode += idxName + "++;\n";
     sourceCode += "} }\n";
     return sourceCode;
   }
 
-  std::string getSoaUnconversionForLoop(llvm::StringRef targetRef, QualType type, RecordDecl *decl, llvm::StringRef *fieldPaths, unsigned int fieldPathsCount, llvm::StringRef size) {
+  std::string getSoaUnconversionForLoop(llvm::StringRef targetRef, QualType type, std::vector<SoaField> soaFields, llvm::StringRef size) {
     std::string soaName = targetRef.str() + "__SoA__instance";
     std::string idxName = targetRef.str() + "__SoA__instance__iter";
     std::string sourceCode = "for (int " + idxName + " = 0; " + idxName + " < " + size.str() + "; " + idxName + "++) {\n";
-    for (unsigned int i = 0; i < fieldPathsCount; i++) {
-      std::string fieldName = getNestedFieldDecl(decl, fieldPaths[i])->getNameAsString();
-      sourceCode += buildReadAccess(targetRef, type, idxName, fieldPaths[i]) + " = " + soaName + "." + fieldName + "[" + idxName + "];\n";
+    for (auto field: soaFields) {
+      std::string fieldName = field.name;
+      sourceCode = buildWriteStmt(targetRef, type, field., soaName + "." + fieldName + "[" + idxName + "]") + "\n";
     }
     sourceCode += "}\n";
     return sourceCode;
   }
 
-  std::string getSoaUnconversionForRangeLoop(llvm::StringRef targetRef, QualType type, RecordDecl *decl, llvm::StringRef *fieldPaths, unsigned int fieldPathsCount, llvm::StringRef size) {
+  std::string getSoaUnconversionForRangeLoop(llvm::StringRef targetRef, QualType type, std::vector<std::tuple<QualType, std::string>> typesNames, llvm::StringRef *accessPaths, unsigned int accessPathsCount, llvm::StringRef size) {
     std::string soaName = targetRef.str() + "__SoA__instance";
     std::string idxName = targetRef.str() + "__SoA__instance__iter";
     std::string sourceCode = "{ unsigned int " + idxName + " = 0;\n";
     sourceCode += "for (auto &element : " + targetRef.str() + ") {\n";
-    for (unsigned int i = 0; i < fieldPathsCount; i++) {
-      std::string fieldName = getNestedFieldDecl(decl, fieldPaths[i])->getNameAsString();
-      sourceCode += buildReadAccess("element", type, fieldPaths[i]) + " = " + soaName + "." + fieldName + "[" + idxName + "];\n";
+    for (unsigned int i = 0; i < accessPathsCount; i++) {
+      std::string fieldName = std::get<std::string>(typesNames[i]);
+      sourceCode += buildWriteStmt("element", type, accessPaths[i], soaName + "." + fieldName + "[" + idxName + "]") + "\n";
     }
     sourceCode += idxName + "++;\n";
     sourceCode += "} }\n";
@@ -361,19 +613,20 @@ public:
   SoaConversionASTConsumer(CompilerInstance &CI) : CI(CI), R(CI.getSourceManager().getRewriter()) {}
 
   bool VisitForStmt(ForStmt *S) {
-    const SoaConversionInputsAttr *conversionInputsAttr = getAttr<SoaConversionInputsAttr>(S);
-    const SoaConversionOutputsAttr *conversionOutputsAttr = getAttr<SoaConversionOutputsAttr>(S);
+    const std::vector<const SoaConversionDataItemAttr*> conversionDataAttrs = getAttrs<SoaConversionDataItemAttr>(S);
     const SoaConversionTargetAttr *conversionTargetAttr = getAttr<SoaConversionTargetAttr>(S);
     const SoaConversionTargetSizeAttr *conversionTargetSizeAttr = getAttr<SoaConversionTargetSizeAttr>(S);
 
-    if (!conversionInputsAttr || !conversionOutputsAttr || !conversionTargetAttr || !conversionTargetSizeAttr) return true;
+    if (conversionDataAttrs.empty() || !conversionTargetAttr || !conversionTargetSizeAttr) return true;
 
     FunctionDecl *loopParent = getLoopParentFunctionDecl(S);
     auto *targetDeclRef = getTargetDeclRefExpr(conversionTargetAttr->getTargetRef(), loopParent);
     RecordDecl *targetRecordDecl = getTargetRecordDecl(targetDeclRef, loopParent);
-    std::vector<FieldDecl*> soaFields = getFieldsForSoa(targetRecordDecl, conversionInputsAttr->inputFields_begin(), conversionInputsAttr->inputFields_size());
+    std::vector<std::tuple<QualType, std::string>> soaFields = getFieldsForSoa(targetRecordDecl, conversionDataAttrs);
 
-    std::string soaDef = getSoaDef(conversionTargetAttr->getTargetRef(), soaFields, conversionTargetSizeAttr->getTargetSizeExpr());
+    ASTContext &Ctx = loopParent->getASTContext();
+
+    std::string soaDef = getSoaDef(conversionTargetAttr->getTargetRef(), soaFields, conversionTargetSizeAttr->getTargetSizeExpr(), Ctx);
     std::string soaConv = getSoaConversionForLoop(
         conversionTargetAttr->getTargetRef(), targetDeclRef->getType(), targetRecordDecl,
         conversionInputsAttr->inputFields_begin(), conversionInputsAttr->inputFields_size(),
