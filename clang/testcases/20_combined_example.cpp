@@ -1,3 +1,5 @@
+#include <vector>
+
 struct Struct {
   bool a;
   bool b;
@@ -17,16 +19,13 @@ struct Struct {
 
 int main() {
 
-  Struct *aTable = nullptr;
+  auto vector = std::vector<Struct*>();
 
-  int size = 10;
-
-  [[clang::soa_conversion_target(aTable)]]
-  [[clang::soa_conversion_target_size(size)]]
+  [[clang::soa_conversion_target_size(vector.size())]]
   [[clang::soa_conversion_data_item("getA()", "")]]
   [[clang::soa_conversion_data_item("getB()", "setB()")]]
-  for (int i = 0; i < size; i++) {
-    aTable[i].setB(aTable[i].getA() | aTable[i].getB());
+  for (auto item : vector) {
+    item->setB(item->getA() | item->getB());
   }
 
 }
