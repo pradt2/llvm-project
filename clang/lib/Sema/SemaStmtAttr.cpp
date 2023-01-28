@@ -327,26 +327,19 @@ static Attr *handleUnlikely(Sema &S, Stmt *St, const ParsedAttr &A,
   return ::new (S.Context) UnlikelyAttr(S.Context, A);
 }
 
-static Attr *handleSoaConversionInputs(Sema &S, Stmt *St, const ParsedAttr &A,
-                                       SourceRange Range) {
+static Attr *handleSoaConversionDataItem(Sema &S, Stmt *St, const ParsedAttr &A,
+                                         SourceRange Range) {
   auto argsSize = A.getNumArgs();
-  auto *fieldArgs = ::new (S.Context) llvm::StringRef[argsSize];
-  for (unsigned int i = 0; i < argsSize; i++) {
-    fieldArgs[i] = llvm::cast<StringLiteral>(A.getArgAsExpr(0))->getString();
+
+  if (argsSize < 1 || argsSize > 2) {
+    llvm::errs() << "Attribute should have 1 or 2 args";
+    exit(1);
   }
 
-  return ::new (S.Context) SoaConversionInputsAttr(S.Context, A, fieldArgs, argsSize);
-}
+  auto input = llvm::cast<StringLiteral>(A.getArgAsExpr(0))->getString();
+  auto output = argsSize > 1 ? llvm::cast<StringLiteral>(A.getArgAsExpr(1))->getString() : llvm::StringRef("");
 
-static Attr *handleSoaConversionOutputs(Sema &S, Stmt *St, const ParsedAttr &A,
-                                        SourceRange Range) {
-  auto argsSize = A.getNumArgs();
-  auto *fieldArgs = ::new (S.Context) llvm::StringRef[argsSize];
-  for (unsigned int i = 0; i < argsSize; i++) {
-    fieldArgs[i] = llvm::cast<StringLiteral>(A.getArgAsExpr(0))->getString();
-  }
-
-  return ::new (S.Context) SoaConversionOutputsAttr(S.Context, A, fieldArgs, argsSize);
+  return ::new (S.Context) SoaConversionDataItemAttr(S.Context, A, input, output);
 }
 
 static Attr *handleSoaConversionTarget(Sema &S, Stmt *St, const ParsedAttr &A,
@@ -669,10 +662,8 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &A,
     return handleLikely(S, St, A, Range);
   case ParsedAttr::AT_Unlikely:
     return handleUnlikely(S, St, A, Range);
-  case ParsedAttr::AT_SoaConversionInputs:
-    return handleSoaConversionInputs(S, St, A, Range);
-  case ParsedAttr::AT_SoaConversionOutputs:
-    return handleSoaConversionOutputs(S, St, A, Range);
+  case ParsedAttr::AT_SoaConversionDataItem:
+    return handleSoaConversionDataItem(S, St, A, Range);
   case ParsedAttr::AT_SoaConversionTarget:
     return handleSoaConversionTarget(S, St, A, Range);
   case ParsedAttr::AT_SoaConversionTargetSize:
