@@ -1,37 +1,25 @@
-//#include <functional>
-#include <unordered_set>
+struct Struct {
+  bool a;
 
-namespace swift2 { namespace kernels {
-template <typename ParticleXX, typename ParticleContainer>
-void genericInteraction(
-    ParticleContainer &localParticles,
-    ParticleContainer &activeParticles);
-} }
+  bool getA() { return a; }
 
-class Particle {
-  [[clang::pack]] bool a;
+  void setA(bool val) {
+    a = val;
+  }
 };
 
-template <typename ParticleXX, typename ParticleContainer>
-void swift2::kernels::genericInteraction(
-    ParticleContainer&  localParticles,
-    ParticleContainer&  activeParticles
-) {
-  for (auto localParticle: localParticles ) {
-      for (auto activeParticle: activeParticles ) {
-
-      }
-  }
-}
-
-
-
 int main() {
-  std::unordered_set<Particle*> localParticles;
-  std::unordered_set<Particle*> activeParticles;
 
-  swift2::kernels::genericInteraction<Particle>(
-      localParticles, activeParticles
-      );
+  Struct *aTable = nullptr;
+
+  int size = 10;
+
+  [[clang::soa_conversion_target(aTable)]]
+  [[clang::soa_conversion_target_size(size)]]
+  [[clang::soa_conversion_inputs("getA()")]]
+  [[clang::soa_conversion_outputs("setA($val)")]]
+  for (int i = 0; i < size; i++) {
+    aTable[i].setA( ! aTable->getA() );
+  }
 
 }
