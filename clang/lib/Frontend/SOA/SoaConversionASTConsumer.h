@@ -560,11 +560,13 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
   std::string getSoaConversionForRangeLoop(llvm::StringRef targetRef, QualType type, std::vector<SoaField> soaFields) {
     std::string soaName = targetRef.str() + "__SoA__instance";
     std::string idxName = targetRef.str() + "__SoA__instance__iter";
+    std::string elementDerefAccessor = getAccessToType(type, "element");
+
     std::string sourceCode = "{ unsigned int " + idxName + " = 0;\n";
-    sourceCode += "for (auto &element : " + targetRef.str() + ") {\n";
+    sourceCode += "for (auto element : " + targetRef.str() + ") {\n";
     for (auto field: soaFields) {
       std::string fieldName = field.name;
-      sourceCode += soaName + "." + fieldName + "[" + idxName + "] = " + buildReadAccess("element", type, field.inputAccessPath) + ";\n";
+      sourceCode += soaName + "." + fieldName + "[" + idxName + "] = " + buildReadAccess(elementDerefAccessor, type, field.inputAccessPath) + ";\n";
     }
     sourceCode += idxName + "++;\n";
     sourceCode += "} }\n";
@@ -587,12 +589,14 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
   std::string getSoaUnconversionForRangeLoop(llvm::StringRef targetRef, QualType type, std::vector<SoaField> soaFields, llvm::StringRef size) {
     std::string soaName = targetRef.str() + "__SoA__instance";
     std::string idxName = targetRef.str() + "__SoA__instance__iter";
+    std::string elementDerefAccessor = getAccessToType(type, "element");
+
     std::string sourceCode = "{ unsigned int " + idxName + " = 0;\n";
-    sourceCode += "for (auto &element : " + targetRef.str() + ") {\n";
+    sourceCode += "for (auto element : " + targetRef.str() + ") {\n";
     for (auto field: soaFields) {
       if (field.outputAccessPath.empty()) continue ; // skip copying fields that are supposed to be read only
       std::string fieldName = field.name;
-      sourceCode += buildWriteStmt("element", type, field.outputAccessPath, soaName + "." + fieldName + "[" + idxName + "]") + "\n";
+      sourceCode += buildWriteStmt(elementDerefAccessor, type, field.outputAccessPath, soaName + "." + fieldName + "[" + idxName + "]") + "\n";
     }
     sourceCode += idxName + "++;\n";
     sourceCode += "} }\n";
@@ -783,10 +787,37 @@ public:
     SourceRange newForLoop(S->getSourceRange().getBegin(), S->getBody()->getBeginLoc().getLocWithOffset(-1));
     R.ReplaceText(newForLoop, "for (unsigned int " + forLoopIdx + " = 0; " + forLoopIdx + " < " + conversionTargetSizeAttr->getTargetSizeExpr().str() + "; " + forLoopIdx + "++)");
 
-    MemberExprRewriter rewriter(R);
-    for (unsigned long i = 0; i < soaFields.size(); i++) {
-      std::string replacement = targetRef.str() + "__SoA__instance" + "." + soaFields[i].name + "[" + forLoopIdx + "]" ;
-//      rewriter.replaceMemberExprs(soaFields[i], replacement, S); TODO uncomment!!!
+    MemberExprRewriter fieldAccessRewriter(R);
+    CXXMemberCallExprRewriter methodCallAccessRewriter(R);
+
+    for (auto field: soaFields) {
+      std::string replacement = targetRefStr + "__SoA__instance" + "." + field.name + "[" + forLoopIdx + "]" ;
+
+      auto *accessDecl = field.inputAccessDecl;
+      if (llvm::isa<FieldDecl>(accessDecl)) {
+        fieldAccessRewriter.replaceMemberExprs(llvm::cast<FieldDecl>(accessDecl), replacement, S);
+      } else if (llvm::isa<CXXMethodDecl>(accessDecl)) {
+        methodCallAccessRewriter.replaceMemberExprs(llvm::cast<CXXMethodDecl>(accessDecl), replacement, S);
+      } else {
+        llvm::errs() << __FILE__ << __LINE__ << "Access decl is neither a FieldDecl nor a CXXMethodDecl";
+        exit(1);
+      }
+
+      if (field.inputAccessDecl == field.outputAccessDecl || field.outputAccessDecl == nullptr) {
+        // avoid doing the rewrite twice
+        continue ;
+      }
+
+      accessDecl = field.outputAccessDecl;
+      if (llvm::isa<FieldDecl>(accessDecl)) {
+        fieldAccessRewriter.replaceMemberExprs(llvm::cast<FieldDecl>(accessDecl), replacement, S);
+      } else if (llvm::isa<CXXMethodDecl>(accessDecl)) {
+        methodCallAccessRewriter.replaceMemberExprs(llvm::cast<CXXMethodDecl>(accessDecl), replacement, S);
+      } else {
+        llvm::errs() << __FILE__ << __LINE__ << "Access decl is neither a FieldDecl nor a CXXMethodDecl";
+        exit(1);
+      }
+
     }
     return true;
   }
