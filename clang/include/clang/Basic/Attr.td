@@ -929,17 +929,9 @@ def CompressionMethod : InheritableParamAttr {
     let Documentation = [Undocumented];
 }
 
-def SoaConversionInputs : StmtAttr {
-    let Spellings = [Clang<"soa_conversion_inputs">];
-    let Args = [VariadicStringArgument<"InputFields">];
-    let Subjects = SubjectList<[ForStmt, CXXForRangeStmt],
-                                ErrorDiag, "'for' statements">;
-    let Documentation = [Undocumented];
-}
-
-def SoaConversionOutputs : StmtAttr {
-    let Spellings = [Clang<"soa_conversion_outputs">];
-    let Args = [VariadicStringArgument<"OutputFields">];
+def SoaConversionDataItem : StmtAttr {
+    let Spellings = [Clang<"soa_conversion_input">];
+    let Args = [StringArgument<"Input">, StringArgument<"Output">];
     let Subjects = SubjectList<[ForStmt, CXXForRangeStmt],
                                 ErrorDiag, "'for' statements">;
     let Documentation = [Undocumented];
