@@ -214,13 +214,14 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
     return fieldsDecls;
   }
 
-  QualType getTypeOfExpr(RecordDecl *decl, llvm::StringRef path) {
+  std::tuple<Decl*, QualType> getTypeOfExpr(RecordDecl *decl, llvm::StringRef path, bool isOutput = false) {
 
     std::vector<std::string> fragments = splitString(path, ".");
     for (size_t i = 0; i < fragments.size(); i++) {
       auto fragment = fragments[i];
 
       QualType itemType;
+      Decl *itemDecl = nullptr;
 
       if (llvm::StringRef(fragment).endswith("()")) {
         // it's a method call
@@ -249,7 +250,8 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
           exit(1);
         }
 
-        itemType = methodDecl->getType();
+        itemType = methodDecl->getReturnType();
+        itemDecl = methodDecl;
       } else {
         // it's a field
 
@@ -266,10 +268,26 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
         }
 
         itemType = fieldDecl->getType();
+        itemDecl = fieldDecl;
       }
 
       // if this is the last item (no more .field or .method() accesses, then return it)
-      if (i == fragments.size() - 1) return itemType;
+      if (i == fragments.size() - 1) {
+        if (llvm::isa<FieldDecl>(itemDecl) || !isOutput) return std::make_tuple(itemDecl, itemType);
+
+        // if it's output, and we have a method decl, then the type isn't the return type (that will always be void for setters I HOPE)
+        // but it is the type of the (only, I HOPE) argument that the setter method accepts
+
+        auto *methodDecl = llvm::cast<CXXMethodDecl>(itemDecl);
+        if (methodDecl->param_size() != 1) {
+          llvm::errs() << __LINE__ << ":" << __FILE__ << " Setter method accepts n != 1 arguments";
+          exit(1);
+        }
+
+        itemType = methodDecl->parameters()[0]->getType();
+
+        return std::make_tuple(itemDecl, itemType);
+      }
 
       // it isn't the last item, so it must be RecordDecl to have fields or methods
       if (!itemType->isRecordType()) {
@@ -289,25 +307,42 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
     QualType type;
     llvm::StringRef inputAccessPath;
     llvm::StringRef outputAccessPath;
+    Decl *inputAccessDecl;
+    Decl *outputAccessDecl;
   };
 
   std::vector<SoaField> getFieldsForSoa(RecordDecl *decl, std::vector<const SoaConversionDataItemAttr*> conversionDataAttrs) {
     std::vector<SoaField> fields;
 
-    int i = 0;
+    int i = -1;
     for (auto *item : conversionDataAttrs) {
+      i++; // it's better kept here so that I don't have to replicate it on every 'continue;'
 
-      auto type = getTypeOfExpr(decl, item->getInput());
-      std::string name = "_" + std::to_string(i);
+      auto soaField = SoaField();
+      soaField.name = "_" + std::to_string(i);
 
-      fields.push_back({
-          name,
-          type,
-          item->getInput(),
-          item->getOutput()
-      });
+      auto inputDeclType = getTypeOfExpr(decl, item->getInput());
+      soaField.inputAccessPath = item->getInput();
+      soaField.inputAccessDecl = std::get<Decl*>(inputDeclType);
+      soaField.type = std::get<QualType>(inputDeclType);
+      soaField.outputAccessPath = item->getOutput();
 
-      i++;
+      if (soaField.outputAccessPath.empty()) {
+        fields.push_back(soaField);
+        continue;
+      }
+
+      auto outputDeclType = getTypeOfExpr(decl, item->getOutput(), true);
+
+      if (std::get<QualType>(inputDeclType) != std::get<QualType>(outputDeclType)) {
+        // TODO what about inheritance?
+        llvm::errs() << __FILE__ << ":" << __LINE__ << "Input type and output type do not match up";
+        exit(1);
+      }
+
+      soaField.outputAccessDecl = std::get<Decl*>(outputDeclType);
+
+      fields.push_back(soaField);
     }
     return fields;
   }
@@ -375,7 +410,7 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
           exit(1);
         }
 
-        itemType = methodDecl->getType();
+        itemType = methodDecl->getReturnType();
         source += "." + fragment;
         source = getAccessToType(itemType, source);
 
@@ -413,6 +448,14 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
 
     llvm::errs() << __FILE__ << ":" << __LINE__ << " Cannot determine expression type";
     exit(1);
+  }
+
+  std::string buildWriteStmt(llvm::StringRef targetRef, QualType type, std::string idx, llvm::StringRef accessPath, std::string newValue) {
+    // always ends in such a way that it's accessible via the '.' syntax
+    // i.e. all pointers are always dereferenced
+    auto source = targetRef.str() + "[" + idx + "]";
+
+    return buildWriteStmt(llvm::StringRef(source), type, accessPath, newValue);
   }
 
   std::string buildWriteStmt(llvm::StringRef targetRef, QualType type, llvm::StringRef accessPath, std::string newValue) {
@@ -455,7 +498,7 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
           exit(1);
         }
 
-        itemType = methodDecl->getType();
+        itemType = methodDecl->getReturnType();
         source += "." + fragment;
         source = getAccessToType(itemType, source);
         lastItemMethod = true;
@@ -533,21 +576,23 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
     std::string idxName = targetRef.str() + "__SoA__instance__iter";
     std::string sourceCode = "for (int " + idxName + " = 0; " + idxName + " < " + size.str() + "; " + idxName + "++) {\n";
     for (auto field: soaFields) {
+      if (field.outputAccessPath.empty()) continue ; // skip copying fields that are supposed to be read only
       std::string fieldName = field.name;
-      sourceCode = buildWriteStmt(targetRef, type, field., soaName + "." + fieldName + "[" + idxName + "]") + "\n";
+      sourceCode += buildWriteStmt(targetRef, type, idxName, field.outputAccessPath, soaName + "." + fieldName + "[" + idxName + "]") + "\n";
     }
     sourceCode += "}\n";
     return sourceCode;
   }
 
-  std::string getSoaUnconversionForRangeLoop(llvm::StringRef targetRef, QualType type, std::vector<std::tuple<QualType, std::string>> typesNames, llvm::StringRef *accessPaths, unsigned int accessPathsCount, llvm::StringRef size) {
+  std::string getSoaUnconversionForRangeLoop(llvm::StringRef targetRef, QualType type, std::vector<SoaField> soaFields, llvm::StringRef size) {
     std::string soaName = targetRef.str() + "__SoA__instance";
     std::string idxName = targetRef.str() + "__SoA__instance__iter";
     std::string sourceCode = "{ unsigned int " + idxName + " = 0;\n";
     sourceCode += "for (auto &element : " + targetRef.str() + ") {\n";
-    for (unsigned int i = 0; i < accessPathsCount; i++) {
-      std::string fieldName = std::get<std::string>(typesNames[i]);
-      sourceCode += buildWriteStmt("element", type, accessPaths[i], soaName + "." + fieldName + "[" + idxName + "]") + "\n";
+    for (auto field: soaFields) {
+      if (field.outputAccessPath.empty()) continue ; // skip copying fields that are supposed to be read only
+      std::string fieldName = field.name;
+      sourceCode += buildWriteStmt("element", type, field.outputAccessPath, soaName + "." + fieldName + "[" + idxName + "]") + "\n";
     }
     sourceCode += idxName + "++;\n";
     sourceCode += "} }\n";
@@ -577,6 +622,47 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
       SourceLocation start = E->getBeginLoc();
       SourceLocation end = E->getEndLoc();
       R.ReplaceText(SourceRange(start, end), replacementExpr);
+      return true;
+    }
+
+  };
+
+  class CXXMemberCallExprRewriter : public ASTConsumer, public RecursiveASTVisitor<CXXMemberCallExprRewriter> {
+
+    CXXMethodDecl *decl;
+    std::string replacementExpr;
+
+    Rewriter &R;
+
+  public:
+
+    CXXMemberCallExprRewriter(Rewriter &R) : R(R) {}
+
+    void replaceMemberExprs(CXXMethodDecl *fDecl, std::string replacement, Stmt *context) {
+      this->decl = fDecl;
+      this->replacementExpr = replacement;
+      this->TraverseStmt(context);
+    }
+
+    bool VisitCXXMemberCallExpr(CXXMemberCallExpr *E) {
+      ValueDecl *valueDecl = E->getMethodDecl();
+      if (valueDecl != decl) return true;
+
+      if (decl->param_empty()) {
+        // no arguments, we can replace the entire call expr (so incl. '()')
+        // also, this style is only for getting data (not setting), so no '=' handling is necessary
+        SourceLocation start = E->getBeginLoc();
+        SourceLocation end = E->getEndLoc();
+        R.ReplaceText(SourceRange(start, end), replacementExpr);
+        return true;
+      }
+
+      // we try to preserve arguments here since the method is likely a setter
+      SourceLocation start = E->getBeginLoc();
+      SourceLocation end = E->getExprLoc().getLocWithOffset(decl->getName().size()).getLocWithOffset(-1); // preserve '('
+
+      R.ReplaceText(SourceRange(start, end), replacementExpr + " = ");
+
       return true;
     }
 
@@ -622,56 +708,74 @@ public:
     FunctionDecl *loopParent = getLoopParentFunctionDecl(S);
     auto *targetDeclRef = getTargetDeclRefExpr(conversionTargetAttr->getTargetRef(), loopParent);
     RecordDecl *targetRecordDecl = getTargetRecordDecl(targetDeclRef, loopParent);
-    std::vector<std::tuple<QualType, std::string>> soaFields = getFieldsForSoa(targetRecordDecl, conversionDataAttrs);
+    std::vector<SoaField> soaFields = getFieldsForSoa(targetRecordDecl, conversionDataAttrs);
 
     ASTContext &Ctx = loopParent->getASTContext();
 
     std::string soaDef = getSoaDef(conversionTargetAttr->getTargetRef(), soaFields, conversionTargetSizeAttr->getTargetSizeExpr(), Ctx);
-    std::string soaConv = getSoaConversionForLoop(
-        conversionTargetAttr->getTargetRef(), targetDeclRef->getType(), targetRecordDecl,
-        conversionInputsAttr->inputFields_begin(), conversionInputsAttr->inputFields_size(),
-        conversionTargetSizeAttr->getTargetSizeExpr());
+    std::string soaConv = getSoaConversionForLoop(conversionTargetAttr->getTargetRef(), targetDeclRef->getType(),
+                                                  soaFields, conversionTargetSizeAttr->getTargetSizeExpr());
     writeBeforeForStmt(S, soaDef + "\n" + soaConv + "\n");
 
-    std::string soaUnconv = getSoaUnconversionForLoop(
-        conversionTargetAttr->getTargetRef(), targetDeclRef->getType(), targetRecordDecl,
-        conversionOutputsAttr->outputFields_begin(), conversionOutputsAttr->outputFields_size(),
-        conversionTargetSizeAttr->getTargetSizeExpr());
+    std::string soaUnconv = getSoaUnconversionForLoop(conversionTargetAttr->getTargetRef(), targetDeclRef->getType(),
+                                                      soaFields, conversionTargetSizeAttr->getTargetSizeExpr());
     writeAfterStmt(S, "\n" + soaUnconv);
 
-    MemberExprRewriter rewriter(R);
+    MemberExprRewriter fieldAccessRewriter(R);
+    CXXMemberCallExprRewriter methodCallAccessRewriter(R);
+
     std::string forLoopIdx = getForStmtIdx(S);
-    for (unsigned long i = 0; i < soaFields.size(); i++) {
-      std::string replacement = conversionTargetAttr->getTargetRef().str() + "__SoA__instance" + "." + soaFields[i]->getNameAsString() + "[" + forLoopIdx + "]" ;
-      rewriter.replaceMemberExprs(soaFields[i], replacement, S);
+    for (auto field: soaFields) {
+      std::string replacement = conversionTargetAttr->getTargetRef().str() + "__SoA__instance" + "." + field.name + "[" + forLoopIdx + "]" ;
+
+      auto *accessDecl = field.inputAccessDecl;
+      if (llvm::isa<FieldDecl>(accessDecl)) {
+        fieldAccessRewriter.replaceMemberExprs(llvm::cast<FieldDecl>(accessDecl), replacement, S);
+      } else if (llvm::isa<CXXMethodDecl>(accessDecl)) {
+        methodCallAccessRewriter.replaceMemberExprs(llvm::cast<CXXMethodDecl>(accessDecl), replacement, S);
+      } else {
+        llvm::errs() << __FILE__ << __LINE__ << "Access decl is neither a FieldDecl nor a CXXMethodDecl";
+        exit(1);
+      }
+
+      if (field.inputAccessDecl == field.outputAccessDecl || field.outputAccessDecl == nullptr) {
+        // avoid doing the rewrite twice
+        continue ;
+      }
+
+      accessDecl = field.outputAccessDecl;
+      if (llvm::isa<FieldDecl>(accessDecl)) {
+        fieldAccessRewriter.replaceMemberExprs(llvm::cast<FieldDecl>(accessDecl), replacement, S);
+      } else if (llvm::isa<CXXMethodDecl>(accessDecl)) {
+        methodCallAccessRewriter.replaceMemberExprs(llvm::cast<CXXMethodDecl>(accessDecl), replacement, S);
+      } else {
+        llvm::errs() << __FILE__ << __LINE__ << "Access decl is neither a FieldDecl nor a CXXMethodDecl";
+        exit(1);
+      }
+
     }
     return true;
   }
 
   bool VisitCXXForRangeStmt(CXXForRangeStmt *S) {
-    const SoaConversionInputsAttr *conversionInputsAttr = getAttr<SoaConversionInputsAttr>(S);
-    const SoaConversionOutputsAttr *conversionOutputsAttr = getAttr<SoaConversionOutputsAttr>(S);
+    const std::vector<const SoaConversionDataItemAttr*> conversionDataAttrs = getAttrs<SoaConversionDataItemAttr>(S);
     const SoaConversionTargetSizeAttr *conversionTargetSizeAttr = getAttr<SoaConversionTargetSizeAttr>(S);
 
-    if (!conversionInputsAttr || !conversionOutputsAttr || !conversionTargetSizeAttr) return true;
+    if (conversionDataAttrs.empty() || !conversionTargetSizeAttr) return true;
 
     std::string targetRefStr = R.getRewrittenText(S->getRangeInit()->getSourceRange());
     llvm::StringRef targetRef = llvm::StringRef(targetRefStr);
 
     RecordDecl *targetRecordDecl = getMostLikelyIterableType(S->getLoopVariable()->getType())->getAsRecordDecl();
-    std::vector<FieldDecl*> soaFields = getFieldsForSoa(targetRecordDecl, conversionInputsAttr->inputFields_begin(), conversionInputsAttr->inputFields_size());
+    std::vector<SoaField> soaFields = getFieldsForSoa(targetRecordDecl, conversionDataAttrs);
 
-    std::string soaDef = getSoaDef(targetRef, soaFields, conversionTargetSizeAttr->getTargetSizeExpr());
-    std::string soaConv = getSoaConversionForRangeLoop(
-        targetRef, S->getLoopVariable()->getType(), targetRecordDecl,
-        conversionInputsAttr->inputFields_begin(), conversionInputsAttr->inputFields_size(),
-        conversionTargetSizeAttr->getTargetSizeExpr());
+    ASTContext &Ctx = targetRecordDecl->getASTContext();
+
+    std::string soaDef = getSoaDef(targetRef, soaFields, conversionTargetSizeAttr->getTargetSizeExpr(), Ctx);
+    std::string soaConv = getSoaConversionForRangeLoop(targetRef, S->getLoopVariable()->getType(), soaFields);
     writeBeforeForStmt(S, soaDef + "\n" + soaConv + "\n");
 
-    std::string soaUnconv = getSoaUnconversionForRangeLoop(
-        targetRef, S->getLoopVariable()->getType(), targetRecordDecl,
-        conversionInputsAttr->inputFields_begin(), conversionInputsAttr->inputFields_size(),
-        conversionTargetSizeAttr->getTargetSizeExpr());
+    std::string soaUnconv = getSoaUnconversionForRangeLoop(targetRef, S->getLoopVariable()->getType(), soaFields,conversionTargetSizeAttr->getTargetSizeExpr());
     writeAfterStmt(S, "\n" + soaUnconv);
 
     std::string forLoopIdx = targetRefStr + "__main_loop_iter";
@@ -681,8 +785,8 @@ public:
 
     MemberExprRewriter rewriter(R);
     for (unsigned long i = 0; i < soaFields.size(); i++) {
-      std::string replacement = targetRef.str() + "__SoA__instance" + "." + soaFields[i]->getNameAsString() + "[" + forLoopIdx + "]" ;
-      rewriter.replaceMemberExprs(soaFields[i], replacement, S);
+      std::string replacement = targetRef.str() + "__SoA__instance" + "." + soaFields[i].name + "[" + forLoopIdx + "]" ;
+//      rewriter.replaceMemberExprs(soaFields[i], replacement, S); TODO uncomment!!!
     }
     return true;
   }
