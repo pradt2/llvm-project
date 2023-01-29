@@ -28,7 +28,7 @@ int main() {
   for (auto itemOuter : vectorOuter) {
 
     [[clang::soa_conversion_target_size(vectorInner.size())]]
-    [[clang::soa_conversion_data_item("getB()", "setB()")]]
+    [[clang::soa_conversion_data_item("getB()", "")]]
     [[clang::soa_conversion_data_movement_strategy(move_to_outermost)]]
     for (auto itemInner: vectorInner) {
       itemOuter->setB(itemOuter->getA() | itemInner->getB());
