@@ -19,13 +19,21 @@ struct Struct {
 
 int main() {
 
-  auto vector = std::vector<Struct*>();
+  auto vectorOuter = std::vector<Struct*>();
+  auto vectorInner = std::vector<Struct*>();
 
-  [[clang::soa_conversion_target_size(vector.size())]]
+  [[clang::soa_conversion_target_size(vectorOuter.size())]]
   [[clang::soa_conversion_data_item("getA()", "")]]
   [[clang::soa_conversion_data_item("getB()", "setB()")]]
-  for (auto item : vector) {
-    item->setB(item->getA() | item->getB());
+  for (auto itemOuter : vectorOuter) {
+
+    [[clang::soa_conversion_target_size(vectorInner.size())]]
+    [[clang::soa_conversion_data_item("getB()", "setB()")]]
+    [[clang::soa_conversion_data_movement_strategy(move_to_outermost)]]
+    for (auto itemInner: vectorInner) {
+      itemOuter->setB(itemOuter->getA() | itemInner->getB());
+    }
+
   }
 
 }
