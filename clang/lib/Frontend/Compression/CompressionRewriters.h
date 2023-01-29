@@ -67,20 +67,6 @@ public:
   }
 };
 
-template<typename T>
-const T* getParentNodeOfType(ASTContext &Ctx, const Expr *E, ASTNodeKind::NodeKindId nodeKind) {
-  auto parents = Ctx.getParents(*E);
-  auto parent = parents[0];
-  while (!parents.empty()) {
-    parent = parents[0];
-    if (parent.getNodeKind().KindId == nodeKind) break;
-    parents = Ctx.getParents(parent);
-  }
-
-  if (parents.empty()) return NULL;
-  return parent.get<T>();
-}
-
 bool isAssignOpcode(BinaryOperatorKind kind) {
   switch (kind) {
   case BinaryOperatorKind::BO_Assign:

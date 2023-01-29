@@ -8,6 +8,20 @@
 #include <string>
 #include <limits>
 
+template<typename T>
+const T* getParentNodeOfType(ASTContext &Ctx, const Expr *E, ASTNodeKind::NodeKindId nodeKind) {
+  auto parents = Ctx.getParents(*E);
+  auto parent = parents[0];
+  while (!parents.empty()) {
+    parent = parents[0];
+    if (parent.getNodeKind().KindId == nodeKind) break;
+    parents = Ctx.getParents(parent);
+  }
+
+  if (parents.empty()) return NULL;
+  return parent.get<T>();
+}
+
 std::string to_constant(unsigned long a) {
   std::string constant = std::to_string(a) + "U";
   if (a > std::numeric_limits<unsigned int>().max()) constant += "L";

@@ -377,6 +377,34 @@ static Attr *handleSoaConversionTargetSize(Sema &S, Stmt *St, const ParsedAttr &
   return ::new (S.Context) SoaConversionTargetSizeAttr(S.Context, A, size);
 }
 
+static Attr *handleSoaConversionDataMovementStrategy(Sema &S, Stmt *St, const ParsedAttr &A,
+                                         SourceRange Range) {
+  auto argsSize = A.getNumArgs();
+
+  if (argsSize != 1) {
+    llvm::errs() << __FILE__ << ":" << __LINE__ << "Attribute should have 1 arg";
+    exit(1);
+  }
+
+  auto *arg = A.getArgAsIdent(0);
+  auto strategyName = arg->Ident->getName();
+
+  if (strategyName == "in_situ") {
+    auto type = SoaConversionDataMovementStrategyAttr::DataMovementStrategyType::InSitu;
+    return ::new (S.Context) SoaConversionDataMovementStrategyAttr(S.Context, A, type);
+  }
+  if (strategyName == "move_to_outer") {
+    auto type = SoaConversionDataMovementStrategyAttr::DataMovementStrategyType::MoveToOuter;
+    return ::new (S.Context) SoaConversionDataMovementStrategyAttr(S.Context, A, type);
+  }
+  if (strategyName == "move_to_outermost") {
+    auto type = SoaConversionDataMovementStrategyAttr::DataMovementStrategyType::MoveToOutermost;
+    return ::new (S.Context) SoaConversionDataMovementStrategyAttr(S.Context, A, type);
+  }
+  llvm::errs() << __FILE__ << ":" << __LINE__ << "Unknown data movement strategy";
+  exit(1);
+}
+
 CodeAlignAttr *Sema::BuildCodeAlignAttr(const AttributeCommonInfo &CI,
                                         Expr *E) {
   if (!E->isValueDependent()) {
@@ -668,6 +696,8 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &A,
     return handleSoaConversionTarget(S, St, A, Range);
   case ParsedAttr::AT_SoaConversionTargetSize:
     return handleSoaConversionTargetSize(S, St, A, Range);
+  case ParsedAttr::AT_SoaConversionDataMovementStrategy:
+    return handleSoaConversionDataMovementStrategy(S, St, A, Range);
   case ParsedAttr::AT_CodeAlign:
     return handleCodeAlignAttr(S, St, A);
   case ParsedAttr::AT_MSConstexpr:

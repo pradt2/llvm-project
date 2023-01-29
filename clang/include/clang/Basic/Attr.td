@@ -937,6 +937,15 @@ def SoaConversionDataItem : StmtAttr {
     let Documentation = [Undocumented];
 }
 
+def SoaConversionDataMovementStrategy : StmtAttr {
+    let Spellings = [Clang<"soa_conversion_data_movement_strategy">];
+    let Args = [EnumArgument<"DataMovementStrategy", "DataMovementStrategyType",
+                ["in_situ", "move_to_outer", "move_to_outermost"], ["InSitu", "MoveToOuter", "MoveToOutermost"]>];
+    let Subjects = SubjectList<[ForStmt, CXXForRangeStmt],
+                                ErrorDiag, "'for' statements">;
+    let Documentation = [Undocumented];
+}
+
 def SoaConversionTarget : StmtAttr {
     let Spellings = [Clang<"soa_conversion_target">];
     let Args = [StringArgument<"TargetRef">];
