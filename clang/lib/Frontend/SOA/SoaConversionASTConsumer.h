@@ -2,6 +2,7 @@
 #define CLANG_SOACONVERSIONASTCONSUMER_H
 
 #include "../SemaIR/SemaIR.h"
+#include "../Compression/Utils.h"
 
 using namespace clang;
 
@@ -682,21 +683,91 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
     return name;
   }
 
-  SourceRange getStmtRangeInclAttrs(Stmt *S) {
+  SourceRange getStmtRangeInclAttrs(const Stmt *S) {
     auto parent = CI.getASTContext().getParentMapContext().getParents(*S)[0];
     if (parent.getNodeKind().KindId != ASTNodeKind::NodeKindId::NKI_AttributedStmt) return S->getSourceRange();
     auto *genericStmt = parent.get<Stmt>();
     return genericStmt->getSourceRange();
   }
 
-  void writeBeforeForStmt(Stmt *S, std::string s) {
+  void writeBeforeForStmt(const Stmt *S, std::string s) {
      SourceLocation beforeStmt = getStmtRangeInclAttrs(S).getBegin();
      R.InsertTextBefore(beforeStmt, s);
   }
 
-  void writeAfterStmt(Stmt *S, std::string s) {
+  void writeAfterStmt(const Stmt *S, std::string s) {
      SourceLocation afterStmt = getStmtRangeInclAttrs(S).getEnd();
      R.InsertTextAfterToken(afterStmt, s);
+  }
+
+  void writePrologueAndEpilogue(Stmt *S, ASTContext &Ctx, std::string prologue, std::string epilogue) {
+     const SoaConversionDataMovementStrategyAttr *strategyAttr = getAttr<SoaConversionDataMovementStrategyAttr>(S);
+     auto strategy = SoaConversionDataMovementStrategyAttr::DataMovementStrategyType::InSitu;
+     if (strategyAttr) {
+      strategy = strategyAttr->getDataMovementStrategy();
+     }
+
+     if (strategy == SoaConversionDataMovementStrategyAttr::DataMovementStrategyType::InSitu) {
+      writeBeforeForStmt(S, prologue);
+      writeAfterStmt(S, epilogue);
+      return ;
+     }
+
+     if (strategy == SoaConversionDataMovementStrategyAttr::DataMovementStrategyType::MoveToOuter) {
+      auto parents = Ctx.getParents(*S);
+      while (!parents.empty()) {
+        auto parent = parents[0];
+        auto nodeKindId = parent.getNodeKind().KindId;
+        if (nodeKindId != ASTNodeKind::NKI_ForStmt && nodeKindId != ASTNodeKind::NKI_CXXForRangeStmt) {
+
+          // nodes connected directly to method decl (i.e. not nested in any block) are their own parents :)
+          if (parent == Ctx.getParents(parent)[0]) break;
+
+          parents = Ctx.getParents(parent);
+          continue ;
+        }
+
+        auto *outerStmt = parent.get<Stmt>();
+
+        writeBeforeForStmt(outerStmt, prologue);
+        writeAfterStmt(outerStmt, epilogue);
+        return ;
+      }
+
+      llvm::errs() << __FILE__ << ":" << __LINE__ << "No outer ForStmt or CXXForRangeStmt found";
+      exit(1);
+     }
+
+     if (strategy == SoaConversionDataMovementStrategyAttr::DataMovementStrategyType::MoveToOutermost) {
+      auto parents = Ctx.getParents(*S);
+
+      const Stmt *lastStmt = nullptr;
+      while (!parents.empty()) {
+        auto parent = parents[0];
+        auto nodeKindId = parent.getNodeKind().KindId;
+        if (nodeKindId != ASTNodeKind::NKI_ForStmt && nodeKindId != ASTNodeKind::NKI_CXXForRangeStmt) {
+          parents = Ctx.getParents(parent);
+          continue ;
+        }
+
+        // nodes connected directly to method decl (i.e. not nested in any block) are their own parents :)
+        auto *parentStmt = parent.get<Stmt>();
+        if (lastStmt == parentStmt) break;
+        lastStmt = parentStmt;
+      }
+
+      if (lastStmt == nullptr) {
+        llvm::errs() << __FILE__ << ":" << __LINE__ << "No outer ForStmt or CXXForRangeStmt found";
+        exit(1);
+      }
+
+      writeBeforeForStmt(lastStmt, prologue);
+      writeAfterStmt(lastStmt, epilogue);
+      return ;
+     }
+
+     llvm::errs() << __FILE__ << ":" << __LINE__ << "Unrecognised data movement strategy";
+     exit(1);
   }
 
 public:
@@ -719,11 +790,15 @@ public:
     std::string soaDef = getSoaDef(conversionTargetAttr->getTargetRef(), soaFields, conversionTargetSizeAttr->getTargetSizeExpr(), Ctx);
     std::string soaConv = getSoaConversionForLoop(conversionTargetAttr->getTargetRef(), targetDeclRef->getType(),
                                                   soaFields, conversionTargetSizeAttr->getTargetSizeExpr());
-    writeBeforeForStmt(S, soaDef + "\n" + soaConv + "\n");
+    std::string prologue = soaDef + "\n" + soaConv + "\n";
+
 
     std::string soaUnconv = getSoaUnconversionForLoop(conversionTargetAttr->getTargetRef(), targetDeclRef->getType(),
                                                       soaFields, conversionTargetSizeAttr->getTargetSizeExpr());
-    writeAfterStmt(S, "\n" + soaUnconv);
+
+    std::string epilogue = "\n" + soaUnconv;
+
+    writePrologueAndEpilogue(S, Ctx, prologue, epilogue);
 
     MemberExprRewriter fieldAccessRewriter(R);
     CXXMemberCallExprRewriter methodCallAccessRewriter(R);
@@ -777,10 +852,12 @@ public:
 
     std::string soaDef = getSoaDef(targetRef, soaFields, conversionTargetSizeAttr->getTargetSizeExpr(), Ctx);
     std::string soaConv = getSoaConversionForRangeLoop(targetRef, S->getLoopVariable()->getType(), soaFields);
-    writeBeforeForStmt(S, soaDef + "\n" + soaConv + "\n");
+    std::string prologue = soaDef + "\n" + soaConv + "\n";
 
     std::string soaUnconv = getSoaUnconversionForRangeLoop(targetRef, S->getLoopVariable()->getType(), soaFields,conversionTargetSizeAttr->getTargetSizeExpr());
-    writeAfterStmt(S, "\n" + soaUnconv);
+    std::string epilogue = "\n" + soaUnconv;
+
+    writePrologueAndEpilogue(S, Ctx, prologue, epilogue);
 
     std::string forLoopIdx = targetRefStr + "__main_loop_iter";
 
