@@ -334,12 +334,22 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
       }
 
       auto outputDeclType = getTypeOfExpr(decl, item->getOutput(), true);
+      auto outputType = std::get<QualType>(outputDeclType);
 
-      if (std::get<QualType>(inputDeclType) != std::get<QualType>(outputDeclType)) {
-        // TODO what about inheritance?
-        llvm::errs() << __FILE__ << ":" << __LINE__ << "Input type and output type do not match up";
-        exit(1);
+      // if the setter accepts a reference to an otherwise compatible type, allow it
+      if (outputType->isReferenceType()) {
+        auto *refType = outputType->getAs<ReferenceType>();
+
+        // also ignore 'const' etc.
+        outputType = refType->getPointeeType().getUnqualifiedType();
       }
+
+      // TODO look into this tarch::la::vector get , set(const tarch::la::vector &val)
+//      if (std::get<QualType>(inputDeclType).getUnqualifiedType() != outputType) {
+//        // TODO what about inheritance?
+//        llvm::errs() << __FILE__ << ":" << __LINE__ << "Input type and output type do not match up";
+//        exit(1);
+//      }
 
       soaField.outputAccessDecl = std::get<Decl*>(outputDeclType);
 
@@ -574,7 +584,19 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
     return sourceCode;
   }
 
+  int getRWSoaFields(std::vector<SoaField> &soaFields) {
+    int count = 0;
+    for (auto field: soaFields) {
+      if (!field.outputAccessDecl) continue ;
+
+      count++;
+    }
+    return count;
+  }
+
   std::string getSoaUnconversionForLoop(llvm::StringRef targetRef, QualType type, std::vector<SoaField> soaFields, llvm::StringRef size) {
+    if (getRWSoaFields(soaFields) == 0) return "/** SOA epilogue loop skipped for target " + targetRef.str() + ": no items to write back */\n";
+
     std::string soaName = targetRef.str() + "__SoA__instance";
     std::string idxName = targetRef.str() + "__SoA__instance__iter";
     std::string sourceCode = "for (int " + idxName + " = 0; " + idxName + " < " + size.str() + "; " + idxName + "++) {\n";
@@ -587,7 +609,9 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
     return sourceCode;
   }
 
-  std::string getSoaUnconversionForRangeLoop(llvm::StringRef targetRef, QualType type, std::vector<SoaField> soaFields, llvm::StringRef size) {
+  std::string getSoaUnconversionForRangeLoop(llvm::StringRef targetRef, QualType type, std::vector<SoaField> soaFields) {
+    if (getRWSoaFields(soaFields) == 0) return "/** SOA epilogue loop skipped for target " + targetRef.str() + ": no items to write back */\n";
+
     std::string soaName = targetRef.str() + "__SoA__instance";
     std::string idxName = targetRef.str() + "__SoA__instance__iter";
     std::string elementDerefAccessor = getAccessToType(type, "element");
@@ -822,6 +846,10 @@ public:
     if (conversionDataAttrs.empty() || !conversionTargetAttr || !conversionTargetSizeAttr) return true;
 
     FunctionDecl *loopParent = getLoopParentFunctionDecl(S);
+    if (loopParent->isTemplated()) {
+      return true;
+    }
+
     auto *targetDeclRef = getTargetDeclRefExpr(conversionTargetAttr->getTargetRef(), loopParent);
     RecordDecl *targetRecordDecl = getTargetRecordDecl(targetDeclRef, loopParent);
     std::vector<SoaField> soaFields = getFieldsForSoa(targetRecordDecl, conversionDataAttrs);
@@ -895,7 +923,7 @@ public:
     std::string soaConv = getSoaConversionForRangeLoop(targetRef, S->getLoopVariable()->getType(), soaFields);
     std::string prologue = soaDef + "\n" + soaConv + "\n";
 
-    std::string soaUnconv = getSoaUnconversionForRangeLoop(targetRef, S->getLoopVariable()->getType(), soaFields,conversionTargetSizeAttr->getTargetSizeExpr());
+    std::string soaUnconv = getSoaUnconversionForRangeLoop(targetRef, S->getLoopVariable()->getType(), soaFields);
     std::string epilogue = "\n" + soaUnconv;
 
     writePrologueAndEpilogue(S, Ctx, prologue, epilogue);
