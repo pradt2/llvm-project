@@ -363,8 +363,11 @@ static Attr *handleSoaConversionTargetSize(Sema &S, Stmt *St, const ParsedAttr &
   Notes.clear();
   Eval.Diag = &Notes;
   int minValueInt = 0;
-  bool Result = expr->EvaluateAsConstantExpr(Eval, S.Context);
 
+  // this was causing weird segfaults when testing AOS-SOA on computeDensity kernel
+  // bool Result = expr->EvaluateAsConstantExpr(Eval, S.Context);
+
+  bool Result = false;
   if (Result) {
     assert(Eval.Val.hasValue());
     size = std::to_string(Eval.Val.getInt().getExtValue());
