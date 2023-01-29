@@ -604,26 +604,58 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
     return sourceCode;
   }
 
+  class DeclRefExprVisitor : public ASTConsumer, public RecursiveASTVisitor<DeclRefExprVisitor> {
+    std::string ident;
+    bool hasBeenFound;
+
+  public:
+    explicit DeclRefExprVisitor(std::string ident) : ident(ident) {}
+
+    bool VisitDeclRefExpr(DeclRefExpr *E) {
+      if (E->getDecl()->getNameAsString() == ident) {
+        hasBeenFound = true;
+        return false;
+      }
+
+      return true;
+    }
+
+    static bool doesExprBelongToIdent(std::string ident, Expr *E) {
+      auto visitor = DeclRefExprVisitor(ident);
+      visitor.TraverseStmt(E);
+      bool hasBeenFound = visitor.hasBeenFound;
+      return hasBeenFound;
+    }
+  };
+
   class MemberExprRewriter : public ASTConsumer, public RecursiveASTVisitor<MemberExprRewriter> {
 
     FieldDecl *decl;
     std::string replacementExpr;
-
+    std::string parentVariableIdent;
     Rewriter &R;
 
   public:
 
     MemberExprRewriter(Rewriter &R) : R(R) {}
 
-    void replaceMemberExprs(FieldDecl *fDecl, std::string replacement, Stmt *context) {
+    void replaceMemberExprs(FieldDecl *fDecl, std::string parentVariableIdent, std::string replacement, Stmt *context) {
       this->decl = fDecl;
       this->replacementExpr = replacement;
+      this->parentVariableIdent = parentVariableIdent;
       this->TraverseStmt(context);
     }
 
     bool VisitMemberExpr(MemberExpr *E) {
       ValueDecl *valueDecl = E->getMemberDecl();
       if (valueDecl != decl) return true;
+
+      // avoid cases where the desired field is accessed on an object of the same type,
+      // but not of a member of the variable that is an element of the iterated collection
+      // if there is a nested loop where the object type of the inner loop is the same as of the outer loop
+      // problems occur unless we do this check
+      if (!DeclRefExprVisitor::doesExprBelongToIdent(parentVariableIdent, E)) return true;
+
       SourceLocation start = E->getBeginLoc();
       SourceLocation end = E->getEndLoc();
       R.ReplaceText(SourceRange(start, end), replacementExpr);
@@ -636,22 +668,31 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
 
     CXXMethodDecl *decl;
     std::string replacementExpr;
-
+    std::string parentVariableIdent;
     Rewriter &R;
 
   public:
 
     CXXMemberCallExprRewriter(Rewriter &R) : R(R) {}
 
-    void replaceMemberExprs(CXXMethodDecl *fDecl, std::string replacement, Stmt *context) {
+    void replaceMemberExprs(CXXMethodDecl *fDecl, std::string parentVariableIdent, std::string replacement, Stmt *context) {
       this->decl = fDecl;
       this->replacementExpr = replacement;
+      this->parentVariableIdent = parentVariableIdent;
       this->TraverseStmt(context);
     }
 
     bool VisitCXXMemberCallExpr(CXXMemberCallExpr *E) {
       ValueDecl *valueDecl = E->getMethodDecl();
       if (valueDecl != decl) return true;
+
+      // avoid cases where the desired function is called on an object of the same type,
+      // but not of a member of the variable that is an element of the iterated collection
+      // if there is a nested loop where the object type of the inner loop is the same as of the outer loop
+      // problems occur unless we do this check
+      // we use getCallee() here to access the member expression and omit arguments, which would have
+      // been traversed if we used E directly
+      if (!DeclRefExprVisitor::doesExprBelongToIdent(parentVariableIdent, E->getCallee())) return true;
 
       if (decl->param_empty()) {
         // no arguments, we can replace the entire call expr (so incl. '()')
@@ -809,9 +850,9 @@ public:
 
       auto *accessDecl = field.inputAccessDecl;
       if (llvm::isa<FieldDecl>(accessDecl)) {
-        fieldAccessRewriter.replaceMemberExprs(llvm::cast<FieldDecl>(accessDecl), replacement, S);
+        fieldAccessRewriter.replaceMemberExprs(llvm::cast<FieldDecl>(accessDecl), targetDeclRef->getDecl()->getNameAsString(), replacement, S);
       } else if (llvm::isa<CXXMethodDecl>(accessDecl)) {
-        methodCallAccessRewriter.replaceMemberExprs(llvm::cast<CXXMethodDecl>(accessDecl), replacement, S);
+        methodCallAccessRewriter.replaceMemberExprs(llvm::cast<CXXMethodDecl>(accessDecl), targetDeclRef->getDecl()->getNameAsString(), replacement, S);
       } else {
         llvm::errs() << __FILE__ << __LINE__ << "Access decl is neither a FieldDecl nor a CXXMethodDecl";
         exit(1);
@@ -824,9 +865,9 @@ public:
 
       accessDecl = field.outputAccessDecl;
       if (llvm::isa<FieldDecl>(accessDecl)) {
-        fieldAccessRewriter.replaceMemberExprs(llvm::cast<FieldDecl>(accessDecl), replacement, S);
+        fieldAccessRewriter.replaceMemberExprs(llvm::cast<FieldDecl>(accessDecl), targetDeclRef->getDecl()->getNameAsString(), replacement, S);
       } else if (llvm::isa<CXXMethodDecl>(accessDecl)) {
-        methodCallAccessRewriter.replaceMemberExprs(llvm::cast<CXXMethodDecl>(accessDecl), replacement, S);
+        methodCallAccessRewriter.replaceMemberExprs(llvm::cast<CXXMethodDecl>(accessDecl), targetDeclRef->getDecl()->getNameAsString(), replacement, S);
       } else {
         llvm::errs() << __FILE__ << __LINE__ << "Access decl is neither a FieldDecl nor a CXXMethodDecl";
         exit(1);
@@ -872,9 +913,9 @@ public:
 
       auto *accessDecl = field.inputAccessDecl;
       if (llvm::isa<FieldDecl>(accessDecl)) {
-        fieldAccessRewriter.replaceMemberExprs(llvm::cast<FieldDecl>(accessDecl), replacement, S);
+        fieldAccessRewriter.replaceMemberExprs(llvm::cast<FieldDecl>(accessDecl), S->getLoopVariable()->getNameAsString(), replacement, S);
       } else if (llvm::isa<CXXMethodDecl>(accessDecl)) {
-        methodCallAccessRewriter.replaceMemberExprs(llvm::cast<CXXMethodDecl>(accessDecl), replacement, S);
+        methodCallAccessRewriter.replaceMemberExprs(llvm::cast<CXXMethodDecl>(accessDecl), S->getLoopVariable()->getNameAsString(), replacement, S);
       } else {
         llvm::errs() << __FILE__ << __LINE__ << "Access decl is neither a FieldDecl nor a CXXMethodDecl";
         exit(1);
@@ -887,9 +928,9 @@ public:
 
       accessDecl = field.outputAccessDecl;
       if (llvm::isa<FieldDecl>(accessDecl)) {
-        fieldAccessRewriter.replaceMemberExprs(llvm::cast<FieldDecl>(accessDecl), replacement, S);
+        fieldAccessRewriter.replaceMemberExprs(llvm::cast<FieldDecl>(accessDecl), S->getLoopVariable()->getNameAsString(), replacement, S);
       } else if (llvm::isa<CXXMethodDecl>(accessDecl)) {
-        methodCallAccessRewriter.replaceMemberExprs(llvm::cast<CXXMethodDecl>(accessDecl), replacement, S);
+        methodCallAccessRewriter.replaceMemberExprs(llvm::cast<CXXMethodDecl>(accessDecl), S->getLoopVariable()->getNameAsString(), replacement, S);
       } else {
         llvm::errs() << __FILE__ << __LINE__ << "Access decl is neither a FieldDecl nor a CXXMethodDecl";
         exit(1);
