@@ -630,7 +630,7 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
 
   class DeclRefExprVisitor : public ASTConsumer, public RecursiveASTVisitor<DeclRefExprVisitor> {
     std::string ident;
-    bool hasBeenFound;
+    bool hasBeenFound = false;
 
   public:
     explicit DeclRefExprVisitor(std::string ident) : ident(ident) {}
@@ -945,7 +945,7 @@ public:
       } else if (llvm::isa<CXXMethodDecl>(accessDecl)) {
         methodCallAccessRewriter.replaceMemberExprs(llvm::cast<CXXMethodDecl>(accessDecl), S->getLoopVariable()->getNameAsString(), replacement, S);
       } else {
-        llvm::errs() << __FILE__ << __LINE__ << "Access decl is neither a FieldDecl nor a CXXMethodDecl";
+        llvm::errs() << __FILE__ << ":" << __LINE__ << "Access decl is neither a FieldDecl nor a CXXMethodDecl";
         exit(1);
       }
 
@@ -960,7 +960,7 @@ public:
       } else if (llvm::isa<CXXMethodDecl>(accessDecl)) {
         methodCallAccessRewriter.replaceMemberExprs(llvm::cast<CXXMethodDecl>(accessDecl), S->getLoopVariable()->getNameAsString(), replacement, S);
       } else {
-        llvm::errs() << __FILE__ << __LINE__ << "Access decl is neither a FieldDecl nor a CXXMethodDecl";
+        llvm::errs() << __FILE__ << ":" << __LINE__ << "Access decl is neither a FieldDecl nor a CXXMethodDecl";
         exit(1);
       }
 

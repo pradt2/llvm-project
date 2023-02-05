@@ -1,49 +1,72 @@
-struct Struct {
-  bool a;
-  bool b;
+#include <unordered_set>
+#include <cmath>
+#include <iostream>
 
-  bool getA() { return a; }
+struct Particle {
+  float x, y;
+  float ax = 0, ay = 0;
+  float vx = 0, vy = 0;
 
-  void setA(bool val) {
-    a = val;
-  }
+  float getX() { return x; }
+  float getY() { return y; }
 
-  bool getB() { return b; }
-
-  void setB(bool val) {
-    b = val;
-  }
+  float getAx() { return ax; }
+  float getAy() { return ay; }
+  void setAx(float val) { ax = val; }
+  void setAy(float val) { ay = val; }
 };
 
-//using DATACLASS = Struct;
-
-#define TEMPLATED_MAIN(DATACLASS) { \
-                                    DATACLASS *dataOuter = new DATACLASS[10]; \
-                                    DATACLASS *dataInner = new DATACLASS[10]; \
- \
-                                    [[clang::soa_conversion_target(dataOuter)]] \
-                                    [[clang::soa_conversion_target_size(10)]] \
-                                    [[clang::soa_conversion_data_item("getA()", "")]] \
-                                    [[clang::soa_conversion_data_item("getB()", "setB()")]] \
-                                    for (int i = 0; i < 10; i++) { \
- \
-                                    [[clang::soa_conversion_target(dataInner)]] \
-                                    [[clang::soa_conversion_target_size(10)]] \
-                                    [[clang::soa_conversion_data_item("getB()", "")]] \
-                                    [[clang::soa_conversion_data_movement_strategy(move_to_outermost)]] \
-                                    for (int j = 0; j < 10; j++) { \
-                                    dataOuter[i].setB(dataOuter[i].getA() | dataInner[j].getB()); \
-                                    } \
- \
-                                    } \
-}
-void templatedMain() {
-
-
-}
 
 int main() {
+  auto p1 = Particle {
+    -1, 1
+  };
 
-  TEMPLATED_MAIN(Struct)
+  auto p2 = Particle {
+      1, 1
+  };
+
+  auto p3 = Particle {
+      -1, -1
+  };
+
+  auto p4 = Particle {
+      1, -1
+  };
+
+  auto localParticles = std::unordered_set<Particle*> { &p1, &p2, &p3, &p4 };
+  auto activeParticles = std::unordered_set<Particle*> { &p1, &p2, &p3, &p4 };
+
+
+  [[clang::soa_conversion_target_size(localParticles.size())]]
+  [[clang::soa_conversion_data_item("getX()", "")]]
+  [[clang::soa_conversion_data_item("getY()", "")]]
+  [[clang::soa_conversion_data_item("getAx()", "setAx()")]]
+  [[clang::soa_conversion_data_item("getAy()", "setAy()")]]
+  for (auto *l : localParticles) {
+
+    [[clang::soa_conversion_target_size(activeParticles.size())]]
+    [[clang::soa_conversion_data_item("getX()", "")]]
+    [[clang::soa_conversion_data_item("getY()", "")]]
+    [[clang::soa_conversion_data_movement_strategy(move_to_outermost)]]
+    for (auto *a : activeParticles) {
+
+        auto dx = a->getX() - l->getX();
+
+        auto dy = a->getY() - l->getY();
+
+        if (dx == 0 & dy == 0) continue ;
+
+        auto ax = dx * 0.001;
+        auto ay = dy * 0.001;
+
+        l->setAx(l->getAx() + ax);
+        l->setAy(l->getAy() + ay);
+      }
+  }
+
+  for (auto *l : localParticles) {
+      printf("Particle (x=%f, y=%f, ax=%f, ay=%f)\n", l->x, l->y, l->ax, l->ay);
+  }
 
 }
