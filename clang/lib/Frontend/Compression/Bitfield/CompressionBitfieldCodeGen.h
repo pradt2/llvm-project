@@ -95,7 +95,14 @@ class CompressionBitfieldCodeGen : public CompressionICodeGen {
         constructor += compressor.getCopyConstructorStmt(localVarName + "." + field->getNameAsString()) + "\n";
       }
       else {
-        constructor += "this->" + field->getNameAsString() + " = " + localVarName + "." + field->getNameAsString() + ";\n";
+        auto semaFieldDecl = fromFieldDecl(field);
+        if (!semaFieldDecl->type->isConstSizeArrType()) {
+          constructor += "this->" + field->getNameAsString() + " = " + localVarName + "." + field->getNameAsString() + ";\n";
+        } else {
+          // arrays cannot be copied by assigning new value
+          // this requires <cstring> to be included (directly or transitively)
+          constructor += "memcpy(this->" + field->getNameAsString() + ", " + localVarName + "." + field->getNameAsString() + ", sizeof(" + localVarName + "." + field->getNameAsString() + "));\n";
+        }
       }
     }
     constructor += "}";
@@ -109,7 +116,14 @@ class CompressionBitfieldCodeGen : public CompressionICodeGen {
         auto compressor = DelegatingFieldBitfieldCompressor(getCompressedStructShortName(), "this->", field);
         typeCast += compressor.getTypeCastToOriginalStmt("val." + field->getNameAsString()) + "\n";
       } else {
-        typeCast += "val." + field->getNameAsString() + " = this->" + field->getNameAsString() + ";\n";
+        auto semaFieldDecl = fromFieldDecl(field);
+        if (!semaFieldDecl->type->isConstSizeArrType()) {
+          typeCast += "val." + field->getNameAsString() + " = this->" + field->getNameAsString() + ";\n";
+        } else {
+          // arrays cannot be copied by assigning new value
+          // this requires <cstring> to be included (directly or transitively)
+          typeCast += "memcpy(val." + field->getNameAsString() + ", this->" + field->getNameAsString() + ", " + "sizeof(this->" + field->getNameAsString() + "));\n";
+        }
       }
     }
     typeCast += "return val;\n";
