@@ -190,7 +190,7 @@ inline std::string toSource(SemaFieldDecl &decl) {
     SemaConstSizeArrType &arrType = (SemaConstSizeArrType&) *decl.type;
     std::string sizes;
     do {
-      sizes += "[" + std::to_string(arrType.size) + "]";
+      sizes += "[" + std::to_string(arrType.elementCount) + "]";
     } while (arrType.elementType->isConstSizeArrType());
     return toSource(*arrType.elementType) + " " + decl.name + " " + sizes;
   }
