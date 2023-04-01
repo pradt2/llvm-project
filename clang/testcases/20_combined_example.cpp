@@ -1,72 +1,70 @@
-#include <unordered_set>
-#include <cmath>
-#include <iostream>
+#include <mpi.h>
+#include <cstddef>
+#include "stdio.h"
+#include <chrono>
 
 struct Particle {
-  float x, y;
-  float ax = 0, ay = 0;
-  float vx = 0, vy = 0;
+  [[clang::pack]]
+  bool a, b;
 
-  float getX() { return x; }
-  float getY() { return y; }
-
-  float getAx() { return ax; }
-  float getAy() { return ay; }
-  void setAx(float val) { ax = val; }
-  void setAy(float val) { ay = val; }
+  [[clang::map_mpi_datatype()]]
+  static MPI_Datatype getMpiDatatype();
 };
 
+#define DATA_SIZE (2 << 29)
 
 int main() {
-  auto p1 = Particle {
-    -1, 1
-  };
+  MPI_Init(NULL, NULL);
 
-  auto p2 = Particle {
-      1, 1
-  };
+  // Get the number of processes
+  int world_size;
+  MPI_Comm_size(MPI_COMM_WORLD, &world_size);
 
-  auto p3 = Particle {
-      -1, -1
-  };
+  // Get the rank of the process
+  int world_rank;
+  MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 
-  auto p4 = Particle {
-      1, -1
-  };
+  // Print off a hello world message
+//  printf("Hello world from rank %d out of %d processors\n", world_rank, world_size);
 
-  auto localParticles = std::unordered_set<Particle*> { &p1, &p2, &p3, &p4 };
-  auto activeParticles = std::unordered_set<Particle*> { &p1, &p2, &p3, &p4 };
+  Particle *particles = new Particle[DATA_SIZE];
 
+  MPI_Request request;
 
-  [[clang::soa_conversion_target_size(localParticles.size())]]
-  [[clang::soa_conversion_data_item("getX()", "")]]
-  [[clang::soa_conversion_data_item("getY()", "")]]
-  [[clang::soa_conversion_data_item("getAx()", "setAx()")]]
-  [[clang::soa_conversion_data_item("getAy()", "setAy()")]]
-  for (auto *l : localParticles) {
+  if (world_rank == 0) {
 
-    [[clang::soa_conversion_target_size(activeParticles.size())]]
-    [[clang::soa_conversion_data_item("getX()", "")]]
-    [[clang::soa_conversion_data_item("getY()", "")]]
-    [[clang::soa_conversion_data_movement_strategy(move_to_outermost)]]
-    for (auto *a : activeParticles) {
+//    for (unsigned long i = 0; i < DATA_SIZE; i++) {
+//      particles[i].a = i % 2 == 0;
+//      particles[i].b = i % 3 == 0;
+//    }
 
-        auto dx = a->getX() - l->getX();
+    printf("Sending...");
+    auto start = std::chrono::high_resolution_clock::now();
+    MPI_Isend( particles,    DATA_SIZE, Particle::getMpiDatatype(), 1, 0, MPI_COMM_WORLD, &request );
+    std::chrono::duration<double> time = std::chrono::high_resolution_clock::now() - start;
+    printf("Sent in %f!\n", time.count());
+    MPI_Wait( &request, MPI_STATUS_IGNORE );
+  } else {
+    printf("Receiving...");
+    auto start = std::chrono::high_resolution_clock::now();
+    MPI_Recv(  particles, DATA_SIZE, Particle::getMpiDatatype(), 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE );
+    std::chrono::duration<double> time = std::chrono::high_resolution_clock::now() - start;
+    printf("Received in %f!\n", time.count());
 
-        auto dy = a->getY() - l->getY();
+//    MPI_Wait( &request, MPI_STATUS_IGNORE );
 
-        if (dx == 0 & dy == 0) continue ;
-
-        auto ax = dx * 0.001;
-        auto ay = dy * 0.001;
-
-        l->setAx(l->getAx() + ax);
-        l->setAy(l->getAy() + ay);
-      }
+//    for (unsigned long i = 0; i < DATA_SIZE; i++) {
+//      if (particles[i].a != i % 2 == 0) {
+//        printf("FaILED!\n");
+//        exit(1);
+//      }
+//      if (particles[i].b != i % 3 == 0) {
+//        printf("FaILED!\n");
+//        exit(1);
+//      }
+//    }
   }
 
-  for (auto *l : localParticles) {
-      printf("Particle (x=%f, y=%f, ax=%f, ay=%f)\n", l->x, l->y, l->ax, l->ay);
-  }
-
+  // Finalize the MPI environment.
+  MPI_Finalize();
 }
