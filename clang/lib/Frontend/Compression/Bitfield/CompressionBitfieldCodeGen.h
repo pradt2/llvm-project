@@ -74,7 +74,7 @@ class CompressionBitfieldCodeGen : public CompressionICodeGen {
       if (!field->hasInClassInitializer()) continue;
       std::string init = R.getRewrittenText(field->getInClassInitializer()->getSourceRange());
       if (isCompressionCandidate(field)) {
-        auto compressor = DelegatingFieldBitfieldCompressor(getCompressedStructShortName(), "this->", field);
+        auto compressor = DelegatingFieldBitfieldCompressor(getCompressedStructShortName(), thisAccessorPackedModifier("this->"), field);
         constructor += compressor.getCopyConstructorStmt(init) + "\n";
       }
       else {
@@ -91,7 +91,7 @@ class CompressionBitfieldCodeGen : public CompressionICodeGen {
     constructor += " (" + getOriginalFullyQualifiedStructName() + " &&" + localVarName + ") {\n";
     for (auto *field : decl->fields()) {
       if (isCompressionCandidate(field)) {
-        auto compressor = DelegatingFieldBitfieldCompressor(getCompressedStructShortName(), "this->", field);
+        auto compressor = DelegatingFieldBitfieldCompressor(getCompressedStructShortName(), thisAccessorPackedModifier("this->"), field);
         constructor += compressor.getCopyConstructorStmt(localVarName + "." + field->getNameAsString()) + "\n";
       }
       else {
@@ -113,7 +113,7 @@ class CompressionBitfieldCodeGen : public CompressionICodeGen {
     std::string typeCast = "operator " + getOriginalFullyQualifiedStructName() + "() { " + getOriginalFullyQualifiedStructName() + " val ;\n";
     for (auto *field : decl->fields()) {
       if (isCompressionCandidate(field)) {
-        auto compressor = DelegatingFieldBitfieldCompressor(getCompressedStructShortName(), "this->", field);
+        auto compressor = DelegatingFieldBitfieldCompressor(getCompressedStructShortName(), thisAccessorPackedModifier("this->"), field);
         typeCast += compressor.getTypeCastToOriginalStmt("val." + field->getNameAsString()) + "\n";
       } else {
         auto semaFieldDecl = fromFieldDecl(field);
@@ -132,7 +132,7 @@ class CompressionBitfieldCodeGen : public CompressionICodeGen {
   }
 
   std::string getBitpackStruct() {
-    std::string bitpackStruct = "struct __attribute__((packed)) {\n";
+    std::string bitpackStruct = "struct __attribute__((packed)) " + getOriginalStructName() + "__PACKED_CONTAINER {\n";
     for (auto *field : decl->fields()) {
       if (!isCompressionCandidate(field)) continue;
       QualType elementType;
@@ -151,7 +151,7 @@ class CompressionBitfieldCodeGen : public CompressionICodeGen {
         bitpackStruct += storageType + " " + field->getNameAsString() + " : " + std::to_string(elementWidth) + ";\n";
       }
     }
-    bitpackStruct += "};\n";
+    bitpackStruct += "} __packed;\n";
     return bitpackStruct;
   };
 
@@ -233,6 +233,12 @@ class CompressionBitfieldCodeGen : public CompressionICodeGen {
     method = R.getRewrittenText(signatureSourceRange) + ";"; // this just copies over the signature without the impl.
 
     R.ReplaceText(signatureSourceRange, oldSignature);
+
+    // copy attributes
+    for (auto *attr : methodDecl->attrs()) {
+      auto attrString = R.getRewrittenText(attr->getRange());
+      method = "[[" + attrString + "]]\n" + method;
+    }
 
     return method;
   }
@@ -317,23 +323,6 @@ class CompressionBitfieldCodeGen : public CompressionICodeGen {
     return fields;
   }
 
-  CXXMethodDecl *getMpiMappingMethodDecl() {
-    if (!llvm::isa<CXXRecordDecl>(decl)) return nullptr;
-    auto *cxxDecl = llvm::cast<CXXRecordDecl>(decl);
-    for (auto *method : cxxDecl->methods()) {
-      if (!method->isStatic()) continue;
-      for (auto *attr : method->attrs()) {
-        if (llvm::isa<MapMpiDatatypeAttr>(attr)) return method;
-      }
-    }
-    return nullptr;
-  }
-
-  std::string getNewMpiMappingMethodDecl(CXXMethodDecl *methodDecl) {
-    std::string name = methodDecl->getNameAsString();
-    return "[[clang::map_mpi_datatype]]\nstatic MPI_Datatype " + name + " ();";
-  }
-
   std::string getCompressedStructShortName() {
     return getOriginalStructName() + "__PACKED";
   }
@@ -387,11 +376,8 @@ public:
     std::string constSizeArrCompressionMethods = getConstSizeArrCompressionMethods();
     std::string methods = getStructMethods();
 
-    std::string mpiMapping = "";
-    CXXMethodDecl *mpiMappingMethod = getMpiMappingMethodDecl();
-    if (mpiMappingMethod) mpiMapping = getNewMpiMappingMethodDecl(mpiMappingMethod);
-
-    std::string structDef = "struct __attribute__((packed)) " + recordDecl->fullyQualifiedName + " {\n"
+    //    std::string structDef = "struct __attribute__((packed)) " + recordDecl->fullyQualifiedName + " {\n"
+    std::string structDef = "struct " + recordDecl->fullyQualifiedName + " {\n"
                             + typedefs + "\n"
                             + fieldsDecl + ";\n"
                             + bitpackStruct + ";\n"
@@ -401,27 +387,31 @@ public:
                             + conversionStructs + ";\n"
                             + constSizeArrCompressionMethods + ";\n"
                             + methods + "\n"
-                            + mpiMapping + "\n"
                             + "};\n";
     return structDef;
   }
 
+  // this accounts for the fact that the packed struct is no longer anonymous
+  std::string thisAccessorPackedModifier(std::string thisAccessor) {
+    return thisAccessor + "__packed.";
+  }
+
   std::string getGetterExpr(FieldDecl *fieldDecl, std::string thisAccessor) override {
-    auto delegate = DelegatingNonIndexedFieldBitfieldCompressor(getCompressedStructShortName(), thisAccessor, fieldDecl);
+    auto delegate = DelegatingNonIndexedFieldBitfieldCompressor(getCompressedStructShortName(), thisAccessorPackedModifier(thisAccessor), fieldDecl);
     return delegate.getGetterExpr();
   }
 
   std::string getSetterExpr(FieldDecl *fieldDecl, std::string thisAccessor, std::string toBeSetValue) override {
-    auto delegate = DelegatingNonIndexedFieldBitfieldCompressor(getCompressedStructShortName(), thisAccessor, fieldDecl);
+    auto delegate = DelegatingNonIndexedFieldBitfieldCompressor(getCompressedStructShortName(), thisAccessorPackedModifier(thisAccessor), fieldDecl);
     return delegate.getSetterExpr(toBeSetValue);
   }
 
   std::string getGetterExpr(FieldDecl *fieldDecl, std::string thisAccessor, std::vector<std::string> idxs) override {
-    auto delegate = ConstantSizeArrayBitfieldCompressor(getCompressedStructShortName(), thisAccessor, fieldDecl);
+    auto delegate = ConstantSizeArrayBitfieldCompressor(getCompressedStructShortName(), thisAccessorPackedModifier(thisAccessor), fieldDecl);
     return delegate.getGetterExpr(idxs);
   }
   std::string getSetterExpr(FieldDecl *fieldDecl, std::string thisAccessor, std::vector<std::string> idxs, std::string toBeSetValue) override {
-    auto delegate = ConstantSizeArrayBitfieldCompressor(getCompressedStructShortName(), thisAccessor, fieldDecl);
+    auto delegate = ConstantSizeArrayBitfieldCompressor(getCompressedStructShortName(), thisAccessorPackedModifier(thisAccessor), fieldDecl);
     return delegate.getSetterExpr(idxs, toBeSetValue);
   }
 };
