@@ -366,8 +366,36 @@ public:
     return true;
   }
 
+
+  // if an array of compressed type is created, we need to change the type in the 'new' invocation
+  bool visitArrayTypedConstructorExpr(const CXXConstructExpr *expr) {
+    auto *type = expr->getType()->getAsArrayTypeUnsafe();
+
+    auto elementType = type->getElementType();
+
+    if (!elementType->isRecordType()) return true;
+
+    auto *elementDecl = elementType->getAsCXXRecordDecl();
+
+    if (!isCompressionCandidate(elementDecl)) return true;
+
+    auto beginLoc = expr->getBeginLoc();
+    auto endLoc = expr->getBeginLoc().getLocWithOffset(elementDecl->getNameAsString().size()).getLocWithOffset(-1); // to preserve '[';
+    auto range = SourceRange(beginLoc, endLoc);
+
+    auto compressionCodeGen = CompressionCodeGenResolver(elementDecl, Ctx, SrcMgr, LangOpts, R);
+    R.ReplaceText(range, MARKER + compressionCodeGen.getGlobalNsFullyQualifiedCompressedStructName());
+
+    return true;
+  }
+
   bool visitConstructorExpr(const CXXConstructExpr *expr, bool ignoreZeroArgCalls = true) {
     if (expr->isElidable()) return true;
+
+    if (expr->getType()->isArrayType()) {
+      return visitArrayTypedConstructorExpr(expr);
+    }
+
     updateTemplateInstantiationExpr(expr);
     if (expr->getNumArgs() == 0 && ignoreZeroArgCalls) return true;
     if (expr->getConstructor()->isImplicit()) return true;
