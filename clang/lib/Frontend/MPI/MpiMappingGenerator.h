@@ -16,7 +16,7 @@ class MpiMappingGenerator {
   };
 
   MpiElement mapMpiElement(SemaFieldDecl &decl) {
-    std::string relativeElementOffset = "offsetof(" + decl.parent->fullyQualifiedName + ", " + decl.name + ")";
+    std::string relativeElementOffset = getOffsetOfExpr(decl.parent->fullyQualifiedName, decl.name);
     return mapMpiElement(*decl.type, relativeElementOffset);
   }
 
@@ -154,6 +154,26 @@ class MpiMappingGenerator {
     return element;
   }
 
+  std::string ReplaceAll(std::string str, const std::string& from, const std::string& to) {
+    size_t start_pos = 0;
+    while((start_pos = str.find(from, start_pos)) != std::string::npos) {
+      str.replace(start_pos, from.length(), to);
+      start_pos += to.length(); // Handles case where 'to' is a substring of 'from'
+    }
+    return str;
+  }
+
+  std::string getOffsetOfExpr(std::string parentTypeName, std::string fieldName) {
+    //offsetof is a macro and cannot cope if the parentTypeName contains commas
+    //  this would be true of parentTypeName is a template instantiation with multiple arguments
+    //  the solution is to #define COMMA ,
+    // and to replace all commas with COMMA
+
+    parentTypeName = ReplaceAll(parentTypeName, ",", " COMMA ");
+
+      return "offsetof(" + parentTypeName + ", " + fieldName + ")";
+  }
+
   std::string getMappingMethodCode(std::vector<std::unique_ptr<SemaFieldDecl>> &fields) {
     SemaRecordDecl& recordDecl = *fields[0]->parent;
 
@@ -165,7 +185,7 @@ class MpiMappingGenerator {
     std::vector<std::string> offsets;
 
     for (const auto &field : recordDecl.fields) {
-      MpiElement element = this->mapMpiElement(*field->type, "offsetof(" + recordDecl.name + ", " + field->name + ")");
+      MpiElement element = this->mapMpiElement(*field->type, getOffsetOfExpr(recordDecl.name, field->name));
       blocklengths.insert(blocklengths.end(), element.blockLengths.begin(), element.blockLengths.end());
       types.insert(types.end(), element.types.begin(), element.types.end());
       offsets.insert(offsets.end(), element.offsets.begin(), element.offsets.end());
@@ -173,7 +193,8 @@ class MpiMappingGenerator {
 
     nitems = blocklengths.size();
 
-    sourceCode += "    static MPI_Datatype *Datatype = nullptr;\n"
+    sourceCode += "    #define COMMA ,\n"
+                  "    static MPI_Datatype *Datatype = nullptr;\n"
                   "    if (Datatype) return *Datatype;\n\n"
                   "    Datatype = new MPI_Datatype;\n"
                   "    int blocklengths[" + std::to_string(nitems) + "] = { ";
@@ -209,8 +230,8 @@ class MpiMappingGenerator {
 
     sourceCode += "    MPI_Type_create_struct(" + std::to_string(nitems) + ", blocklengths, offsets, types, Datatype);\n"
                   "    MPI_Type_commit(Datatype);\n"
-                  "    return *Datatype;\n";
-
+                  "    return *Datatype;\n"
+                  "    #undef COMMA";
     return sourceCode;
   }
 
