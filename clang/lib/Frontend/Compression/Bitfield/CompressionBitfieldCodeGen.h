@@ -190,7 +190,7 @@ class CompressionBitfieldCodeGen : public CompressionICodeGen {
     std::string methods;
     for (auto *field : decl->fields()) {
       if (!ConstantSizeArrayBitfieldCompressor().supports(field)) continue;
-      auto compressor = ConstantSizeArrayBitfieldCompressor(getCompressedStructShortName(), "this->", field);
+      auto compressor = ConstantSizeArrayBitfieldCompressor(getCompressedStructShortName(), thisAccessorPackedModifier("this->"), field);
       methods += compressor.getGetterMethod() + ";\n";
       methods += compressor.getSetterMethod() + ";\n";
     }
@@ -407,11 +407,11 @@ public:
   }
 
   std::string getGetterExpr(FieldDecl *fieldDecl, std::string thisAccessor, std::vector<std::string> idxs) override {
-    auto delegate = ConstantSizeArrayBitfieldCompressor(getCompressedStructShortName(), thisAccessorPackedModifier(thisAccessor), fieldDecl);
+    auto delegate = ConstantSizeArrayBitfieldCompressor(getCompressedStructShortName(), thisAccessor, fieldDecl);
     return delegate.getGetterExpr(idxs);
   }
   std::string getSetterExpr(FieldDecl *fieldDecl, std::string thisAccessor, std::vector<std::string> idxs, std::string toBeSetValue) override {
-    auto delegate = ConstantSizeArrayBitfieldCompressor(getCompressedStructShortName(), thisAccessorPackedModifier(thisAccessor), fieldDecl);
+    auto delegate = ConstantSizeArrayBitfieldCompressor(getCompressedStructShortName(), thisAccessor, fieldDecl);
     return delegate.getSetterExpr(idxs, toBeSetValue);
   }
 };
