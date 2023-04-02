@@ -222,10 +222,18 @@ public:
   bool VisitCallExpr(CallExpr *expr) {                      // this replaces static method calls,
     FunctionDecl *functionDecl = expr->getDirectCallee();   // probably only useful for the MPI auto mapping atm
     if (functionDecl == nullptr) return true;
+
+    // sometimes the decl points to the definition
+    // and then the 'static' attribute is missing
+    while (functionDecl->getPreviousDecl()) {
+      functionDecl = functionDecl->getPreviousDecl();
+    }
+
     if (!functionDecl->isStatic()) return true;
     DeclContext *parentDecl = functionDecl->getParent();
     if (!parentDecl->isRecord()) return true;
     RecordDecl *recordDecl = llvm::cast<RecordDecl>(parentDecl);
+
     if (!isCompressionCandidate(recordDecl)) return true;
     SourceRange rangeToReplace = expr->getCallee()->getSourceRange();
     CompressionCodeGenResolver compressionCodeGenResolver = CompressionCodeGenResolver(recordDecl, Ctx, SrcMgr, LangOpts, R);
