@@ -362,7 +362,16 @@ public:
     auto *constructorExpr = expr->getConstructExpr();
     if (!constructorExpr) return true;
     if (constructorExpr->getNumArgs() != 0) return true; // the VisitCXXConstructExpr method below will handle it
+
+
+    // only visit array constructor exprs if new is called
+    // otherwise other passes will change the type
+    if (constructorExpr->getType()->isArrayType()) {
+      return visitArrayTypedConstructorExpr(constructorExpr);
+    }
+
     visitConstructorExpr(constructorExpr, false);
+
     return true;
   }
 
@@ -391,10 +400,6 @@ public:
 
   bool visitConstructorExpr(const CXXConstructExpr *expr, bool ignoreZeroArgCalls = true) {
     if (expr->isElidable()) return true;
-
-    if (expr->getType()->isArrayType()) {
-      return visitArrayTypedConstructorExpr(expr);
-    }
 
     updateTemplateInstantiationExpr(expr);
     if (expr->getNumArgs() == 0 && ignoreZeroArgCalls) return true;
