@@ -1068,6 +1068,20 @@ public:
     // and in such cases decl->getBodyRBrace points to the cpp file instead of the h file,
     // and we cannot get a working SourceRange
 
+
+    // in method definitions, default values for arguments must be removed
+    // i.e. they should only be present in method declarations
+    // otherwise compilation fails
+    // here, because we are using a 'scratch-pad' Rewriter
+    // we can just remove the argument values from the Rewriter before proceeding
+    for (auto *methodArg : decl->parameters()) {
+      if (!methodArg->hasDefaultArg()) continue ;
+      SourceLocation nameEndLoc = methodArg->getLocation().getLocWithOffset(methodArg->getNameAsString().size());
+      SourceLocation endLoc = methodArg->getDefaultArgRange().getEnd();
+
+      R.ReplaceText(SourceRange(nameEndLoc, endLoc), "");
+    }
+
     std::string method;
 
 //    SourceRange declRange = decl->getSourceRange(); // keywords like 'static' are also in this source range, and they are disallowed in function definitions
