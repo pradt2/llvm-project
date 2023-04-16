@@ -228,10 +228,17 @@ class MpiMappingGenerator {
     }
     sourceCode += "\n    };\n";
 
-    sourceCode += "    MPI_Type_create_struct(" + std::to_string(nitems) + ", blocklengths, offsets, types, Datatype);\n"
-                  "    MPI_Type_commit(Datatype);\n"
-                  "    return *Datatype;\n"
-                  "    #undef COMMA";
+//    sourceCode += "    MPI_Type_create_struct(" + std::to_string(nitems) + ", blocklengths, offsets, types, Datatype);\n"
+//                  "    MPI_Type_commit(Datatype);\n"
+//                  "    return *Datatype;\n"
+//                  "    #undef COMMA";
+
+    sourceCode += "   " + recordDecl.fullyQualifiedName + " mockObj;\n"
+                  "   MPI_Type_create_struct(1, new int[1] { sizeof(mockObj) }, new long[1] { 0L }, new MPI_Datatype[1] { MPI_BYTE }, Datatype);\n"
+                  "   MPI_Type_commit(Datatype);\n"
+                  "   return *Datatype;\n"
+                  "   #undef COMMA";
+
     return sourceCode;
   }
 
