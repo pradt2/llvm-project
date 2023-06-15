@@ -411,7 +411,7 @@ public:
 
     updateTemplateInstantiationExpr(expr);
     if (expr->getNumArgs() == 0 && ignoreZeroArgCalls) return true;
-    if (expr->getConstructor()->isImplicit()) return true;
+    if (expr->getConstructor()->isImplicit() && ignoreZeroArgCalls) return true;
     std::string ptrs;
     auto constructType = getTypeFromIndirectType(expr->getType(), ptrs);
     if (!constructType->isRecordType()) return true;
