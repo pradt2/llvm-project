@@ -163,9 +163,9 @@ class CompressionBitfieldCodeGen : public CompressionICodeGen {
           std::string storageType = getIntegerTypeForSize(elementWidth);
           bitpackStruct += storageType + " " +  field->getNameAsString() + std::to_string(i);
           if (elementWidth != storageTypeWidth) {
-             bitpackStruct + " : " + std::to_string(elementWidth);
+             bitpackStruct += " : " + std::to_string(elementWidth);
           }
-          bitpackStruct + ";\n";
+          bitpackStruct += ";\n";
         }
       } else {
         auto compressor = DelegatingFieldBitfieldCompressor("s", "t", field);
@@ -174,9 +174,9 @@ class CompressionBitfieldCodeGen : public CompressionICodeGen {
           std::string storageType = getIntegerTypeForSize(elementWidth);
         bitpackStruct += storageType + " " + field->getNameAsString();
           if (elementWidth != storageTypeWidth) {
-              bitpackStruct + " : " + std::to_string(elementWidth);
+              bitpackStruct += " : " + std::to_string(elementWidth);
           }
-          bitpackStruct + ";\n";
+          bitpackStruct += ";\n";
       }
     }
     bitpackStruct += "} __packed;\n";
