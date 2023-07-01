@@ -49,6 +49,15 @@ class CompressionBitfieldCodeGen : public CompressionICodeGen {
     return type;
   }
 
+  int getIntegerSizeForSize(unsigned int size) {
+      if (size <= 8) return 8;
+      if (size <= 16) return 16;
+      if (size <= 32) return 32;
+      if (size <= 64) return 64;
+      if (size <= 128) return 128;
+      return -1;
+  }
+
   unsigned int getTableCellsNeeded() {
     double bitCounter = 0;
     for (auto *field : decl->fields()) {
@@ -150,14 +159,24 @@ class CompressionBitfieldCodeGen : public CompressionICodeGen {
         unsigned int totalElements = compressor.getTotalElements();
         for (unsigned int i = 0; i < totalElements; i++) {
           unsigned int elementWidth = compressor.getElementCompressedTypeWidth();
+          unsigned int storageTypeWidth = getIntegerSizeForSize(elementWidth);
           std::string storageType = getIntegerTypeForSize(elementWidth);
-          bitpackStruct += storageType + " " +  field->getNameAsString() + std::to_string(i) + " : " + std::to_string(elementWidth) + ";\n";
+          bitpackStruct += storageType + " " +  field->getNameAsString() + std::to_string(i);
+          if (elementWidth != storageTypeWidth) {
+             bitpackStruct + " : " + std::to_string(elementWidth);
+          }
+          bitpackStruct + ";\n";
         }
       } else {
         auto compressor = DelegatingFieldBitfieldCompressor("s", "t", field);
         unsigned int elementWidth = compressor.getCompressedTypeWidth();
-        std::string storageType = getIntegerTypeForSize(elementWidth);
-        bitpackStruct += storageType + " " + field->getNameAsString() + " : " + std::to_string(elementWidth) + ";\n";
+          unsigned int storageTypeWidth = getIntegerSizeForSize(elementWidth);
+          std::string storageType = getIntegerTypeForSize(elementWidth);
+        bitpackStruct += storageType + " " + field->getNameAsString();
+          if (elementWidth != storageTypeWidth) {
+              bitpackStruct + " : " + std::to_string(elementWidth);
+          }
+          bitpackStruct + ";\n";
       }
     }
     bitpackStruct += "} __packed;\n";
