@@ -69,19 +69,28 @@ class CompressionBitfieldCodeGen : public CompressionICodeGen {
 
   std::string getEmptyConstructor() {
     std::string constructor = getCompressedStructShortName();
+    bool hasAnyFieldsToInit = false;
     constructor += "() {";
     for (auto *field : decl->fields()) {
       if (!field->hasInClassInitializer()) continue;
+
+      hasAnyFieldsToInit = true;
+
       std::string init = R.getRewrittenText(field->getInClassInitializer()->getSourceRange());
       if (isCompressionCandidate(field)) {
         auto compressor = DelegatingFieldBitfieldCompressor(getCompressedStructShortName(), thisAccessorPackedModifier("this->"), field);
         constructor += compressor.getCopyConstructorStmt(init) + "\n";
       }
       else {
-        constructor += "this->" + field->getNameAsString() + " = " + init + "; ";
+        constructor += "this->" + field->getNameAsString() + " = " + init + ";\n";
       }
     }
     constructor += "}";
+
+    // During linear AOS testing (memory bound programs) I found that if some (all?) fields don't have an in-place init value
+    // Working with arrays of such values is much slower (2-4x) when an '{}' constructor is used instead of a ' = default' constructor
+    if (!hasAnyFieldsToInit) return getCompressedStructShortName() + "() = default;";
+
     return constructor;
   }
 
