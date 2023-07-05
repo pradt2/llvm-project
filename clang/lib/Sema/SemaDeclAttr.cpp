@@ -4446,8 +4446,12 @@ void Sema::AddCompressionMethodAttr(Decl *D, const AttributeCommonInfo &CI, Comp
   D->addAttr(CompressionMethodAttr);
 }
 
-void Sema::AddMapMpiDatatypeAttr(Decl *D, const AttributeCommonInfo &CI) {
-  auto *MapMpiDatatypeAttr = clang::MapMpiDatatypeAttr::Create(Context, CI);
+void Sema::AddMapMpiDatatypeAttr(Decl *D, const ParsedAttr &AL) {
+    llvm::StringRef fields;
+    if (AL.getNumArgs() == 1) {
+        fields = llvm::cast<StringLiteral>(AL.getArgAsExpr(0))->getString();
+    }
+  auto *MapMpiDatatypeAttr = clang::MapMpiDatatypeAttr::Create(Context, fields, AL);
   D->addAttr(MapMpiDatatypeAttr);
 }
 

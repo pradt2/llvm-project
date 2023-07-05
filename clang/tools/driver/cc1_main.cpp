@@ -435,28 +435,28 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
     }
 
   } else {
-    auto CompilerInstance = CreateCompilerInstance(Argv, Argv0, MainAddr);
-    Result = ExecuteCompilerInvocation(CompilerInstance.get(), std::make_unique<ForceFloatLiteralAction>());
-    Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
-
-    if (Result != FRONTEND_ACTION_SUCCESS) goto L1;
-
-    rewrittenSourcesHandler.loadRewrittenSources(CompilerInstance->getSourceManager().getRewriter());
-    CompilerInstance = CreateCompilerInstance(Argv, Argv0, MainAddr);
-
-    rewrittenSourcesHandler.saveIntoOpts(CompilerInstance->getPreprocessorOpts());
-
-    std::map<std::string, std::string> fileMap;
-    Result = ExecuteCompilerInvocation(CompilerInstance.get(), std::make_unique<ForceFloatAction>(fileMap));
-    Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
-
-    if (Result != FRONTEND_ACTION_SUCCESS) goto L1;
-
-    for (auto kv : fileMap) {
-      auto k_clone = kv.first;
-      auto v_clone = kv.second;
-      Clang->getPreprocessorOpts().addRemappedFile(k_clone, llvm::MemoryBuffer::getMemBufferCopy(v_clone).release());
-    }
+//    auto CompilerInstance = CreateCompilerInstance(Argv, Argv0, MainAddr);
+//    Result = ExecuteCompilerInvocation(CompilerInstance.get(), std::make_unique<ForceFloatLiteralAction>());
+//    Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
+//
+//    if (Result != FRONTEND_ACTION_SUCCESS) goto L1;
+//
+//    rewrittenSourcesHandler.loadRewrittenSources(CompilerInstance->getSourceManager().getRewriter());
+//    CompilerInstance = CreateCompilerInstance(Argv, Argv0, MainAddr);
+//
+//    rewrittenSourcesHandler.saveIntoOpts(CompilerInstance->getPreprocessorOpts());
+//
+//    std::map<std::string, std::string> fileMap;
+//    Result = ExecuteCompilerInvocation(CompilerInstance.get(), std::make_unique<ForceFloatAction>(fileMap));
+//    Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
+//
+//    if (Result != FRONTEND_ACTION_SUCCESS) goto L1;
+//
+//    for (auto kv : fileMap) {
+//      auto k_clone = kv.first;
+//      auto v_clone = kv.second;
+//      Clang->getPreprocessorOpts().addRemappedFile(k_clone, llvm::MemoryBuffer::getMemBufferCopy(v_clone).release());
+//    }
 
     Result = ExecuteCompilerInvocation(Clang.get());
     Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;

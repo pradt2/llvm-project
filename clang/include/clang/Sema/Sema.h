@@ -11184,7 +11184,7 @@ public:
 
   void AddCompressionMethodAttr(Decl *D, const AttributeCommonInfo &CI, CompressionMethodAttr::CompressionMethodType type);
 
-  void AddMapMpiDatatypeAttr(Decl *D, const AttributeCommonInfo &CI);
+  void AddMapMpiDatatypeAttr(Decl *D, const ParsedAttr &AL);
 
   /// ConstantFoldAttrArgs - Folds attribute arguments into ConstantExprs
   /// (unless they are value dependent or type dependent). Returns false
