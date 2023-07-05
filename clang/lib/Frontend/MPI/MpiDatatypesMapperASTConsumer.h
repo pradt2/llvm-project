@@ -29,7 +29,7 @@ class MpiDatatypesMapperASTConsumer : public ASTConsumer,
       MpiMappingGenerator adder;
       if (!adder.isMpiMappingCandidate(D)) return true;
 
-      auto code = adder.getMpiMappingMethodBody(D->getParent());
+      auto code = adder.getMpiMappingMethodBody(D);
 
       if (D->hasBody()) {
         auto bodyRange = D->getBody()->getSourceRange();

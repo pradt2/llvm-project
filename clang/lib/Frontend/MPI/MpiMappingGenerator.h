@@ -174,7 +174,7 @@ class MpiMappingGenerator {
       return "offsetof(" + parentTypeName + ", " + fieldName + ")";
   }
 
-  std::string getMappingMethodCode(std::vector<std::unique_ptr<SemaFieldDecl>> &fields) {
+  std::string getMappingMethodCode(std::vector<std::unique_ptr<SemaFieldDecl>> &fields, llvm::StringRef fieldsArg) {
     SemaRecordDecl& recordDecl = *fields[0]->parent;
 
     std::string sourceCode = "";
@@ -184,7 +184,10 @@ class MpiMappingGenerator {
     std::vector<std::string> types;
     std::vector<std::string> offsets;
 
+    bool shouldOnlyIncludeExplicit = fieldsArg.size() > 0;
+
     for (const auto &field : recordDecl.fields) {
+        if (shouldOnlyIncludeExplicit && (!fieldsArg.contains(field->name) || llvm::StringRef(field->name) == "__packed")) continue; // TODO this will cause problems for similarly named fields
       MpiElement element = this->mapMpiElement(*field->type, getOffsetOfExpr(recordDecl.name, field->name));
       blocklengths.insert(blocklengths.end(), element.blockLengths.begin(), element.blockLengths.end());
       types.insert(types.end(), element.types.begin(), element.types.end());
@@ -235,54 +238,40 @@ class MpiMappingGenerator {
     return sourceCode;
   }
 
+  MapMpiDatatypeAttr *getMapMpiDatatypeAttr(CXXMethodDecl *D) {
+      if (!D->isStatic()) return nullptr;
+      for (auto *attr : D->attrs()) {
+          if (llvm::isa<MapMpiDatatypeAttr>(attr)) return (MapMpiDatatypeAttr*) attr;
+      }
+      return nullptr;
+  }
+
 public:
 
   bool isMpiMappingCandidate(CXXMethodDecl *D) {
-    if (!D->isStatic()) return false;
-    for (auto *attr : D->attrs()) {
-      if (llvm::isa<MapMpiDatatypeAttr>(attr)) return true;
-    }
-    return false;
+    return this->getMapMpiDatatypeAttr(D) != nullptr;
   }
 
-  bool isMpiMappingCandidate(RecordDecl *decl) {
-    if (!llvm::isa<CXXRecordDecl>(decl)) return false;
-    auto *cxxDecl = llvm::cast<CXXRecordDecl>(decl);
-    for (auto *method : cxxDecl->methods()) {
-      if (isMpiMappingCandidate(method)) return true;
-    }
-    return false;
+  std::string getMpiMappingMethodBody(CXXMethodDecl *D) {
+      auto *decl = D->getParent();
+
+      auto fieldsRef = this->getMapMpiDatatypeAttr(D)->getFields();
+
+    return getMpiMappingMethodBody(decl->getNameAsString(), decl, fieldsRef);
   }
 
-  std::string getMpiMappingMethodBody(RecordDecl *decl) {
-    return getMpiMappingMethodBody(decl->getNameAsString(), decl);
-  }
-
-  std::string getMpiMappingMethodBody(std::string structName, RecordDecl *decl) {
+  std::string getMpiMappingMethodBody(std::string structName, RecordDecl *decl, llvm::StringRef fields) {
       auto semaRecordDecl = fromRecordDecl(decl);
       semaRecordDecl->name = structName;
-      return getMpiMappingMethodBody(*semaRecordDecl);
+      return getMpiMappingMethodBody(*semaRecordDecl, fields);
   }
 
-  std::string getMpiMappingMethodBody(SemaRecordDecl &decl) {
-      return getMpiMappingMethodBody(decl.fields);
+  std::string getMpiMappingMethodBody(SemaRecordDecl &decl, llvm::StringRef fields) {
+      return getMpiMappingMethodBody(decl.fields, fields);
   }
 
-  std::string getMpiMappingMethodBody(std::vector<std::unique_ptr<SemaFieldDecl>> &fields) {
-      return this->getMappingMethodCode(fields);
-  }
-
-  std::string getMpiMappingMethodDef(RecordDecl *decl, SemaRecordDecl &semaDecl) {
-    std::string methodName;
-    auto *cxxDecl = llvm::cast<CXXRecordDecl>(decl);
-    for (auto *method : cxxDecl->methods()) {
-      if (!isMpiMappingCandidate(method)) continue;
-      methodName = method->getNameAsString();
-      break;
-    }
-
-    std::string methodDef = "static MPI_Datatype " + methodName + "() {\n" + getMpiMappingMethodBody(semaDecl) + "\n}";
-    return methodDef;
+  std::string getMpiMappingMethodBody(std::vector<std::unique_ptr<SemaFieldDecl>> &fields, llvm::StringRef fieldsArg) {
+      return this->getMappingMethodCode(fields, fieldsArg);
   }
 
 };
