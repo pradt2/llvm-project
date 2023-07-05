@@ -187,7 +187,7 @@ class MpiMappingGenerator {
     bool shouldOnlyIncludeExplicit = fieldsArg.size() > 0;
 
     for (const auto &field : recordDecl.fields) {
-        if (shouldOnlyIncludeExplicit && (!fieldsArg.contains(field->name) || llvm::StringRef(field->name) == "__packed")) continue; // TODO this will cause problems for similarly named fields
+        if (shouldOnlyIncludeExplicit && !fieldsArg.contains(field->name) && llvm::StringRef(field->name) != "__packed") continue; // TODO this will cause problems for similarly named fields
       MpiElement element = this->mapMpiElement(*field->type, getOffsetOfExpr(recordDecl.name, field->name));
       blocklengths.insert(blocklengths.end(), element.blockLengths.begin(), element.blockLengths.end());
       types.insert(types.end(), element.types.begin(), element.types.end());
