@@ -908,7 +908,6 @@ public:
   }
 };
 
-
 class NewStructForwardDeclAdder : public ASTConsumer, public RecursiveASTVisitor<NewStructForwardDeclAdder> {
 private:
   ASTContext &Ctx;
@@ -1147,6 +1146,25 @@ public:
     std::string functionName = recordFullyQualifiedName + "::" + recordShortName;
 
     r.ReplaceText(decl->getNameInfo().getSourceRange(), functionName); // replace function name with fully qualified struct name + name
+
+
+      if (decl->getNumCtorInitializers() > 0) {
+          for (auto *ctorInit : decl->inits()) {
+              auto *ctorInitExpr = ctorInit->getInit();
+              auto *constructorExpr = llvm::cast_or_null<CXXConstructExpr>(ctorInitExpr);
+              auto constructorExprString = r.getRewrittenText(constructorExpr->getSourceRange());
+              auto constructorExprStringRef = llvm::StringRef(constructorExprString);
+
+              int argsStartIdx = constructorExprStringRef.find('(');
+
+              if (argsStartIdx >= 1) {
+                  auto srcRange = SourceRange(ctorInitExpr->getBeginLoc(), ctorInitExpr->getBeginLoc().getLocWithOffset(argsStartIdx).getLocWithOffset(-1));
+                  r.ReplaceText(srcRange, recordShortName);
+              }
+          }
+      }
+
+
     method = getMethodStr(decl, r); // "noexcept");
     return method;
   }
