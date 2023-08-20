@@ -707,13 +707,6 @@ public:
     FunctionDecl *d = expr->getDirectCallee();
     if (!d || !d->isTemplateInstantiation() || !d->getTemplateSpecializationArgs()) return true;
 
-      // calls to std::vector methods such as .insert() are secretly template instantiations, even though no template arguments are present at call site
-      // I couldn't figure out how to detect these 'implicit' template instantiations, so here we bluntly detect '<' and '>' chars as signs of explicit template instantiations
-//    if (invocation.find('<') == std::string::npos || invocation.find('>') == std::string::npos) return true;
-      if (d->getTemplateSpecializationKindForInstantiation() == TemplateSpecializationKind::TSK_ImplicitInstantiation) {
-          return true;
-      }
-
     SourceLocation typeEnd;
     if (expr->getNumArgs() == 0) {
       typeEnd = expr->getEndLoc().getLocWithOffset(-2); // this removes the trailing '()' from the function invocation
@@ -726,6 +719,11 @@ public:
     if (range.getBegin() >= range.getEnd()) return true;
 
       std::string invocation = R.getRewrittenText(range);
+      // calls to std::vector methods such as .insert() are secretly template instantiations, even though no template arguments are present at call site
+      // (d->getTemplateSpecializationKindForInstantiation()) DOESN'T WORK - returns ImplicitInstantiation even for explicit instantiations
+      // I couldn't figure out how to detect these 'implicit' template instantiations, so here we bluntly detect '<' and '>' chars as signs of explicit template instantiations
+      if (invocation.find('<') == std::string::npos || invocation.find('>') == std::string::npos) return true;
+
 
     // sometimes the range would eat the '(', esp. when the function is called like this
     // function(
