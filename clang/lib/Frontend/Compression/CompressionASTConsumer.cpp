@@ -7,7 +7,7 @@ void CompressionASTConsumer::HandleTranslationUnit(ASTContext &Context) {
   NewStructAdder(Ctx, SrcMgr, LangOpts, R).HandleTranslationUnit(Context);
 //  PragmaPackAdder(Ctx, SrcMgr, LangOpts, R).HandleTranslationUnit(Context);
   FieldDeclUpdater(Ctx, SrcMgr, LangOpts, R).HandleTranslationUnit(Context);
-  GlobalFunctionAndVarUpdater(Ctx, SrcMgr, LangOpts, R).HandleTranslationUnit(Context);
+  GlobalFunctionAndVarAndTypedefUpdater(Ctx, SrcMgr, LangOpts, R).HandleTranslationUnit(Context);
 }
 
 void ForceFloatLiteralASTConsumer::HandleTranslationUnit(clang::ASTContext &Context) {
