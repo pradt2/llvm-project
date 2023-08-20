@@ -389,9 +389,25 @@ public:
     return recordDecl;
   }
 
+
+  // static fields are var decls
+  std::string getVarDecls() {
+      std::string vars = "";
+
+      for (auto *localDecl : decl->decls()) {
+          if (!llvm::isa<VarDecl>(localDecl)) continue;
+          auto *varDecl = llvm::cast<VarDecl>(localDecl);
+
+          vars += R.getRewrittenText(varDecl->getSourceRange()) + ";\n";
+      }
+
+      return vars;
+  }
+
   std::string getCompressedStructDef() override {
     std::unique_ptr<SemaRecordDecl> recordDecl = getSemaRecordDecl();
     std::string typedefs = getTypedefsForInnerTypes();
+    std::string varDecls = getVarDecls();
     std::string fieldsDecl;
     for (const auto &fieldDecl : recordDecl->fields) {
       fieldsDecl += toSource(*fieldDecl) += ";\n";
@@ -407,6 +423,7 @@ public:
     //    std::string structDef = "struct __attribute__((packed)) " + recordDecl->fullyQualifiedName + " {\n"
     std::string structDef = "struct " + recordDecl->fullyQualifiedName + " {\n"
                             + typedefs + "\n"
+                            + varDecls + "\n"
                             + fieldsDecl + ";\n"
                             + bitpackStruct + ";\n"
                             + emptyConstructor + ";\n"
