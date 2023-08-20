@@ -707,7 +707,12 @@ public:
     FunctionDecl *d = expr->getDirectCallee();
     if (!d || !d->isTemplateInstantiation() || !d->getTemplateSpecializationArgs()) return true;
 
-
+      // calls to std::vector methods such as .insert() are secretly template instantiations, even though no template arguments are present at call site
+      // I couldn't figure out how to detect these 'implicit' template instantiations, so here we bluntly detect '<' and '>' chars as signs of explicit template instantiations
+//    if (invocation.find('<') == std::string::npos || invocation.find('>') == std::string::npos) return true;
+      if (d->getTemplateSpecializationKindForInstantiation() == TemplateSpecializationKind::TSK_ImplicitInstantiation) {
+          return true;
+      }
 
     SourceLocation typeEnd;
     if (expr->getNumArgs() == 0) {
@@ -720,10 +725,7 @@ public:
     SourceRange range = SourceRange(expr->getBeginLoc(), typeEnd);
     if (range.getBegin() >= range.getEnd()) return true;
 
-    // calls to std::vector methods such as .insert() are secretly template instantiations, even though no template arguments are present at call site
-    // I couldn't figure out how to detect these 'implicit' template instantiations, so here we bluntly detect '<' and '>' chars as signs of explicit template instantiations
-    std::string invocation = R.getRewrittenText(range);
-    if (invocation.find('<') == std::string::npos || invocation.find('>') == std::string::npos) return true;
+      std::string invocation = R.getRewrittenText(range);
 
     // sometimes the range would eat the '(', esp. when the function is called like this
     // function(
@@ -742,6 +744,13 @@ public:
     R.ReplaceText(range, MARKER + newType);
 
     return true;
+  }
+
+  bool VisitTypedefDecl(TypedefDecl *d) {
+      if (d->getNameAsString() != "BofA") return true;
+
+
+      return true;
   }
 
 };
@@ -789,6 +798,18 @@ void updateTemplateInstantiationType(ASTContext &Ctx, SourceManager &SrcMgr, Lan
     if (newTemplateInstantiationType.empty()) return ;
 
     SourceRange typespecSourceRange = SourceRange(decl->getTypeSpecStartLoc(), decl->getTypeSpecEndLoc());
+
+    R.ReplaceText(typespecSourceRange, MARKER + newTemplateInstantiationType);
+}
+
+void updateTemplateInstantiationType(ASTContext &Ctx, SourceManager &SrcMgr, LangOptions &LangOpts, Rewriter &R, TypedefDecl *decl) {
+    auto typedefType = Ctx.getTypedefType(decl);
+
+    std::string newTemplateInstantiationType = getNewTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, typedefType);
+
+    if (newTemplateInstantiationType.empty()) return ;
+
+    SourceRange typespecSourceRange = decl->getTypeSourceInfo()->getTypeLoc().getSourceRange();
 
     R.ReplaceText(typespecSourceRange, MARKER + newTemplateInstantiationType);
 }
@@ -1210,17 +1231,17 @@ public:
   }
 };
 
-class GlobalFunctionAndVarUpdater : public ASTConsumer, public RecursiveASTVisitor<GlobalFunctionAndVarUpdater> {
+class GlobalFunctionAndVarAndTypedefUpdater : public ASTConsumer, public RecursiveASTVisitor<GlobalFunctionAndVarAndTypedefUpdater> {
 private:
   ASTContext &Ctx;
   SourceManager &SrcMgr;
   LangOptions &LangOpts;
   Rewriter &R;
 public:
-  explicit GlobalFunctionAndVarUpdater(ASTContext &Ctx,
-                           SourceManager &SrcMgr,
-                           LangOptions &LangOpts,
-                           Rewriter &R) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
+  explicit GlobalFunctionAndVarAndTypedefUpdater(ASTContext &Ctx,
+                                                 SourceManager &SrcMgr,
+                                                 LangOptions &LangOpts,
+                                                 Rewriter &R) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
 
 public:
 
@@ -1246,6 +1267,10 @@ public:
     if (parent) return true;
     updateVarType(Ctx, SrcMgr, LangOpts, R, decl);
     return true;
+  }
+
+  bool VisitTypedefDecl(TypedefDecl *d) {
+      updateTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, d);
   }
 };
 
