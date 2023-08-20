@@ -774,13 +774,23 @@ public:
 };
 
 void updateTemplateInstantiationType(ASTContext &Ctx, SourceManager &SrcMgr, LangOptions &LangOpts, Rewriter &R, DeclaratorDecl *decl /** to cover VarDecl and FieldDecl */) {
-  std::string newTemplateInstantiationType = getNewTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, decl->getType());
+    // implicit instantiations are when the templates arguments aren't explicitly mentioned in the source code
+    // no need for any rewriting in this case
+    // NB: this method is called with VarDecls and FieldDecls, but FieldDecls don't have getTemplateSpecializationKind()
+    if (llvm::isa<VarDecl>(decl)) {
+        auto *varDecl = llvm::cast_or_null<VarDecl>(decl);
+        if (varDecl->getTemplateSpecializationKind() == TemplateSpecializationKind::TSK_ImplicitInstantiation) {
+            return;
+        }
+    }
 
-  if (newTemplateInstantiationType.empty()) return ;
+    std::string newTemplateInstantiationType = getNewTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, decl->getType());
 
-  SourceRange typespecSourceRange = SourceRange(decl->getTypeSpecStartLoc(), decl->getTypeSpecEndLoc());
+    if (newTemplateInstantiationType.empty()) return ;
 
-  R.ReplaceText(typespecSourceRange, MARKER + newTemplateInstantiationType);
+    SourceRange typespecSourceRange = SourceRange(decl->getTypeSpecStartLoc(), decl->getTypeSpecEndLoc());
+
+    R.ReplaceText(typespecSourceRange, MARKER + newTemplateInstantiationType);
 }
 
 void updateConstSizeArrayType(ASTContext &Ctx, SourceManager &SrcMgr, LangOptions &LangOpts, Rewriter &R, DeclaratorDecl *decl /** to cover VarDecl and FieldDecl */) {
