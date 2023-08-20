@@ -805,11 +805,21 @@ void updateTemplateInstantiationType(ASTContext &Ctx, SourceManager &SrcMgr, Lan
 void updateTemplateInstantiationType(ASTContext &Ctx, SourceManager &SrcMgr, LangOptions &LangOpts, Rewriter &R, TypedefDecl *decl) {
     auto typedefType = Ctx.getTypedefType(decl);
 
+    auto *typeSourceInfo = decl->getTypeSourceInfo();
+
+    if (!typeSourceInfo) return;
+
+    auto typeLoc = typeSourceInfo->getTypeLoc();
+
+    if (!typeLoc) return;
+
+    SourceRange typespecSourceRange = typeLoc.getSourceRange();
+
+    if (typespecSourceRange.isInvalid()) return;
+
     std::string newTemplateInstantiationType = getNewTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, typedefType);
 
     if (newTemplateInstantiationType.empty()) return ;
-
-    SourceRange typespecSourceRange = decl->getTypeSourceInfo()->getTypeLoc().getSourceRange();
 
     R.ReplaceText(typespecSourceRange, MARKER + newTemplateInstantiationType);
 }
@@ -1271,6 +1281,7 @@ public:
 
   bool VisitTypedefDecl(TypedefDecl *d) {
       updateTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, d);
+      return true;
   }
 };
 
