@@ -746,13 +746,6 @@ public:
     return true;
   }
 
-  bool VisitTypedefDecl(TypedefDecl *d) {
-      if (d->getNameAsString() != "BofA") return true;
-
-
-      return true;
-  }
-
 };
 
 class ExprUpdater {
