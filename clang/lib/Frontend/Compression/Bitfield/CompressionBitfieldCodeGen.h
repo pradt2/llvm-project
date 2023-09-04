@@ -249,6 +249,13 @@ class CompressionBitfieldCodeGen : public CompressionICodeGen {
       R.ReplaceText(param->getTypeSourceInfo()->getTypeLoc().getSourceRange(), getCompressedStructName() + ptrs);
     }
 
+    // change return type if the compressed class returns an instance of itself (or a ptr, or a ref, etc.)
+    auto returnType = methodDecl->getReturnType();
+    std::string ptrs;
+    QualType actualType = getTypeFromIndirectType(returnType, ptrs);
+    if (!actualType->isRecordType() || actualType->getAsRecordDecl() != decl) { } else // constructor arg is not the compressed struct
+    R.ReplaceText(methodDecl->getReturnTypeSourceRange(), getCompressedStructName() + ptrs);
+
     if (llvm::isa<CXXConstructorDecl>(methodDecl)) {
       // for constructors, we need to change the name of the class
       // to the name of the compressed struct

@@ -900,11 +900,13 @@ private:
   SourceManager &SrcMgr;
   LangOptions &LangOpts;
   Rewriter &R;
+  bool rewriteCompressionCandidates = false;
 public:
   explicit FunctionUpdater(ASTContext &Ctx,
                            SourceManager &SrcMgr,
                            LangOptions &LangOpts,
-                           Rewriter &R) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R) {}
+                           Rewriter &R,
+                           bool rewriteCompressionCandidates = false) : Ctx(Ctx), SrcMgr(SrcMgr), LangOpts(LangOpts), R(R), rewriteCompressionCandidates(rewriteCompressionCandidates) {}
 
 public:
 
@@ -913,7 +915,21 @@ public:
 
     if (llvm::isa<CXXMethodDecl>(decl)) { // changes return type
       CXXMethodDecl *methodDecl = llvm::cast<CXXMethodDecl>(decl);
-      if (isCompressionCandidate(methodDecl->getParent())) return true;
+      if (isCompressionCandidate(methodDecl->getParent())) {
+          if (!rewriteCompressionCandidates) return true;
+
+          // change return type if the compressed class returns an instance of itself (or a ptr, or a ref, etc.)
+          auto returnType = methodDecl->getReturnType();
+          std::string ptrs;
+          QualType actualType = getTypeFromIndirectType(returnType, ptrs);
+          if (!actualType->isRecordType() || actualType->getAsRecordDecl() != methodDecl->getParent()) { } else { // constructor arg is not the compressed struct
+              CompressionBitfieldCodeGen rew(methodDecl->getParent(), Ctx, SrcMgr, LangOpts, R);
+              auto newName = rew.getFullyQualifiedCompressedStructName();
+              R.ReplaceText(methodDecl->getReturnTypeSourceRange(), rew.getCompressedStructName() + ptrs);
+          }
+
+          return true;
+      }
     }
 
     std::string ptrs = "";
@@ -1112,7 +1128,6 @@ public:
     // and in such cases decl->getBodyRBrace points to the cpp file instead of the h file,
     // and we cannot get a working SourceRange
 
-
     // in method definitions, default values for arguments must be removed
     // i.e. they should only be present in method declarations
     // otherwise compilation fails
@@ -1157,7 +1172,7 @@ public:
     std::string method;
     Rewriter r(SrcMgr, LangOpts);
 
-    FunctionUpdater(Ctx, SrcMgr, LangOpts, r).TraverseDecl(decl);
+    FunctionUpdater(Ctx, SrcMgr, LangOpts, r, true).TraverseDecl(decl);
 
     std::string functionName = recordFullyQualifiedName + "::" + decl->getDeclName().getAsString();
 
@@ -1171,7 +1186,7 @@ public:
     std::string method;
     Rewriter r(SrcMgr, LangOpts);
 
-    FunctionUpdater(Ctx, SrcMgr, LangOpts, r).TraverseDecl(decl);
+    FunctionUpdater(Ctx, SrcMgr, LangOpts, r, true).TraverseDecl(decl);
 
     // out of class constructor decl format
     // ns:Class::Class(arg1, arg2...)
@@ -1252,9 +1267,6 @@ public:
   }
 
   bool VisitFunctionDecl(FunctionDecl *decl) {
-    if (decl->getNameAsString() == "method") {
-      llvm::outs() << "method\n";
-    }
     DeclContext *parent = decl->getParent();
     if (parent && parent->isRecord()) {
       RecordDecl *record = llvm::cast<RecordDecl>(parent);
