@@ -925,7 +925,7 @@ public:
           if (!actualType->isRecordType() || actualType->getAsRecordDecl() != methodDecl->getParent()) { } else { // constructor arg is not the compressed struct
               CompressionBitfieldCodeGen rew(methodDecl->getParent(), Ctx, SrcMgr, LangOpts, R);
               auto newName = rew.getFullyQualifiedCompressedStructName();
-              R.ReplaceText(methodDecl->getReturnTypeSourceRange(), rew.getCompressedStructName() + ptrs);
+              R.ReplaceText(methodDecl->getReturnTypeSourceRange(), rew.getFullyQualifiedCompressedStructName() + ptrs);
           }
 
           return true;
