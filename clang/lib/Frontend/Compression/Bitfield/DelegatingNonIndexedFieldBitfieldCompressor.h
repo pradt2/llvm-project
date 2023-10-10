@@ -27,7 +27,7 @@ public:
       _delegate = std::make_unique<BoolBitfieldCompressor>(thisAccessor, fieldName);
     } else if (IntLikeBitfieldCompressor().supports(type, attrs)) {
       _delegate = std::make_unique<IntLikeBitfieldCompressor>(thisAccessor, fieldName, type, attrs);
-    } else if (EnumBitArrayCompressor().supports(type, attrs)) {
+    } else if (EnumBitfieldCompressor().supports(type, attrs)) {
       _delegate = std::make_unique<EnumBitfieldCompressor>(thisAccessor, fieldName, type);
     } else if (FloatLikeBitfieldCompressor().supports(type, attrs)) {
       _delegate = std::make_unique<FloatLikeBitfieldCompressor>(structName, thisAccessor, fieldName, type, attrs);
