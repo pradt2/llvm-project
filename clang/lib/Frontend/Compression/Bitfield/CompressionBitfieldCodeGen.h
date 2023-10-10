@@ -77,6 +77,8 @@ class CompressionBitfieldCodeGen : public CompressionICodeGen {
   }
 
   std::string getEmptyConstructor() {
+      if (!llvm::isa<CXXRecordDecl>(this->decl)) return "";
+
     std::string constructor = getCompressedStructShortName();
     bool hasAnyFieldsToInit = false;
     constructor += "() {";
@@ -104,7 +106,9 @@ class CompressionBitfieldCodeGen : public CompressionICodeGen {
   }
 
   std::string getFromOriginalTypeConstructor() {
-    std::string constructor = getCompressedStructShortName();
+      if (!llvm::isa<CXXRecordDecl>(this->decl)) return "";
+
+      std::string constructor = getCompressedStructShortName();
     std::string localVarName = "__arg0";
     constructor += " (" + getOriginalFullyQualifiedStructName() + " &&" + localVarName + ") {\n";
     for (auto *field : decl->fields()) {
@@ -128,7 +132,9 @@ class CompressionBitfieldCodeGen : public CompressionICodeGen {
   }
 
   std::string getTypeCastToOriginal() {
-    std::string typeCast = "operator " + getOriginalFullyQualifiedStructName() + "() { " + getOriginalFullyQualifiedStructName() + " val ;\n";
+      if (!llvm::isa<CXXRecordDecl>(this->decl)) return "";
+
+      std::string typeCast = "operator " + getOriginalFullyQualifiedStructName() + "() { " + getOriginalFullyQualifiedStructName() + " val ;\n";
     for (auto *field : decl->fields()) {
       if (isCompressionCandidate(field)) {
         auto compressor = DelegatingFieldBitfieldCompressor(getCompressedStructShortName(), thisAccessorPackedModifier("this->"), field);
@@ -436,7 +442,7 @@ public:
                             + emptyConstructor + ";\n"
                             + fromOriginalConstructor + ";\n"
                             + typeCastToOriginal + ";\n"
-                            + conversionStructs + ";\n"
+//                            + conversionStructs + ";\n"
                             + constSizeArrCompressionMethods + ";\n"
                             + methods + "\n"
                             + "};\n";

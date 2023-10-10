@@ -78,8 +78,14 @@ public:
     for (auto *attr : attrs) {
       if (!llvm::isa<CompressTruncateMantissaAttr>(attr)) continue;
       _mantissaSize = llvm::cast<CompressTruncateMantissaAttr>(attr)->getMantissaSize();
+        return;
     }
 
+    if (fieldName.find("__truncate_mantissa_") == std::string::npos) return;
+
+    auto last_idx = fieldName.find_last_of('_');
+    auto mantissaBits = std::stoi(fieldName.substr(last_idx + 1));
+    _mantissaSize = mantissaBits;
   }
 
   std::string getTypeName() override { return this->getOriginalTypeAsString(); }
@@ -93,13 +99,23 @@ public:
     std::string truncatedBits = to_constant(this->getOriginalTypeWidth() - getCompressedTypeWidth());
     getterExpr = "((" + this->getCorrespondingNumericalTypeAsString() + ") " + getterExpr + ")";
     getterExpr = "(" + getterExpr + " << " + truncatedBits + ")";
-    getterExpr = _structName + "::conv_" + this->getOriginalTypeAsString() + "(" + getterExpr + ").fp";
+
+    std::string methodName = _structName + "__internal_";
+    if (this->getOriginalTypeAsString() == "float") methodName += "itof";
+    else if (this->getOriginalTypeAsString() == "double") methodName += "ltod";
+
+    getterExpr = methodName + "(" + getterExpr + ")";
     return getterExpr;
   }
 
   std::string getSetterExpr(std::string toBeSetValue) override {
     toBeSetValue = "((" + this->getOriginalTypeAsString() + ") " + toBeSetValue + ")";
-    toBeSetValue = _structName + "::conv_" + this->getOriginalTypeAsString() + "(" + toBeSetValue + ").i";
+
+      std::string methodName = _structName + "__internal_";
+      if (this->getOriginalTypeAsString() == "float") methodName += "ftoi";
+      else if (this->getOriginalTypeAsString() == "double") methodName += "dtol";
+
+    toBeSetValue = methodName + "(" + toBeSetValue + ")";
     std::string truncatedBits = to_constant(this->getOriginalTypeWidth() - getCompressedTypeWidth());
     toBeSetValue = "(" + toBeSetValue + " >> " + truncatedBits + ")";
     std::string setterStmt = this->thisAccessor + this->fieldName + " = " + toBeSetValue + ";";
@@ -114,8 +130,14 @@ public:
     return retValFieldAccessor + " = " + getGetterExpr() + ";";
   }
 
-  bool supports(FieldDecl *d) override {
-    return supports(d->getType(), d->attrs());
+  bool supports(FieldDecl *fd) override {
+    bool const doesSupport = supports(fd->getType(), fd->attrs());
+    if (doesSupport) return true;
+
+    auto name = fd->getNameAsString();
+    if (name.find("__truncate_mantissa_") != std::string::npos) return true;
+
+      return false;
   }
 
   bool supports(QualType type, Attrs attrs) override {
