@@ -20,7 +20,7 @@ public:
   DelegatingFieldBitfieldCompressor(std::string structName, std::string thisAccessor, FieldDecl *fd) {
     if (DelegatingNonIndexedFieldBitfieldCompressor().supports(fd)) {
       _nonIndexedCompressor = std::make_unique<DelegatingNonIndexedFieldBitfieldCompressor>(structName, thisAccessor, fd);
-    } else if (ConstantSizeArrayBitArrayCompressor().supports(fd)) {
+    } else if (ConstantSizeArrayBitfieldCompressor().supports(fd)) {
       _indexedCompressor = std::make_unique<ConstantSizeArrayBitfieldCompressor>(structName, thisAccessor, fd);
     }
   }
@@ -63,8 +63,8 @@ public:
   }
 
   bool supports(QualType type, Attrs attrs) {
-    if (DelegatingNonIndexedFieldCompressor().supports(type, attrs)) return true;
-    if (ConstantSizeArrayBitArrayCompressor().supports(type, attrs)) return true;
+    if (DelegatingNonIndexedFieldBitfieldCompressor().supports(type, attrs)) return true;
+    if (ConstantSizeArrayBitfieldCompressor().supports(type, attrs)) return true;
 
     return false;
   }

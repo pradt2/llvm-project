@@ -252,7 +252,7 @@ public:
     bool isConstSizeArr = type->isConstantArrayType();
     if (!isConstSizeArr) return false;
     auto *constSizeArr = llvm::cast<ConstantArrayType>(type->getAsArrayTypeUnsafe());
-    if (DelegatingNonIndexedFieldCompressor().supports(getElementType(constSizeArr), attrs)) {
+    if (DelegatingNonIndexedFieldBitfieldCompressor().supports(getElementType(constSizeArr), attrs)) {
       return true;
     }
     return false;
