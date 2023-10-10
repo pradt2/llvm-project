@@ -6,8 +6,7 @@
 #define CLANG_COMPRESSIONICODEGEN_H
 
 #include "../SemaIR/SemaIR.h"
-#include "Bitshift/DelegatingFieldCompressor.h"
-#include "Bitshift/DelegatingNonIndexedFieldCompressor.h"
+#include "Bitfield/DelegatingFieldBitfieldCompressor.h"
 
 class CompressionICodeGen {
 
@@ -35,17 +34,17 @@ public:
 };
 
 bool isNonIndexAccessCompressionCandidate(FieldDecl *fd) {
-  if (DelegatingNonIndexedFieldCompressor().supports(fd)) return true;
+  if (DelegatingNonIndexedFieldBitfieldCompressor().supports(fd)) return true;
   return false;
 }
 
 bool isIndexAccessCompressionCandidate(FieldDecl *fd) {
-  if (ConstantSizeArrayBitArrayCompressor().supports(fd)) return true;
+  if (ConstantSizeArrayBitfieldCompressor().supports(fd)) return true;
   return false;
 }
 
 bool isCompressionCandidate(FieldDecl *fieldDecl) {
-  if (DelegatingFieldCompressor().supports(fieldDecl)) return true;
+  if (DelegatingFieldBitfieldCompressor().supports(fieldDecl)) return true;
   return false;
 }
 

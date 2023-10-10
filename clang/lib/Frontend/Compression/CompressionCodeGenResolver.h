@@ -6,7 +6,6 @@
 #define CLANG_COMPRESSIONCODEGENDELEGATE_H
 
 #include "Bitfield/CompressionBitfieldCodeGen.h"
-#include "Bitshift/CompressionBitshiftCodeGen.h"
 
 class CompressionCodeGenResolver : public CompressionICodeGen {
 
@@ -18,19 +17,6 @@ public:
                                                       SourceManager &SrcMgr,
                                                       LangOptions &LangOpts,
                                                       Rewriter &R) {
-    for (auto *attr : d->attrs()) {
-      if (!llvm::isa<CompressionMethodAttr>(attr))
-        continue;
-      auto *compressionMethodAttr = llvm::cast<CompressionMethodAttr>(attr);
-      switch (compressionMethodAttr->getCompressionMethod()) {
-      case CompressionMethodAttr::CompressionMethodType::Bitshift:
-        this->codeGen = std::make_unique<CompressionBitshiftCodeGen>(d, Ctx, SrcMgr, LangOpts, R);
-        return;
-      case CompressionMethodAttr::CompressionMethodType::Bitpack:
-        this->codeGen = std::make_unique<CompressionBitfieldCodeGen>(d, Ctx, SrcMgr, LangOpts, R);
-        return;
-      }
-    }
     this->codeGen = std::make_unique<CompressionBitfieldCodeGen>(d, Ctx, SrcMgr, LangOpts, R);
   }
 
