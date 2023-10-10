@@ -46,9 +46,8 @@ public:
   }
 
   bool supports(FieldDecl *fd) {
-    bool doesSupport = supports(fd->getType(), fd->attrs());
-
-    if (doesSupport) return doesSupport;
+      if (DelegatingNonIndexedFieldBitfieldCompressor().supports(fd)) return true;
+      if (ConstantSizeArrayBitfieldCompressor().supports(fd)) return true;
 
     for ( auto *attr : fd->attrs()) {
       if (llvm::isa<CompressAttr>(attr)
@@ -58,13 +57,6 @@ public:
         exit(1);
       }
     }
-
-    return doesSupport;
-  }
-
-  bool supports(QualType type, Attrs attrs) {
-    if (DelegatingNonIndexedFieldBitfieldCompressor().supports(type, attrs)) return true;
-    if (ConstantSizeArrayBitfieldCompressor().supports(type, attrs)) return true;
 
     return false;
   }
