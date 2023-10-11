@@ -22,6 +22,10 @@ struct SemaType {
   virtual ~SemaType() = default;
 };
 
+struct SemaUnknownType : SemaType {
+    QualType rawType;
+};
+
 struct SemaPrimitiveType : SemaType {
   BuiltinType::Kind typeKind;
   bool isPrimitiveType() override { return true; }
@@ -58,6 +62,21 @@ struct SemaRecordType : SemaType {
 struct SemaPointerType : SemaType {
     std::unique_ptr<SemaType> targetType;
     bool isPointerType() override { return true; }
+    SemaType *getInnermostType() {
+        auto *type = this->targetType.get();
+        while (type->isPointerType()) {
+            type = ((SemaPointerType*) type)->targetType.get();
+        }
+        return type;
+    }
+    unsigned int getPointerDegree() {
+        auto degree = 1U;
+        auto *type = this->targetType.get();
+        while (type->isPointerType()) {
+            degree++;
+        }
+        return degree;
+    }
 };
 
 inline std::unique_ptr<SemaType> fromQualType(QualType type, ASTContext &C) {
@@ -97,8 +116,9 @@ inline std::unique_ptr<SemaType> fromQualType(QualType type, ASTContext &C) {
       semaType->size = C.getTypeInfo(type).Width;
       return semaType;
   }
-  llvm::errs() << "Unsupported type for SemaIR representation " << __FILE__ << ":" << __LINE__ << "\n";
-  exit(1);
+    auto unknownType = std::make_unique<SemaUnknownType>();
+    unknownType->rawType = type;
+    return unknownType;
 }
 
 struct SemaFieldDecl {
@@ -121,6 +141,7 @@ inline std::unique_ptr<SemaFieldDecl> fromFieldDecl(FieldDecl *decl) {
 }
 
 struct SemaRecordDecl {
+    RecordDecl *rawDecl;
   std::string name;
   std::string fullyQualifiedName;
   std::vector<std::unique_ptr<SemaFieldDecl>> fields;
@@ -129,6 +150,7 @@ struct SemaRecordDecl {
 inline std::unique_ptr<SemaRecordDecl> fromRecordDecl(RecordDecl *decl) {
   auto semaRecordDecl = std::make_unique<SemaRecordDecl>();
   std::string name = decl->getASTContext().getTypeDeclType(decl).getAsString();
+  semaRecordDecl->rawDecl = decl;
   semaRecordDecl->name = name;
   semaRecordDecl->fullyQualifiedName = name;
 //  if (llvm::isa<ClassTemplateSpecializationDecl>(decl)) {
