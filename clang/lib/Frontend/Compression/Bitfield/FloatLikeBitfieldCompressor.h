@@ -131,7 +131,9 @@ public:
   }
 
   bool supports(FieldDecl *fd) override {
-    bool const doesSupport = supports(fd->getType(), fd->attrs());
+      if (fd->getType()->isArrayType()) return false;
+
+      bool const doesSupport = supports(fd->getNameAsString(), fd->getType(), fd->attrs());
     if (doesSupport) return true;
 
     auto name = fd->getNameAsString();
@@ -140,15 +142,17 @@ public:
       return false;
   }
 
-  bool supports(QualType type, Attrs attrs) override {
+  bool supports(std::string fieldName, QualType type, Attrs attrs) override {
     bool isFloatType = type->isFloatingType();
-    bool hasCompressAttr = false;
+      if (!isFloatType) return false;
     for( auto *attr : attrs) {
       if (!llvm::isa<CompressTruncateMantissaAttr>(attr)) continue;
-      hasCompressAttr = true;
-      break;
+        return true;
     }
-    return isFloatType && hasCompressAttr;
+
+      if (fieldName.find("__truncate_mantissa_") != std::string::npos) return true;
+
+      return false;
   }
 
 };

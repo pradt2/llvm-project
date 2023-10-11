@@ -11,7 +11,7 @@ class NonIndexedFieldBitfieldCompressor {
 public:
   virtual ~NonIndexedFieldBitfieldCompressor() = default;
   virtual bool supports(FieldDecl *fd) = 0;
-  virtual bool supports(QualType type, Attrs attrs) = 0;
+  virtual bool supports(std::string fieldName, QualType type, Attrs attrs) = 0;
   virtual unsigned int getCompressedTypeWidth() = 0;
   virtual std::string getTypeName() = 0;
   virtual std::string getGetterExpr() = 0;
