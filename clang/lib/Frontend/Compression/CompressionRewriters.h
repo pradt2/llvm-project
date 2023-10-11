@@ -383,6 +383,18 @@ public:
     return true;
   }
 
+  bool VisitCStyleCastExpr(CStyleCastExpr *E) {
+      if (!E->getType()->isPointerType()) return true;
+      auto pointeeType = E->getType()->getAs<PointerType>()->getPointeeType();
+      if (!pointeeType->isRecordType()) return true;
+      auto *recordDecl = pointeeType->getAsRecordDecl();
+      if (!isCompressionCandidate(recordDecl)) return true;
+
+      auto compressionCodeGen = CompressionCodeGenResolver(recordDecl, Ctx, SrcMgr, LangOpts, R);
+      auto packedName = compressionCodeGen.getFullyQualifiedCompressedStructName();
+      R.ReplaceText(SourceRange(E->getLParenLoc(), E->getRParenLoc()), MARKER + "(struct " + packedName + " *)");
+      return true;
+  }
 
   // if an array of compressed type is created, we need to change the type in the 'new' invocation
   bool visitArrayTypedConstructorExpr(const CXXConstructExpr *expr) {
