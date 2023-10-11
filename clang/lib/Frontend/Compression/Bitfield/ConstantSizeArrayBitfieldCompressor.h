@@ -245,14 +245,14 @@ public:
   }
 
   bool supports(FieldDecl *d) {
-    return supports(d->getType(), d->attrs());
+    return supports(d->getNameAsString(), d->getType(), d->attrs());
   }
 
-  bool supports(QualType type, Attrs attrs) {
+  bool supports(std::string fieldName, QualType type, Attrs attrs) {
     bool isConstSizeArr = type->isConstantArrayType();
     if (!isConstSizeArr) return false;
     auto *constSizeArr = llvm::cast<ConstantArrayType>(type->getAsArrayTypeUnsafe());
-    if (DelegatingNonIndexedFieldBitfieldCompressor().supports(getElementType(constSizeArr), attrs)) {
+    if (DelegatingNonIndexedFieldBitfieldCompressor().supports(fieldName, getElementType(constSizeArr), attrs)) {
       return true;
     }
     return false;
