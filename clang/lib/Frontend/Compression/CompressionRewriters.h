@@ -385,14 +385,28 @@ public:
 
   bool VisitCStyleCastExpr(CStyleCastExpr *E) {
       if (!E->getType()->isPointerType()) return true;
+
+      unsigned int pointerDegree = 1;
       auto pointeeType = E->getType()->getAs<PointerType>()->getPointeeType();
+
+      while (pointeeType->isPointerType()) {
+          pointeeType = pointeeType->getAs<PointerType>()->getPointeeType();
+          pointerDegree++;
+      }
+
       if (!pointeeType->isRecordType()) return true;
       auto *recordDecl = pointeeType->getAsRecordDecl();
       if (!isCompressionCandidate(recordDecl)) return true;
 
       auto compressionCodeGen = CompressionCodeGenResolver(recordDecl, Ctx, SrcMgr, LangOpts, R);
       auto packedName = compressionCodeGen.getFullyQualifiedCompressedStructName();
-      R.ReplaceText(SourceRange(E->getLParenLoc(), E->getRParenLoc()), MARKER + "(struct " + packedName + " *)");
+      std::string newCast = "(struct " + packedName + " ";
+      for (unsigned int i = 0; i < pointerDegree; i++) {
+          newCast += "*";
+      }
+        newCast += ")";
+
+      R.ReplaceText(SourceRange(E->getLParenLoc(), E->getRParenLoc()), MARKER + newCast);
       return true;
   }
 
