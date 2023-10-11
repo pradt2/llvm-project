@@ -1,12 +1,11 @@
 struct Data {
-    double a__truncate_mantissa_20[3];
-};
+    double a__truncate_mantissa_20;
 
-static void A() {
-
+    void *ptr;
 };
 
 int main() {
-    struct Data data;
-    data.a__truncate_mantissa_20[0] = 1.0;
+    void *ptr;
+
+    struct Data **p = (struct Data **) ptr;
 }
