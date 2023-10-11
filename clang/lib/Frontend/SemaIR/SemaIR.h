@@ -17,6 +17,7 @@ struct SemaType {
   virtual bool isEnumType() { return false; }
   virtual bool isConstSizeArrType() { return false; }
   virtual bool isRecordType() { return false; }
+  virtual bool isPointerType() { return false; }
   virtual unsigned int getSize() { return this->size; }
   virtual ~SemaType() = default;
 };
@@ -54,6 +55,11 @@ struct SemaRecordType : SemaType {
   bool isRecordType() override { return true; }
 };
 
+struct SemaPointerType : SemaType {
+    std::unique_ptr<SemaType> targetType;
+    bool isPointerType() override { return true; }
+};
+
 inline std::unique_ptr<SemaType> fromQualType(QualType type, ASTContext &C) {
   if (type->isBuiltinType()) {
     std::unique_ptr<SemaPrimitiveType> semaType = std::make_unique<SemaPrimitiveType>();
@@ -83,6 +89,13 @@ inline std::unique_ptr<SemaType> fromQualType(QualType type, ASTContext &C) {
     semaType->recordDecl = fromRecordDecl(type->getAsRecordDecl());
     semaType->size = C.getTypeInfo(type).Width;
     return semaType;
+  }
+  if (type->isPointerType()) {
+      std::unique_ptr<SemaPointerType> semaType = std::make_unique<SemaPointerType>();
+      auto targetType = type->getAs<PointerType>()->getPointeeType();
+      semaType->targetType = fromQualType(targetType, C);
+      semaType->size = C.getTypeInfo(type).Width;
+      return semaType;
   }
   llvm::errs() << "Unsupported type for SemaIR representation " << __FILE__ << ":" << __LINE__ << "\n";
   exit(1);
@@ -158,6 +171,7 @@ inline std::string toSource(SemaType &type) {
     case BuiltinType::Kind::ULong: return "unsigned long";
     case BuiltinType::Kind::LongLong: return "long long";
     case BuiltinType::Kind::ULongLong: return "unsigned long long";
+    case BuiltinType::Kind::Void: return "void";
     default:
       llvm::errs() << "Cannot convert primitive type to source (kind " << std::to_string(kind) << ") " << __FILE__ << ":" << __LINE__ << "\n";
     }
@@ -178,7 +192,7 @@ inline std::string toSource(SemaType &type) {
     sizes = toSource(*arrType->elementType) + sizes;
     return sizes;
   }
-  llvm::errs() << "SemaIR toSource not implemented for the type";
+  llvm::errs() << "SemaIR toSource not implemented for the type " << __FILE__ << ":" << __LINE__ << "\n";
   exit(1);
 }
 
@@ -194,7 +208,11 @@ inline std::string toSource(SemaFieldDecl &decl) {
     } while (arrType.elementType->isConstSizeArrType());
     return toSource(*arrType.elementType) + " " + decl.name + " " + sizes;
   }
-  llvm::errs() << "SemaIR toSource not implemented for the type";
+  if (decl.type->isPointerType()) {
+      SemaPointerType &pointerType = (SemaPointerType&) *decl.type;
+      return toSource(*pointerType.targetType) + " *" + decl.name;
+  }
+  llvm::errs() << "SemaIR toSource not implemented for the type " << __FILE__ << ":" << __LINE__ << "\n";
   exit(1);
 }
 
