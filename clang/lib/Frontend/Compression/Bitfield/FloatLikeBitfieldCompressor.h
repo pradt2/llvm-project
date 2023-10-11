@@ -100,7 +100,7 @@ public:
     getterExpr = "((" + this->getCorrespondingNumericalTypeAsString() + ") " + getterExpr + ")";
     getterExpr = "(" + getterExpr + " << " + truncatedBits + ")";
 
-    std::string methodName = _structName + "__internal_";
+    std::string methodName = "__internal_";
     if (this->getOriginalTypeAsString() == "float") methodName += "itof";
     else if (this->getOriginalTypeAsString() == "double") methodName += "ltod";
 
@@ -111,7 +111,7 @@ public:
   std::string getSetterExpr(std::string toBeSetValue) override {
     toBeSetValue = "((" + this->getOriginalTypeAsString() + ") " + toBeSetValue + ")";
 
-      std::string methodName = _structName + "__internal_";
+      std::string methodName = "__internal_";
       if (this->getOriginalTypeAsString() == "float") methodName += "ftoi";
       else if (this->getOriginalTypeAsString() == "double") methodName += "dtol";
 
