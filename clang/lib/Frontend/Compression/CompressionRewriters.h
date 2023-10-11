@@ -1218,16 +1218,20 @@ public:
 
   bool VisitRecordDecl(RecordDecl *D) {
     if (!isCompressionCandidate(D)) return true;
-    auto compressionCodeGen = CompressionCodeGenResolver(D, Ctx, SrcMgr, LangOpts, R);
-    std::string compressedStructDef = compressionCodeGen.getCompressedStructDef();
+
+    std::string compressedStructDef;
+      compressedStructDef += "#ifndef __internal_bit_conversions\n";
+      compressedStructDef += "#define __internal_bit_conversions\n";
+      compressedStructDef += "static inline float __internal_itof(unsigned int i)   { union { float f;  unsigned int i; }   U; U.i = i; return U.f; }\n";
+      compressedStructDef += "static inline unsigned int __internal_ftoi(float f)   { union { float f;  unsigned int i; }   U; U.f = f; return U.i; }\n";
+      compressedStructDef += "static inline double __internal_ltod(unsigned long l) { union { double d; unsigned long l; }  U; U.l = l; return U.d; }\n";
+      compressedStructDef += "static inline unsigned long __internal_dtol(double d) { union { double d; unsigned long l; }  U; U.d = d; return U.l; }\n";
+      compressedStructDef += "#endif\n";
+
+      auto compressionCodeGen = CompressionCodeGenResolver(D, Ctx, SrcMgr, LangOpts, R);
+      compressedStructDef += compressionCodeGen.getCompressedStructDef();
 
       std::string methods; // generating methods
-
-      methods += "static inline float " + compressionCodeGen.getCompressedStructName() +           "__internal_itof(unsigned int i)    { union { float f;  unsigned int i; }   U; U.i = i; return U.f; }\n";
-      methods += "static inline unsigned int " + compressionCodeGen.getCompressedStructName() +    "__internal_ftoi(float f)           { union { float f;  unsigned int i; }   U; U.f = f; return U.i; }\n";
-      methods += "static inline double " + compressionCodeGen.getCompressedStructName() +          "__internal_ltod(unsigned long l)   { union { double d; unsigned long l; }  U; U.l = l; return U.d; }\n";
-      methods += "static inline unsigned long " + compressionCodeGen.getCompressedStructName() +   "__internal_dtol(double d)          { union { double d; unsigned long l; }  U; U.d = d; return U.l; }\n";
-
       if (llvm::isa<CXXRecordDecl>(D)) {
           auto *decl = llvm::cast<CXXRecordDecl>(D);
 
