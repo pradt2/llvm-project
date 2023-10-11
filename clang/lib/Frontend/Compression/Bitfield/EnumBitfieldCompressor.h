@@ -70,10 +70,10 @@ public:
   }
 
   bool supports(FieldDecl *d) override {
-    return supports(d->getType(), d->attrs());
+    return supports(d->getNameAsString(), d->getType(), d->attrs());
   }
 
-  bool supports(QualType type, Attrs attrs) override {
+  bool supports(std::string fieldName, QualType type, Attrs attrs) override {
     bool isEnumType = type->isEnumeralType();
     bool hasCompressAttr = false;
     for( auto *attr : attrs) {

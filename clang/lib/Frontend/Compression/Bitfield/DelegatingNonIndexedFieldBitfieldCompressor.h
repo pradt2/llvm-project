@@ -32,13 +32,13 @@ public:
   }
 
   DelegatingNonIndexedFieldBitfieldCompressor(std::string structName, std::string thisAccessor, std::string fieldName, QualType type, Attrs attrs) {
-    if (BoolBitfieldCompressor().supports(type, attrs)) {
+    if (BoolBitfieldCompressor().supports(fieldName, type, attrs)) {
       _delegate = std::make_unique<BoolBitfieldCompressor>(thisAccessor, fieldName);
-    } else if (IntLikeBitfieldCompressor().supports(type, attrs)) {
+    } else if (IntLikeBitfieldCompressor().supports(fieldName, type, attrs)) {
       _delegate = std::make_unique<IntLikeBitfieldCompressor>(thisAccessor, fieldName, type, attrs);
-    } else if (EnumBitfieldCompressor().supports(type, attrs)) {
+    } else if (EnumBitfieldCompressor().supports(fieldName, type, attrs)) {
       _delegate = std::make_unique<EnumBitfieldCompressor>(thisAccessor, fieldName, type);
-    } else if (FloatLikeBitfieldCompressor().supports(type, attrs)) {
+    } else if (FloatLikeBitfieldCompressor().supports(fieldName, type, attrs)) {
       _delegate = std::make_unique<FloatLikeBitfieldCompressor>(structName, thisAccessor, fieldName, type, attrs);
     }
   }
@@ -62,8 +62,8 @@ public:
       return false;
   }
 
-  bool supports(QualType type, Attrs attrs) override {
-    if (DelegatingNonIndexedFieldBitfieldCompressor("mock", "mock", "mock", type, attrs)._delegate) return true;
+  bool supports(std::string fieldName, QualType type, Attrs attrs) override {
+    if (DelegatingNonIndexedFieldBitfieldCompressor("mock", "mock", fieldName, type, attrs)._delegate) return true;
     return false;
   }
 
