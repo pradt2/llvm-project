@@ -1197,14 +1197,24 @@ public:
   std::string getMethod(CXXMethodDecl *decl, std::string recordFullyQualifiedName) {
     std::string method;
     Rewriter r(SrcMgr, LangOpts);
+    auto *def = decl->getDefinition();
 
-    FunctionUpdater(Ctx, SrcMgr, LangOpts, r, true).TraverseDecl(decl);
+    FunctionUpdater(Ctx, SrcMgr, LangOpts, r, true).TraverseDecl(def);
 
-    std::string functionName = recordFullyQualifiedName + "::" + decl->getDeclName().getAsString();
+    std::string functionName = recordFullyQualifiedName + "::" + def->getNameAsString();
 
-    r.ReplaceText(decl->getNameInfo().getSourceRange(), functionName); // replace function name with fully qualified struct name + name
+    // since we are using definitions and not declarations
+    // we need to worry about out of line definitions
+    // i.e. we need to replace the Class::method combo with our prepared 'functionName'
 
-    method = getMethodStr(decl, r);
+    auto defBeginLoc = def->getSourceRange().getBegin();
+    auto typeSize = def->getReturnType().getAsString().length(); // this approach will likely fail if there is a space in the type like 'double &getDouble()'
+    defBeginLoc = defBeginLoc.getLocWithOffset(typeSize + 1 /** leave the ' ' as well **/);
+    auto endLoc = def->getNameInfo().getSourceRange().getBegin();
+
+    r.ReplaceText(SourceRange(defBeginLoc, endLoc), functionName); // replace function name with fully qualified struct name + name
+
+    method = getMethodStr(def, r);
     return method;
   }
 
