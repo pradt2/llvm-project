@@ -938,6 +938,15 @@ def SoaConversionDataItem : StmtAttr {
     let Documentation = [Undocumented];
 }
 
+def SoaConversionAllocationStrategy : StmtAttr {
+    let Spellings = [Clang<"soa_conversion_allocation_strategy">];
+    let Args = [EnumArgument<"AllocationStrategy", "AllocationStrategyType",
+                ["stack", "heap", "vla"], ["Stack", "Heap", "VLA"]>];
+    let Subjects = SubjectList<[ForStmt, CXXForRangeStmt],
+                    ErrorDiag, "'for' statements">;
+    let Documentation = [Undocumented];
+}
+
 def SoaConversionDataMovementStrategy : StmtAttr {
     let Spellings = [Clang<"soa_conversion_data_movement_strategy">];
     let Args = [EnumArgument<"DataMovementStrategy", "DataMovementStrategyType",
