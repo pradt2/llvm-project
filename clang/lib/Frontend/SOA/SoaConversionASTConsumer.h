@@ -385,7 +385,7 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
     return fields;
   }
 
-  std::string getSoaDef(llvm::StringRef targetRef, std::vector<SoaField> soaFields, llvm::StringRef size, ASTContext &Ctx) {
+  std::string getSoaDef(llvm::StringRef targetRef, std::vector<SoaField> soaFields, llvm::StringRef size, ASTContext &Ctx, SoaConversionAllocationStrategyAttr::AllocationStrategyType allocType) {
     std::string instanceName = targetRef.str() + "__SoA__instance";
     std::string sourceCode = "struct " + targetRef.str() + "__SoA {\n";
     for (auto field : soaFields) {
@@ -396,23 +396,34 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
 
     for (auto field : soaFields) {
       auto type = toSource(*fromQualType(field.type, Ctx));
-      sourceCode += instanceName + "." + field.name + " = new " + type + "[" + size.str() + "];\n";
+
+        if (allocType == SoaConversionAllocationStrategyAttr::AllocationStrategyType::Heap) {
+            sourceCode += instanceName + "." + field.name + " = new " + type + "[" + size.str() + "];\n";
+        } else if (allocType == SoaConversionAllocationStrategyAttr::AllocationStrategyType::Stack) {
+            sourceCode += instanceName + "." + field.name + " = (" + type + " *) alloca( sizeof(" + type + ") * " + size.str() + ");\n";
+        }
+
     }
 
     return sourceCode;
   }
 
-  std::string getSoaFreeStmts(llvm::StringRef targetRef, std::vector<SoaField> soaFields) {
-      std::string instanceName = targetRef.str() + "__SoA__instance";
+  std::string getSoaFreeStmts(llvm::StringRef targetRef, std::vector<SoaField> soaFields, SoaConversionAllocationStrategyAttr::AllocationStrategyType allocType) {
 
-      std::string sourceCode;
+      if (allocType == SoaConversionAllocationStrategyAttr::AllocationStrategyType::Heap) {
+          std::string instanceName = targetRef.str() + "__SoA__instance";
 
-      auto reverseSoaFields = std::vector<SoaField>(soaFields.rbegin(), soaFields.rend());
-      for (auto &field : reverseSoaFields) {
-          sourceCode += "delete[] " + instanceName + "." + field.name + ";\n";
+          std::string sourceCode;
+
+          auto reverseSoaFields = std::vector<SoaField>(soaFields.rbegin(), soaFields.rend());
+          for (auto &field : reverseSoaFields) {
+              sourceCode += "delete[] " + instanceName + "." + field.name + ";\n";
+          }
+
+          return sourceCode;
       }
 
-      return sourceCode;
+        return "";
   }
 
   std::string buildReadAccess(llvm::StringRef targetRef, QualType type, std::string idx, llvm::StringRef accessPath) {
@@ -666,7 +677,7 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
     std::string elementDerefAccessor = getAccessToType(type, "element");
 
     std::string sourceCode = "{ unsigned int " + idxName + " = 0;\n";
-    sourceCode += "for (auto element : " + targetRef.str() + ") {\n";
+    sourceCode += "for (auto &element : " + targetRef.str() + ") {\n";
     for (auto field: soaFields) {
       std::string fieldName = field.name;
       sourceCode += soaName + "." + fieldName + "[" + idxName + "] = " + buildReadAccess(elementDerefAccessor, type, field.inputAccessPath) + ";\n";
@@ -709,7 +720,7 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
     std::string elementDerefAccessor = getAccessToType(type, "element");
 
     std::string sourceCode = "{ unsigned int " + idxName + " = 0;\n";
-    sourceCode += "for (auto element : " + targetRef.str() + ") {\n";
+    sourceCode += "for (auto &element : " + targetRef.str() + ") {\n";
     for (auto field: soaFields) {
       if (field.outputAccessPath.empty()) continue ; // skip copying fields that are supposed to be read only
       std::string fieldName = field.name;
@@ -975,6 +986,12 @@ public:
     const std::vector<const SoaConversionDataItemAttr*> conversionDataAttrs = getAttrs<SoaConversionDataItemAttr>(S);
     const SoaConversionTargetAttr *conversionTargetAttr = getAttr<SoaConversionTargetAttr>(S);
     const SoaConversionTargetSizeAttr *conversionTargetSizeAttr = getAttr<SoaConversionTargetSizeAttr>(S);
+    const SoaConversionAllocationStrategyAttr *allocationStrategyAttr = getAttr<SoaConversionAllocationStrategyAttr>(S);
+
+    SoaConversionAllocationStrategyAttr::AllocationStrategyType allocType = SoaConversionAllocationStrategyAttr::AllocationStrategyType::Heap;
+    if (allocationStrategyAttr) {
+        allocType = allocationStrategyAttr->getAllocationStrategy();
+    }
 
     if (conversionDataAttrs.empty() || !conversionTargetAttr || !conversionTargetSizeAttr) return true;
 
@@ -989,7 +1006,7 @@ public:
 
     ASTContext &Ctx = loopParent->getASTContext();
 
-    std::string soaDef = getSoaDef(conversionTargetAttr->getTargetRef(), soaFields, conversionTargetSizeAttr->getTargetSizeExpr(), Ctx);
+    std::string soaDef = getSoaDef(conversionTargetAttr->getTargetRef(), soaFields, conversionTargetSizeAttr->getTargetSizeExpr(), Ctx, allocType);
     std::string soaConv = getSoaConversionForLoop(conversionTargetAttr->getTargetRef(), targetDeclRef->getType(),
                                                   soaFields, conversionTargetSizeAttr->getTargetSizeExpr());
     std::string prologue = soaDef + "\n" + soaConv + "\n";
@@ -998,7 +1015,7 @@ public:
     std::string soaUnconv = getSoaUnconversionForLoop(conversionTargetAttr->getTargetRef(), targetDeclRef->getType(),
                                                       soaFields, conversionTargetSizeAttr->getTargetSizeExpr());
 
-    std::string soaFree = getSoaFreeStmts(conversionTargetAttr->getTargetRef(), soaFields);
+    std::string soaFree = getSoaFreeStmts(conversionTargetAttr->getTargetRef(), soaFields, allocType);
 
     std::string epilogue = "\n" + soaUnconv + "\n" + soaFree;
 
@@ -1049,6 +1066,13 @@ public:
     const std::vector<const SoaConversionDataItemAttr*> conversionDataAttrs = getAttrs<SoaConversionDataItemAttr>(S);
     const SoaConversionTargetSizeAttr *conversionTargetSizeAttr = getAttr<SoaConversionTargetSizeAttr>(S);
 
+      const SoaConversionAllocationStrategyAttr *allocationStrategyAttr = getAttr<SoaConversionAllocationStrategyAttr>(S);
+
+      SoaConversionAllocationStrategyAttr::AllocationStrategyType allocType = SoaConversionAllocationStrategyAttr::AllocationStrategyType::Heap;
+      if (allocationStrategyAttr) {
+          allocType = allocationStrategyAttr->getAllocationStrategy();
+      }
+
     if (conversionDataAttrs.empty() || !conversionTargetSizeAttr) return true;
 
     std::string targetRefStr = R.getRewrittenText(S->getRangeInit()->getSourceRange());
@@ -1059,12 +1083,14 @@ public:
 
     ASTContext &Ctx = targetRecordDecl->getASTContext();
 
-    std::string soaDef = getSoaDef(targetRef, soaFields, conversionTargetSizeAttr->getTargetSizeExpr(), Ctx);
+    std::string soaDef = getSoaDef(targetRef, soaFields, conversionTargetSizeAttr->getTargetSizeExpr(), Ctx, allocType);
     std::string soaConv = getSoaConversionForRangeLoop(targetRef, S->getLoopVariable()->getType(), soaFields);
     std::string prologue = soaDef + "\n" + soaConv + "\n";
 
     std::string soaUnconv = getSoaUnconversionForRangeLoop(targetRef, S->getLoopVariable()->getType(), soaFields);
-    std::string epilogue = "\n" + soaUnconv;
+      std::string soaFree = getSoaFreeStmts(targetRef, soaFields, allocType);
+
+      std::string epilogue = "\n" + soaUnconv + "\n" + soaFree;
 
     writePrologueAndEpilogue(S, Ctx, prologue, epilogue);
 
@@ -1074,14 +1100,19 @@ public:
     R.ReplaceText(newForLoop, "for (unsigned int " + forLoopIdx + " = 0; " + forLoopIdx + " < " + conversionTargetSizeAttr->getTargetSizeExpr().str() + "; " + forLoopIdx + "++)");
 
     MemberExprRewriter fieldAccessRewriter(R);
+    ArraySubscriptExprRewriter arraySubscriptExprRewriter(R);
     CXXMemberCallExprRewriter methodCallAccessRewriter(R);
 
     for (auto field: soaFields) {
       std::string replacement = targetRefStr + "__SoA__instance" + "." + field.name + "[" + forLoopIdx + "]" ;
 
       auto *accessDecl = field.inputAccessDecl;
-      if (llvm::isa<FieldDecl>(accessDecl)) {
+      if (llvm::isa<FieldDecl>(accessDecl) && field.literalIdx == -1) {
+          // regular field (not an array field)
         fieldAccessRewriter.replaceMemberExprs(llvm::cast<FieldDecl>(accessDecl), S->getLoopVariable()->getNameAsString(), replacement, S);
+      } else if (llvm::isa<FieldDecl>(accessDecl) && field.literalIdx >= 0) {
+          // array field
+          arraySubscriptExprRewriter.replaceArraySubscriptExprs(llvm::cast<FieldDecl>(accessDecl), S->getLoopVariable()->getNameAsString(), replacement, field.literalIdx, S);
       } else if (llvm::isa<CXXMethodDecl>(accessDecl)) {
         methodCallAccessRewriter.replaceMemberExprs(llvm::cast<CXXMethodDecl>(accessDecl), S->getLoopVariable()->getNameAsString(), replacement, S);
       } else {
