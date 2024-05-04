@@ -215,7 +215,7 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
     return fieldsDecls;
   }
 
-  std::tuple<Decl*, QualType> getTypeOfExpr(RecordDecl *decl, llvm::StringRef path, bool isOutput = false) {
+  std::tuple<Decl*, QualType, long> getTypeOfExpr(RecordDecl *decl, llvm::StringRef path, bool isOutput = false) {
 
     std::vector<std::string> fragments = splitString(path, ".");
     for (size_t i = 0; i < fragments.size(); i++) {
@@ -223,6 +223,7 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
 
       QualType itemType;
       Decl *itemDecl = nullptr;
+      long literalIdx = -1;
 
       if (llvm::StringRef(fragment).endswith("()")) {
         // it's a method call
@@ -253,6 +254,30 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
 
         itemType = methodDecl->getReturnType();
         itemDecl = methodDecl;
+      } else if (llvm::StringRef(fragment).contains('[') && llvm::StringRef(fragment).endswith("]")) {
+        // it's an array access
+
+        auto openBracketIdx = llvm::StringRef(fragment).find('[');
+        auto closedBracketIdx = fragment.size() - 1;
+        auto idxLiteralStr = llvm::StringRef(fragment).substr(openBracketIdx + 1, closedBracketIdx - openBracketIdx - 1);
+        auto idxLiteralValue = std::stoul(idxLiteralStr.str());
+        auto fieldName = llvm::StringRef(fragment).substr(0, openBracketIdx);
+
+          FieldDecl *fieldDecl = nullptr;
+          for (auto *field : decl->fields()) {
+              if (field->getNameAsString() != fieldName) continue ;
+              fieldDecl = field;
+              break ;
+          }
+
+          if (fieldDecl == nullptr) {
+              llvm::errs() << __FILE__ << ":" << __LINE__ << " Could not find array access: " << fieldName << " idx: " << idxLiteralValue;
+              exit(1);
+          }
+
+          itemType = fieldDecl->getType()->getAsArrayTypeUnsafe()->getElementType();
+          itemDecl = fieldDecl;
+          literalIdx = idxLiteralValue;
       } else {
         // it's a field
 
@@ -274,7 +299,7 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
 
       // if this is the last item (no more .field or .method() accesses, then return it)
       if (i == fragments.size() - 1) {
-        if (llvm::isa<FieldDecl>(itemDecl) || !isOutput) return std::make_tuple(itemDecl, itemType);
+        if (llvm::isa<FieldDecl>(itemDecl) || !isOutput) return std::make_tuple(itemDecl, itemType, literalIdx);
 
         // if it's output, and we have a method decl, then the type isn't the return type (that will always be void for setters I HOPE)
         // but it is the type of the (only, I HOPE) argument that the setter method accepts
@@ -287,7 +312,7 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
 
         itemType = methodDecl->parameters()[0]->getType();
 
-        return std::make_tuple(itemDecl, itemType);
+        return std::make_tuple(itemDecl, itemType, literalIdx);
       }
 
       // it isn't the last item, so it must be RecordDecl to have fields or methods
@@ -306,6 +331,7 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
   struct SoaField {
     std::string name;
     QualType type;
+    long literalIdx;
     llvm::StringRef inputAccessPath;
     llvm::StringRef outputAccessPath;
     Decl *inputAccessDecl;
@@ -327,6 +353,7 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
       soaField.inputAccessDecl = std::get<Decl*>(inputDeclType);
       soaField.type = std::get<QualType>(inputDeclType);
       soaField.outputAccessPath = item->getOutput();
+      soaField.literalIdx = std::get<long>(inputDeclType);
 
       if (soaField.outputAccessPath.empty()) {
         fields.push_back(soaField);
@@ -425,6 +452,30 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
         source += "." + fragment;
         source = getAccessToType(itemType, source);
 
+      } else if (llvm::StringRef(fragment).contains('[') && llvm::StringRef(fragment).endswith("]")) {
+          // it's an array access
+
+          auto openBracketIdx = llvm::StringRef(fragment).find('[');
+          auto closedBracketIdx = fragment.size() - 1;
+          auto idxLiteralStr = llvm::StringRef(fragment).substr(openBracketIdx + 1, closedBracketIdx - openBracketIdx - 1);
+          auto idxLiteralValue = std::stoul(idxLiteralStr.str());
+          auto fieldName = llvm::StringRef(fragment).substr(0, openBracketIdx);
+
+          FieldDecl *fieldDecl = nullptr;
+          for (auto *field : decl->fields()) {
+              if (field->getNameAsString() != fieldName) continue ;
+              fieldDecl = field;
+              break ;
+          }
+
+          if (fieldDecl == nullptr) {
+              llvm::errs() << __FILE__ << ":" << __LINE__ << " Could not find array access: " << fieldName << " idx: " << idxLiteralValue;
+              exit(1);
+          }
+
+          itemType = fieldDecl->getType()->getAsArrayTypeUnsafe()->getElementType();
+          source += "." + fragment;
+          source = getAccessToType(itemType, source);
       } else {
         // it's a field
 
@@ -483,36 +534,64 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
       bool lastItemMethod = false;
 
       if (llvm::StringRef(fragment).endswith("()")) {
-        // it's a method call
+          // it's a method call
 
-        auto methodName = fragment;
-        methodName.pop_back();
-        methodName.pop_back(); // remove the '()'
+          auto methodName = fragment;
+          methodName.pop_back();
+          methodName.pop_back(); // remove the '()'
 
-        if (!llvm::isa<CXXRecordDecl>(decl)) {
-          // method call on a declaration that cannot have methods
-          llvm::errs() << __FILE__ << ":" << __LINE__ << " Method call on a declaration type that does not allow methods";
-          exit(1);
-        }
+          if (!llvm::isa<CXXRecordDecl>(decl)) {
+              // method call on a declaration that cannot have methods
+              llvm::errs() << __FILE__ << ":" << __LINE__
+                           << " Method call on a declaration type that does not allow methods";
+              exit(1);
+          }
 
-        auto *cxxRecordDecl = llvm::cast<CXXRecordDecl>(decl);
+          auto *cxxRecordDecl = llvm::cast<CXXRecordDecl>(decl);
 
-        CXXMethodDecl *methodDecl = nullptr;
-        for (auto *method : cxxRecordDecl->methods()) {
-          if (method->getNameAsString() != methodName) continue; // TODO what about inherited methods?
-          methodDecl = method; // TODO what about overloads?
-          break;
-        }
+          CXXMethodDecl *methodDecl = nullptr;
+          for (auto *method: cxxRecordDecl->methods()) {
+              if (method->getNameAsString() != methodName) continue; // TODO what about inherited methods?
+              methodDecl = method; // TODO what about overloads?
+              break;
+          }
 
-        if (methodDecl == nullptr) {
-          llvm::errs() << __FILE__ << ":" << __LINE__ << " Could not find method: " << methodName;
-          exit(1);
-        }
+          if (methodDecl == nullptr) {
+              llvm::errs() << __FILE__ << ":" << __LINE__ << " Could not find method: " << methodName;
+              exit(1);
+          }
 
-        itemType = methodDecl->getReturnType();
-        source += "." + fragment;
-        source = getAccessToType(itemType, source);
-        lastItemMethod = true;
+          itemType = methodDecl->getReturnType();
+          source += "." + fragment;
+          source = getAccessToType(itemType, source);
+          lastItemMethod = true;
+      } else if (llvm::StringRef(fragment).contains('[') && llvm::StringRef(fragment).endswith("]")) {
+          // it's an array access
+
+          auto openBracketIdx = llvm::StringRef(fragment).find('[');
+          auto closedBracketIdx = fragment.size() - 1;
+          auto idxLiteralStr = llvm::StringRef(fragment).substr(openBracketIdx + 1,
+                                                                closedBracketIdx - openBracketIdx - 1);
+          auto idxLiteralValue = std::stoul(idxLiteralStr.str());
+          auto fieldName = llvm::StringRef(fragment).substr(0, openBracketIdx);
+
+          FieldDecl *fieldDecl = nullptr;
+          for (auto *field: decl->fields()) {
+              if (field->getNameAsString() != fieldName) continue;
+              fieldDecl = field;
+              break;
+          }
+
+          if (fieldDecl == nullptr) {
+              llvm::errs() << __FILE__ << ":" << __LINE__ << " Could not find array access: " << fieldName << " idx: "
+                           << idxLiteralValue;
+              exit(1);
+          }
+
+          itemType = fieldDecl->getType()->getAsArrayTypeUnsafe()->getElementType();
+          source += "." + fragment;
+          source = getAccessToType(itemType, source);
+          lastItemMethod = false;
       } else {
         // it's a field
 
@@ -686,6 +765,47 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
       return true;
     }
 
+  };
+
+  class ArraySubscriptExprRewriter : public ASTConsumer, public RecursiveASTVisitor<ArraySubscriptExprRewriter> {
+      FieldDecl *decl;
+      std::string replacementExpr;
+      std::string parentVariableIdent;
+      long subscriptLiteralValue;
+      Rewriter &R;
+
+  public:
+      ArraySubscriptExprRewriter(Rewriter &R) : R(R) {}
+
+      void replaceArraySubscriptExprs(FieldDecl *fDecl, std::string parentVariableIdent, std::string replacement, long subscriptLiteralValue, Stmt *context) {
+          this->decl = fDecl;
+          this->replacementExpr = replacement;
+          this->parentVariableIdent = parentVariableIdent;
+          this->subscriptLiteralValue = subscriptLiteralValue;
+          this->TraverseStmt(context);
+      }
+
+      bool VisitArraySubscriptExpr(ArraySubscriptExpr *E) {
+          Expr::EvalResult evalResult;
+          bool idxEvalSuccess = E->getIdx()->EvaluateAsInt(evalResult, this->decl->getASTContext());
+          if (!idxEvalSuccess) return true;
+
+          long idxValue = evalResult.Val.getInt().getExtValue();
+          if (idxValue != this->subscriptLiteralValue) return true;
+
+          Expr *base = E->getBase();
+          if (llvm::isa<ImplicitCastExpr>(base)) base = llvm::cast<ImplicitCastExpr>(base)->getSubExpr();
+          if (!llvm::isa<MemberExpr>(base)) return true;
+          MemberExpr *memberBase = llvm::cast<MemberExpr>(base);
+
+          if (memberBase->getMemberDecl() != this->decl) return true;
+
+          SourceLocation start = E->getBeginLoc();
+          SourceLocation end = E->getEndLoc();
+          R.ReplaceText(SourceRange(start, end), this->replacementExpr);
+
+          return true;
+      }
   };
 
   class CXXMemberCallExprRewriter : public ASTConsumer, public RecursiveASTVisitor<CXXMemberCallExprRewriter> {
@@ -870,6 +990,7 @@ public:
     writePrologueAndEpilogue(S, Ctx, prologue, epilogue);
 
     MemberExprRewriter fieldAccessRewriter(R);
+    ArraySubscriptExprRewriter arraySubscriptExprRewriter(R);
     CXXMemberCallExprRewriter methodCallAccessRewriter(R);
 
     std::string forLoopIdx = getForStmtIdx(S);
@@ -877,8 +998,12 @@ public:
       std::string replacement = conversionTargetAttr->getTargetRef().str() + "__SoA__instance" + "." + field.name + "[" + forLoopIdx + "]" ;
 
       auto *accessDecl = field.inputAccessDecl;
-      if (llvm::isa<FieldDecl>(accessDecl)) {
+      if (llvm::isa<FieldDecl>(accessDecl) && field.literalIdx == -1) {
+          // regular field (not array field)
         fieldAccessRewriter.replaceMemberExprs(llvm::cast<FieldDecl>(accessDecl), targetDeclRef->getDecl()->getNameAsString(), replacement, S);
+      } else if (llvm::isa<FieldDecl>(accessDecl) && field.literalIdx >= 0) {
+          // array field
+          arraySubscriptExprRewriter.replaceArraySubscriptExprs(llvm::cast<FieldDecl>(accessDecl), targetDeclRef->getDecl()->getNameAsString(), replacement, field.literalIdx, S);
       } else if (llvm::isa<CXXMethodDecl>(accessDecl)) {
         methodCallAccessRewriter.replaceMemberExprs(llvm::cast<CXXMethodDecl>(accessDecl), targetDeclRef->getDecl()->getNameAsString(), replacement, S);
       } else {
