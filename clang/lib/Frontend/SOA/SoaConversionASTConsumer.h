@@ -402,6 +402,19 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
     return sourceCode;
   }
 
+  std::string getSoaFreeStmts(llvm::StringRef targetRef, std::vector<SoaField> soaFields) {
+      std::string instanceName = targetRef.str() + "__SoA__instance";
+
+      std::string sourceCode;
+
+      auto reverseSoaFields = std::vector<SoaField>(soaFields.rbegin(), soaFields.rend());
+      for (auto &field : reverseSoaFields) {
+          sourceCode += "delete[] " + instanceName + "." + field.name + ";\n";
+      }
+
+      return sourceCode;
+  }
+
   std::string buildReadAccess(llvm::StringRef targetRef, QualType type, std::string idx, llvm::StringRef accessPath) {
     // always ends in such a way that it's accessible via the '.' syntax
     // i.e. all pointers are always dereferenced
@@ -985,7 +998,9 @@ public:
     std::string soaUnconv = getSoaUnconversionForLoop(conversionTargetAttr->getTargetRef(), targetDeclRef->getType(),
                                                       soaFields, conversionTargetSizeAttr->getTargetSizeExpr());
 
-    std::string epilogue = "\n" + soaUnconv;
+    std::string soaFree = getSoaFreeStmts(conversionTargetAttr->getTargetRef(), soaFields);
+
+    std::string epilogue = "\n" + soaUnconv + "\n" + soaFree;
 
     writePrologueAndEpilogue(S, Ctx, prologue, epilogue);
 
