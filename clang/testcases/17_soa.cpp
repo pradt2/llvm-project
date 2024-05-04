@@ -1,74 +1,20 @@
-#include <stdio.h>
-#include <vector>
-
-//void printf(const char *s, int i, double b) {}
-
-struct ParticleVelocity {
-  double vx, vy, vz;
-};
-
 struct Particle {
-  float x, y, z;
-  ParticleVelocity *velocity;
+    double x[3];
+    double d;
 };
 
-#define SIZE 1 << 28
+extern double sqrt(double);
 
-//int main() {
-//  std::vector<Particle> particles = std::vector<Particle>(SIZE);
-//
-//  for (int i = 0; i < SIZE; i++) {
-//    particles[i].x = 1 + i;
-//    particles[i].y = 2 + i;
-//    particles[i].z = 3 + i;
-//    particles[i].velocity = new ParticleVelocity;
-//    particles[i].velocity->vx = i + 3;
-//    particles[i].velocity->vy = i + 3;
-//    particles[i].velocity->vz = i + 3;
-//  }
-//
-//  [[
-//      clang::soa_conversion("x, velocity.vx", "x"),
-//      clang::soa_conversion_target(particles),
-//      clang::soa_conversion_target_size(particles.size())
-//  ]]
-//  for (int i = 0; i < SIZE; i++) {
-//    particles[i].x += particles[i].velocity->vx * 0.01;
-//  }
-//
-//  for (int i = 0; i < SIZE; i++) {
-//    printf("Particle #%2d = (x=%4.6f)\n", i, particles[i].x);
-//  }
-//}
+void doWork(Particle *particles, int size) {
 
-
-int main() {
-    std::vector<Particle*> particles(SIZE);
-
-    for (int i = 0; i < SIZE; i++) {
-      particles[i] = new Particle;
-      particles[i]->x = 1 + i;
-      particles[i]->y = 2 + i;
-      particles[i]->z = 3 + i;
-      particles[i]->velocity = new ParticleVelocity;
-      particles[i]->velocity->vx = i + 3;
-      particles[i]->velocity->vy = i + 3;
-      particles[i]->velocity->vz = i + 3;
+    [[clang::soa_conversion_target(particles)]]
+    [[clang::soa_conversion_target_size(size)]]
+    [[clang::soa_conversion_data_item("x[0]", "x[0]")]]
+    [[clang::soa_conversion_data_item("x[1]", "x[1]")]]
+    [[clang::soa_conversion_data_item("x[2]", "x[2]")]]
+    [[clang::soa_conversion_data_item("d", "d")]]
+    for (int i = 0; i < size; i++) {
+        auto dist = sqrt(particles[i].x[0] * particles[i].x[1] * particles[i].x[2]);
+        particles[i].d = dist;
     }
-
-    [[
-        clang::soa_conversion("x, y, z, velocity.vx, velocity.vy, velocity.vz", "x, y, z"),
-        clang::soa_conversion_target_size(particles.size())
-    ]]
-    for (auto particle : particles) {
-      //for (int j = 0; j < 4; j++) {
-        particle->x += particle->velocity->vx * 0.01;
-        particle->y += particle->velocity->vy * 0.01;
-        particle->z += particle->velocity->vz * 0.01;
-      //}
-    }
-
-    //for (int i = 0; i < SIZE; i++) {
-    //  printf("Particle #%2d = (x=%4.6f)\n", i, particles[i].x);
-    //}
 }
