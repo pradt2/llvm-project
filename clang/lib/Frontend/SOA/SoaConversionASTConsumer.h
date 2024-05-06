@@ -791,8 +791,40 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
 
   };
 
+template<class ExprClass>
+class SubExprOfTypeFinder : public ASTConsumer,
+                            public RecursiveASTVisitor<SubExprOfTypeFinder<ExprClass>> {
+    std::vector<ExprClass*> children;
+    Expr *_parent;
+
+    std::vector<ExprClass*> _getSubExprsOfExpr(Expr *parent) {
+        this->children = std::vector<ExprClass*>();
+        this->_parent = parent;
+        this->TraverseStmt(parent);
+        return this->children;
+    }
+
+public:
+    bool VisitExpr(Expr *E) {
+        if (!llvm::isa<ExprClass>(E)) return true;
+
+        auto *childCandidate = llvm::cast<ExprClass>(E);
+        if (childCandidate == this->_parent) return true;
+
+        this->children.push_back(childCandidate);
+        return true;
+    }
+
+    static std::vector<ExprClass*> getSubExprsOfExpr(Expr *parent) {
+        auto children = SubExprOfTypeFinder<ExprClass>()._getSubExprsOfExpr(parent);
+        return children;
+    }
+};
+
+
   class ArraySubscriptExprRewriter : public ASTConsumer, public RecursiveASTVisitor<ArraySubscriptExprRewriter> {
       FieldDecl *decl;
+      ValueDecl *target;
       std::string replacementExpr;
       std::string parentVariableIdent;
       long subscriptLiteralValue;
@@ -801,10 +833,10 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
   public:
       ArraySubscriptExprRewriter(Rewriter &R) : R(R) {}
 
-      void replaceArraySubscriptExprs(FieldDecl *fDecl, std::string parentVariableIdent, std::string replacement, long subscriptLiteralValue, Stmt *context) {
+      void replaceArraySubscriptExprs(FieldDecl *fDecl, ValueDecl *target, std::string replacement, long subscriptLiteralValue, Stmt *context) {
           this->decl = fDecl;
+          this->target = target;
           this->replacementExpr = replacement;
-          this->parentVariableIdent = parentVariableIdent;
           this->subscriptLiteralValue = subscriptLiteralValue;
           this->TraverseStmt(context);
       }
@@ -823,6 +855,19 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
           MemberExpr *memberBase = llvm::cast<MemberExpr>(base);
 
           if (memberBase->getMemberDecl() != this->decl) return true;
+          // we need to make sure the array subscription expression belongs to the target
+          // otherwise we risk rewriting other expressions that just match the index and type
+          // i.e. accesses to other (non-target) buffers of the same type as the target buffer
+          Expr *baseExpr = memberBase->getBase();
+          auto declRefExprs = SubExprOfTypeFinder<DeclRefExpr>::getSubExprsOfExpr(baseExpr);
+
+          bool doesReferToTarget = false;
+          for (auto *declRefExpr : declRefExprs) {
+              if (declRefExpr->getDecl() != this->target) continue;
+              doesReferToTarget = true;
+              break;
+          }
+          if (!doesReferToTarget) return true;
 
           SourceLocation start = E->getBeginLoc();
           SourceLocation end = E->getEndLoc();
@@ -1035,7 +1080,7 @@ public:
         fieldAccessRewriter.replaceMemberExprs(llvm::cast<FieldDecl>(accessDecl), targetDeclRef->getDecl()->getNameAsString(), replacement, S);
       } else if (llvm::isa<FieldDecl>(accessDecl) && field.literalIdx >= 0) {
           // array field
-          arraySubscriptExprRewriter.replaceArraySubscriptExprs(llvm::cast<FieldDecl>(accessDecl), targetDeclRef->getDecl()->getNameAsString(), replacement, field.literalIdx, S);
+          arraySubscriptExprRewriter.replaceArraySubscriptExprs(llvm::cast<FieldDecl>(accessDecl), targetDeclRef->getDecl(), replacement, field.literalIdx, S);
       } else if (llvm::isa<CXXMethodDecl>(accessDecl)) {
         methodCallAccessRewriter.replaceMemberExprs(llvm::cast<CXXMethodDecl>(accessDecl), targetDeclRef->getDecl()->getNameAsString(), replacement, S);
       } else {
@@ -1112,7 +1157,7 @@ public:
         fieldAccessRewriter.replaceMemberExprs(llvm::cast<FieldDecl>(accessDecl), S->getLoopVariable()->getNameAsString(), replacement, S);
       } else if (llvm::isa<FieldDecl>(accessDecl) && field.literalIdx >= 0) {
           // array field
-          arraySubscriptExprRewriter.replaceArraySubscriptExprs(llvm::cast<FieldDecl>(accessDecl), S->getLoopVariable()->getNameAsString(), replacement, field.literalIdx, S);
+          arraySubscriptExprRewriter.replaceArraySubscriptExprs(llvm::cast<FieldDecl>(accessDecl), S->getLoopVariable(), replacement, field.literalIdx, S);
       } else if (llvm::isa<CXXMethodDecl>(accessDecl)) {
         methodCallAccessRewriter.replaceMemberExprs(llvm::cast<CXXMethodDecl>(accessDecl), S->getLoopVariable()->getNameAsString(), replacement, S);
       } else {
