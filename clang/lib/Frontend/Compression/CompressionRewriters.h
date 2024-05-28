@@ -819,7 +819,7 @@ void updateTemplateInstantiationType(ASTContext &Ctx, SourceManager &SrcMgr, Lan
     R.ReplaceText(typespecSourceRange, MARKER + newTemplateInstantiationType);
 }
 
-void updateTemplateInstantiationType(ASTContext &Ctx, SourceManager &SrcMgr, LangOptions &LangOpts, Rewriter &R, TypedefDecl *decl) {
+void updateTemplateInstantiationType(ASTContext &Ctx, SourceManager &SrcMgr, LangOptions &LangOpts, Rewriter &R, TypedefNameDecl *decl) {
     auto typedefType = Ctx.getTypedefType(decl);
 
     auto *typeSourceInfo = decl->getTypeSourceInfo();
@@ -920,6 +920,31 @@ void updateVarType(ASTContext &Ctx, SourceManager &SrcMgr, LangOptions &LangOpts
   if (!isCompressionCandidate(record)) return;
   auto compressionCodeGen = CompressionCodeGenResolver(record, Ctx, SrcMgr, LangOpts, R);
   updateDeclType(R, decl, compressionCodeGen.getGlobalNsFullyQualifiedCompressedStructName() + (ptrs.length() > 0 ? " " + ptrs : ""));
+}
+
+void updateTypedefDecl(ASTContext &Ctx, SourceManager &SrcMgr, LangOptions &LangOpts, Rewriter &R, TypedefDecl *decl) {
+  auto typeCandidate = decl->getUnderlyingType();
+  if (!typeCandidate->isRecordType()) return;
+  auto *record = typeCandidate->getAsRecordDecl();
+  if (!isCompressionCandidate(record)) return;
+
+  auto compressionCodeGen = CompressionCodeGenResolver(record, Ctx, SrcMgr, LangOpts, R);
+  auto replacementText = compressionCodeGen.getGlobalNsFullyQualifiedCompressedStructName();
+  auto beginLoc = decl->getTypeSourceInfo()->getTypeLoc().getBeginLoc();
+  auto sourceRange = SourceRange(beginLoc, beginLoc.getLocWithOffset(record->getName().size() - 1));
+  R.ReplaceText(sourceRange, replacementText);
+}
+
+void updateTypedefDecl(ASTContext &Ctx, SourceManager &SrcMgr, LangOptions &LangOpts, Rewriter &R, TypeAliasDecl *decl) {
+  auto typeCandidate = decl->getUnderlyingType();
+  if (!typeCandidate->isRecordType()) return;
+  auto *record = typeCandidate->getAsRecordDecl();
+  if (!isCompressionCandidate(record)) return;
+
+  auto compressionCodeGen = CompressionCodeGenResolver(record, Ctx, SrcMgr, LangOpts, R);
+  auto replacementText = compressionCodeGen.getGlobalNsFullyQualifiedCompressedStructName();
+  auto sourceRange = SourceRange(decl->getEndLoc(), decl->getEndLoc().getLocWithOffset(record->getName().size() - 1));
+  R.ReplaceText(sourceRange, replacementText);
 }
 
 class FunctionUpdater : public ASTConsumer, public RecursiveASTVisitor<FunctionUpdater> {
@@ -1324,8 +1349,15 @@ public:
   }
 
   bool VisitTypedefDecl(TypedefDecl *d) {
+      updateTypedefDecl(Ctx, SrcMgr, LangOpts, R, d);
       updateTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, d);
       return true;
+  }
+
+  bool VisitTypeAliasDecl(TypeAliasDecl *d) {
+    updateTypedefDecl(Ctx, SrcMgr, LangOpts, R, d);
+    updateTemplateInstantiationType(Ctx, SrcMgr, LangOpts, R, d);
+    return true;
   }
 };
 
