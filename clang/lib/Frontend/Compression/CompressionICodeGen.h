@@ -66,6 +66,10 @@ QualType getTypeFromIndirectType(QualType type, std::string &ptrs) {
       ptrs += "*";
     }
   }
+
+  // apparently explicit references to pointer types are no-no
+  if (ptrs == "&*") ptrs = "*";
+
   return type;
 }
 
