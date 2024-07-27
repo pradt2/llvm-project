@@ -119,6 +119,9 @@ Attribute Changes in Clang
 - The ``no_sanitize`` attribute now accepts both ``gnu`` and ``clang`` names.
 - Clang now diagnoses use of declaration attributes on void parameters. (#GH108819)
 
+- The ``hybrid_patchable`` attribute is now supported on ARM64EC targets. It can be used to specify
+  that a function requires an additional x86-64 thunk, which may be patched at runtime.
+
 Improvements to Clang's diagnostics
 -----------------------------------
 
