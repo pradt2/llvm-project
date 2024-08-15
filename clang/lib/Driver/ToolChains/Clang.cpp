@@ -7228,14 +7228,6 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   Args.addOptInFlag(CmdArgs, options::OPT_fapple_pragma_pack,
                     options::OPT_fno_apple_pragma_pack);
 
-  // -funit-at-a-time is default, and we don't support -fno-unit-at-a-time for
-  // practical purposes.
-  if (Arg *A = Args.getLastArg(options::OPT_funit_at_a_time,
-                               options::OPT_fno_unit_at_a_time)) {
-    if (A->getOption().matches(options::OPT_fno_unit_at_a_time))
-      D.Diag(diag::warn_drv_clang_unsupported) << A->getAsString(Args);
-  }
-
   if (Args.hasFlag(options::OPT_fpacked_attributes_language_extension,
                    options::OPT_fno_packed_attributes_language_extension, true)) {
     CmdArgs.push_back("-fpacked-attributes-language-extension");

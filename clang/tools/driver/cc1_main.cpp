@@ -359,12 +359,6 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   llvm::install_fatal_error_handler(LLVMErrorHandler,
                                   static_cast<void*>(&Clang->getDiagnostics()));
 
-  DiagsBuffer->FlushDiagnostics(Clang->getDiagnostics());
-  if (!Success) {
-    Clang->getDiagnosticClient().finish();
-    return 1;
-  }
-
   // Execute the frontend actions.
   CompilerInvocationResult Result;
   bool Success;
