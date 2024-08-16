@@ -361,7 +361,6 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
 
   // Execute the frontend actions.
   CompilerInvocationResult Result;
-  bool Success;
   llvm::TimeTraceScope TimeScope("ExecuteCompiler");
 
   bool enableHpcLangExtensions = Clang->getLangOpts().PackedAttributesLanguageExtension

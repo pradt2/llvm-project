@@ -1887,23 +1887,23 @@ defm complete_member_pointers : BoolOption<"f", "complete-member-pointers",
   Group<f_clang_Group>;
 defm packed_attributes_language_extension : BoolFOption<"packed-attributes-language-extension",
   LangOpts<"PackedAttributesLanguageExtension">, DefaultFalse,
-  PosFlag<SetTrue, [CC1Option], "Packing attributes such as [[clang::pack]] attribute">,
+  PosFlag<SetTrue, [], [ClangOption, CC1Option], "Packing attributes such as [[clang::pack]] attribute">,
   NegFlag<SetFalse>>;
 defm mpi_attributes_language_extension : BoolFOption<"mpi-attributes-language-extension",
   LangOpts<"MpiAttributesLanguageExtension">, DefaultFalse,
-  PosFlag<SetTrue, [CC1Option], "MPI mapping extensions such as [[clang::map_mpi_datatype]] attribute">,
+  PosFlag<SetTrue, [], [ClangOption, CC1Option], "MPI mapping extensions such as [[clang::map_mpi_datatype]] attribute">,
   NegFlag<SetFalse>>;
 defm soa_conversion_attributes_language_extension : BoolFOption<"soa-conversion-attributes-language-extension",
   LangOpts<"SoaConversionAttributesLanguageExtension">, DefaultFalse,
-  PosFlag<SetTrue, [CC1Option], "SOA conversion attributes such as [[clang::soa_conv_target]] attribute">,
+  PosFlag<SetTrue, [], [ClangOption, CC1Option], "SOA conversion attributes such as [[clang::soa_conv_target]] attribute">,
   NegFlag<SetFalse>>;
 defm postprocessing_output_dump : BoolFOption<"postprocessing-output-dump",
     LangOpts<"PostprocessingOutputDump">, DefaultFalse,
-    PosFlag<SetTrue, [CC1Option], "Dump postprocessed output to stdout">,
+    PosFlag<SetTrue, [], [ClangOption, CC1Option], "Dump postprocessed output to stdout">,
     NegFlag<SetFalse>>;
 defm postprocessing_output_save : BoolFOption<"postprocessing-output-save",
     LangOpts<"PostprocessingOutputSave">, DefaultFalse,
-    PosFlag<SetTrue, [CC1Option], "Save postprocessed output to /tmp">,
+    PosFlag<SetTrue, [], [ClangOption, CC1Option], "Save postprocessed output to /tmp">,
     NegFlag<SetFalse>>;
 def fcf_runtime_abi_EQ : Joined<["-"], "fcf-runtime-abi=">, Group<f_Group>,
     Visibility<[ClangOption, CC1Option]>,

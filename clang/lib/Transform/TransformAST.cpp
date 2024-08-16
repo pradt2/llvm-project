@@ -152,7 +152,7 @@ Expr *getInitExpr(ASTContext &C, CXXRecordDecl *recordDecl) {
   auto *constructorDecl = getDefaultNoArgConstructorDecl(recordDecl);
   if (!constructorDecl) return nullptr;
   auto recordType = C.getRecordType(recordDecl);
-  auto *expr = CXXConstructExpr::Create(C, recordType, SourceLocation(), constructorDecl,false, llvm::ArrayRef<Expr *>(nullptr, (size_t) 0), false, false, false, false, CXXConstructExpr::ConstructionKind::CK_Complete, SourceRange());
+  auto *expr = CXXConstructExpr::Create(C, recordType, SourceLocation(), constructorDecl,false, llvm::ArrayRef<Expr *>(nullptr, (size_t) 0), false, false, false, false, CXXConstructionKind::Complete, SourceRange());
   return expr;
 }
 
