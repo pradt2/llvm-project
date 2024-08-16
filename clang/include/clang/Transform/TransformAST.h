@@ -8,6 +8,7 @@
 #include "clang/Sema/Sema.h"
 
 #include "clang/AST/ASTConsumer.h"
+#include "clang/AST/ExprCXX.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 
 namespace clang {
@@ -27,7 +28,7 @@ IdentifierInfo &createIdentifierInfo(ASTContext &C, std::string name);
  * @return
  */
 CXXRecordDecl *createNewEmptyRecord(ASTContext &C, Sema &S, std::string name,
-                                    TagTypeKind kind = TTK_Struct,
+                                    TagTypeKind kind = TagTypeKind::Struct,
                                     bool completeDefinition = true);
 
 CXXConstructorDecl *getDefaultNoArgConstructorDecl(CXXRecordDecl *recordDecl);

@@ -105,8 +105,8 @@ std::string templateArgumentToString(LangOptions &LangOpts, Rewriter &R, const T
     return type;
   }
   case Kind::Integral: {
-    auto argInt = arg.getAsIntegral();
-    std::string argIntStr = toString(argInt, 10);
+    auto argInt = arg.getAsIntegral().getExtValue();
+    std::string argIntStr = std::to_string(argInt);
     return argIntStr;
   }
   case Kind::Expression: {
