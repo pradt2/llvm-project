@@ -225,7 +225,7 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
       Decl *itemDecl = nullptr;
       long literalIdx = -1;
 
-      if (llvm::StringRef(fragment).endswith("()")) {
+      if (llvm::StringRef(fragment).ends_with("()")) {
         // it's a method call
 
         auto methodName = fragment;
@@ -254,7 +254,7 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
 
         itemType = methodDecl->getReturnType();
         itemDecl = methodDecl;
-      } else if (llvm::StringRef(fragment).contains('[') && llvm::StringRef(fragment).endswith("]")) {
+      } else if (llvm::StringRef(fragment).contains('[') && llvm::StringRef(fragment).ends_with("]")) {
         // it's an array access
 
         auto openBracketIdx = llvm::StringRef(fragment).find('[');
@@ -445,7 +445,7 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
 
       QualType itemType;
 
-      if (llvm::StringRef(fragment).endswith("()")) {
+      if (llvm::StringRef(fragment).ends_with("()")) {
         // it's a method call
 
         auto methodName = fragment;
@@ -476,7 +476,7 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
         source += "." + fragment;
         source = getAccessToType(itemType, source);
 
-      } else if (llvm::StringRef(fragment).contains('[') && llvm::StringRef(fragment).endswith("]")) {
+      } else if (llvm::StringRef(fragment).contains('[') && llvm::StringRef(fragment).ends_with("]")) {
           // it's an array access
 
           auto openBracketIdx = llvm::StringRef(fragment).find('[');
@@ -557,7 +557,7 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
 
       bool lastItemMethod = false;
 
-      if (llvm::StringRef(fragment).endswith("()")) {
+      if (llvm::StringRef(fragment).ends_with("()")) {
           // it's a method call
 
           auto methodName = fragment;
@@ -589,7 +589,7 @@ class SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<
           source += "." + fragment;
           source = getAccessToType(itemType, source);
           lastItemMethod = true;
-      } else if (llvm::StringRef(fragment).contains('[') && llvm::StringRef(fragment).endswith("]")) {
+      } else if (llvm::StringRef(fragment).contains('[') && llvm::StringRef(fragment).ends_with("]")) {
           // it's an array access
 
           auto openBracketIdx = llvm::StringRef(fragment).find('[');

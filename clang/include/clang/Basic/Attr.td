@@ -998,7 +998,7 @@ def MapMpiDatatype : InheritableParamAttr {
 
 def CompressionMethod : InheritableParamAttr {
     let Spellings = [Clang<"compression_method">];
-    let Args = [EnumArgument<"CompressionMethod", "CompressionMethodType",
+    let Args = [EnumArgument<"CompressionMethod", "CompressionMethodType", /*is_string=*/true,
                 ["bitshift", "bitpack"],
                 ["Bitshift", "Bitpack"]>];
     let Subjects = SubjectList<[CXXRecord]>;
@@ -1015,7 +1015,7 @@ def SoaConversionDataItem : StmtAttr {
 
 def SoaConversionAllocationStrategy : StmtAttr {
     let Spellings = [Clang<"soa_conversion_allocation_strategy">];
-    let Args = [EnumArgument<"AllocationStrategy", "AllocationStrategyType",
+    let Args = [EnumArgument<"AllocationStrategy", "AllocationStrategyType", /*is_string=*/true,
                 ["stack", "heap", "vla"], ["Stack", "Heap", "VLA"]>];
     let Subjects = SubjectList<[ForStmt, CXXForRangeStmt],
                     ErrorDiag, "'for' statements">;
@@ -1024,7 +1024,7 @@ def SoaConversionAllocationStrategy : StmtAttr {
 
 def SoaConversionDataMovementStrategy : StmtAttr {
     let Spellings = [Clang<"soa_conversion_data_movement_strategy">];
-    let Args = [EnumArgument<"DataMovementStrategy", "DataMovementStrategyType",
+    let Args = [EnumArgument<"DataMovementStrategy", "DataMovementStrategyType", /*is_string=*/true,
                 ["in_situ", "move_to_outer", "move_to_outermost"], ["InSitu", "MoveToOuter", "MoveToOutermost"]>];
     let Subjects = SubjectList<[ForStmt, CXXForRangeStmt],
                                 ErrorDiag, "'for' statements">;

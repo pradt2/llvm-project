@@ -4576,6 +4576,16 @@ public:
                              MutableArrayRef<Expr *> Args);
   Attr *CreateAnnotationAttr(const ParsedAttr &AL);
 
+  void AddCompressAttr(Decl *D, const AttributeCommonInfo &CI);
+
+  void AddCompressRangeAttr(Decl *D, const AttributeCommonInfo &CI, Expr *minValue, Expr *maxValue);
+
+  void AddCompressTruncateMantissaAttr(Decl *D, const AttributeCommonInfo &CI, Expr *mantissaSize);
+
+  void AddCompressionMethodAttr(Decl *D, const AttributeCommonInfo &CI, CompressionMethodAttr::CompressionMethodType type);
+
+  void AddMapMpiDatatypeAttr(Decl *D, const ParsedAttr &AL);
+
   bool checkMSInheritanceAttrOnDefinition(CXXRecordDecl *RD, SourceRange Range,
                                           bool BestCase,
                                           MSInheritanceModel SemanticSpelling);
