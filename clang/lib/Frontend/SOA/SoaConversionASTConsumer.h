@@ -1,8 +1,9 @@
 #ifndef CLANG_SOACONVERSIONASTCONSUMER_H
 #define CLANG_SOACONVERSIONASTCONSUMER_H
 
-#include "../SemaIR/SemaIR.h"
 #include "../Compression/Utils.h"
+#include "../SemaIR/SemaIR.h"
+#include "./ViewAutogenASTUtils.h"
 
 using namespace clang;
 
@@ -1182,6 +1183,17 @@ public:
 
     }
     return true;
+  }
+
+  bool VisitTypedefDecl(TypedefDecl *D) {
+    if (!D->hasAttrs()) return true;
+    auto &attrs = D->getAttrs();
+    for (auto *attr : attrs) printf("%s\n", attr->getSpelling());
+    return true;
+  }
+
+  bool VisitTypeAliasDecl(TypeAliasDecl *D) {
+
   }
 
   void HandleTranslationUnit(ASTContext &Context) override {
