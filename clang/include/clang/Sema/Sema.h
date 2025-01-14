@@ -4570,6 +4570,8 @@ public:
 
   void AddCompressionMethodAttr(Decl *D, const AttributeCommonInfo &CI, CompressionMethodAttr::CompressionMethodType type);
 
+  void AddViewAttr(Decl *D, const AttributeCommonInfo &CI, llvm::StringRef function);
+
   void AddMapMpiDatatypeAttr(Decl *D, const ParsedAttr &AL);
 
   bool checkMSInheritanceAttrOnDefinition(CXXRecordDecl *RD, SourceRange Range,

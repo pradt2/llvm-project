@@ -984,6 +984,13 @@ def CompressionMethod : InheritableParamAttr {
     let Documentation = [Undocumented];
 }
 
+def View : DeclOrTypeAttr {
+    let Spellings = [Clang<"view">];
+    let Args = [StringArgument<"Function">];
+    let Subjects = SubjectList<[TypeAlias, Typedef]>;
+    let Documentation = [Undocumented];
+}
+
 def SoaConversionDataItem : StmtAttr {
     let Spellings = [Clang<"soa_conversion_data_item">];
     let Args = [StringArgument<"Input">, StringArgument<"Output">];

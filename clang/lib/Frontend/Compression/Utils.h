@@ -8,6 +8,8 @@
 #include <string>
 #include <limits>
 
+using namespace clang;
+
 template<typename T>
 inline const T* getParentNodeOfType(ASTContext &Ctx, const Expr *E, ASTNodeKind::NodeKindId nodeKind) {
   auto parents = Ctx.getParents(*E);
