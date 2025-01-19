@@ -1185,6 +1185,23 @@ public:
     return true;
   }
 
+  bool VisitFunctionDecl(FunctionDecl *S) {
+    if (S->getName() != "kernel") return true;
+    if (S->isTemplated()) return true;
+
+    auto *arg0 = S->getParamDecl(0);
+    PrintUsages2(arg0, S->getBody());
+    return true;
+  }
+
+  bool VisitFunctionTemplateDecl(FunctionTemplateDecl *D) {
+    for (auto *FD : D->specializations()) {
+      auto *arg0 = FD->getParamDecl(0);
+      PrintUsages2(arg0, FD->getBody());
+    }
+    return true;
+  }
+
   bool VisitTypedefDecl(TypedefDecl *D) {
     if (!D->hasAttrs()) return true;
     auto &attrs = D->getAttrs();
@@ -1193,7 +1210,10 @@ public:
   }
 
   bool VisitTypeAliasDecl(TypeAliasDecl *D) {
-
+    if (!D->hasAttrs()) return true;
+    auto &attrs = D->getAttrs();
+    for (auto *attr : attrs) printf("%s\n", attr->getSpelling());
+    return true;
   }
 
   void HandleTranslationUnit(ASTContext &Context) override {
