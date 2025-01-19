@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="clang - 20_combined_example" type="CMakeRunConfiguration" factoryName="Application" PROGRAM_PARAMS="-std=c++20 -fopenmp --offload-arch=native -nocudalib ./testcases/20_combined_example.cpp" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" WORKING_DIR="file://$PROJECT_DIR$/clang" PASS_PARENT_ENVS_2="true" PROJECT_NAME="LLVM" TARGET_NAME="clang" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="LLVM" RUN_TARGET_NAME="clang">
+  <configuration default="false" name="clang - 20_combined_example" type="CMakeRunConfiguration" factoryName="Application" PROGRAM_PARAMS="-std=c++20 -fopenmp --offload-arch=native -nocudalib ./testcases/20_combined_example.cpp" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" WORKING_DIR="file://$PROJECT_DIR$/clang" PASS_PARENT_ENVS_2="true" PROJECT_NAME="LLVM" TARGET_NAME="clang" CONFIG_NAME="Debug-Clang" RUN_TARGET_PROJECT_NAME="LLVM" RUN_TARGET_NAME="clang">
     <method v="2">
       <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
     </method>

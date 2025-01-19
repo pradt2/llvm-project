@@ -1,73 +1,23 @@
-struct SubData {
-  double usedSubA, usedSubB;
-  double unusedSubA, unusedSubB;
-};
+void kernel(auto *data) {
+  auto v = data->a + data->b;
+  data->c = v;
+  data->d() += 1;
+  data->arr[0] = data->arr[1];
+
+//  escapeF(*data);
+}
 
 struct Data {
-  double usedA, usedB;
+  double a, b, c, _d;
 
-  union {
-    struct {
-      double densityUsedA;
-      double densityUnusedA;
-    } density;
+  int arr[2];
 
-    struct {
-      double forceUsedA;
-      double forceUnusedA;
+  void x() {}
 
-      double getForce() const {
-        return this->forceUsedA;
-      }
-
-      void setForce(double f) {
-        this->forceUsedA = f;
-      }
-
-    } force;
-  };
-
-  SubData usedSubdataA;
-
-  SubData unusedSubdataA;
-
-  using DensityKernelView [[clang::view("densityKernel")]] = Data;
-  using ForceKernelView [[clang::view("forceKernel")]] = Data;
+  double &d() {
+    x();
+    return _d;
+  }
 };
 
-void densityKernel(Data *d1, Data *d2) {
-  auto _1 = d1->usedA - d2->usedB;
-  auto _2 = d1->usedSubdataA.usedSubA - d2->usedSubdataA.usedSubB;
-  auto _3 = d1->density.densityUsedA - d2->density.densityUsedA;
-  d1->density.densityUsedA = _1 * _2 * _3;
-}
-
-void forceKernel(Data *d1, Data *d2) {
-  auto _1 = d1->usedA - d2->usedB;
-  auto _2 = d1->usedSubdataA.usedSubA - d2->usedSubdataA.usedSubB;
-  auto _3 = d1->force.getForce() - d2->force.getForce();
-  d1->force.setForce(_1 * _2 * _3);
-}
-
-void densityKernelLauncherCall(Data *d1, int d1size, Data *d2, int d2size) {
-  [[clang::soa_conversion_target("d1")]]
-  [[clang::soa_conversion_target_size("d1size")]]
-  for (int d1i = 0; d1i < d1size; d1i++) {
-    for (int d2i = 0; d2i < d2size; d2i++) {
-      densityKernel(&d1[d1i], &d2[d2i]);
-    }
-  }
-}
-
-void densityKernelLauncherEmbedded(Data *d1, int d1size, Data *d2, int d2size) {
-  [[clang::soa_conversion_target("d1")]]
-  [[clang::soa_conversion_target_size("d1size")]]
-  for (int d1i = 0; d1i < d1size; d1i++) {
-    for (int d2i = 0; d2i < d2size; d2i++) {
-      auto _1 = d1[d1i].usedA - d2[d2i].usedB;
-      auto _2 = d1[d1i].usedSubdataA.usedSubA - d2[d2i].usedSubdataA.usedSubB;
-      auto _3 = d1[d1i].density.densityUsedA - d2[d2i].density.densityUsedA;
-      d1[d1i].density.densityUsedA = _1 * _2 * _3;
-    }
-  }
-}
+template void kernel(Data *data);
