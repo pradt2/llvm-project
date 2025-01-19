@@ -1,12 +1,12 @@
 void doMe(auto *data) {
-
-}
-
-void kernel(auto *data) {
   auto v = data->a + data->b;
   data->c = v;
   data->d() += 1;
   data->arr[0] = data->arr[1];
+}
+
+void kernel(auto *data) {
+  doMe(data);
 
 //  escapeF(*data);
 }
@@ -24,4 +24,6 @@ struct Data {
   }
 };
 
-template void kernel(Data *data);
+void kernel_launcher(Data *data) {
+  kernel(data);
+}

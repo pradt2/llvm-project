@@ -4,28 +4,6 @@
 
 using namespace clang;
 
-struct DataMember {
-  enum DataFlow {
-    Unknown = 0,
-    Read = 1,
-    Write = 2,
-    Members = 4,
-  };
-
-  enum Syntax {
-    None = 0,
-    Call = 1,
-    Subscript = 2,
-  };
-
-  std::string name;
-  QualType type;
-  DataFlow dataFlow = Unknown;
-  Syntax syntax = None;
-  std::vector<DataMember> members;
-  DataMember *parent = nullptr;
-};
-
 static Expr *IgnoreImplicitCasts(Expr *E) {
   if (!E || !llvm::isa<ImplicitCastExpr>(E)) return E;
   auto *implicitCast = llvm::cast<ImplicitCastExpr>(E);
@@ -51,151 +29,6 @@ T *GetParent(ASTContext &C, U *E) {
   return parentMaybe;
 }
 
-Expr *GetImmediateParent(ASTContext &C, Expr *E) {
-  for (auto parent: C.getParentMapContext().getParents(*E)) {
-    auto *exprMaybe = parent.get<Expr>();
-    if (exprMaybe) return (Expr*) exprMaybe;
-  }
-  return nullptr;
-}
-
-static void PrintUsages(VarDecl *V, Stmt *S) {
-  auto isPointer = V->getType()->isPointerType();
-  auto isRef = V->getType()->isReferenceType();
-
-  DataMember rootMember {
-      .name = V->getNameAsString(),
-      .type = V->getType(),
-  };
-
-  struct MemberFinder : RecursiveASTVisitor<MemberFinder> {
-    VarDecl *D;
-    DataMember *rootMember;
-
-    bool VisitDeclRefExpr(DeclRefExpr *E) {
-      if (E->getDecl() != D) return true;
-      auto &C = D->getASTContext();
-
-      auto *parent = GetImmediateParent(C, E);
-      Expr *lastMember = nullptr;
-      DataMember *lastDataMember = this->rootMember;
-      printf("--- new member ---\n");
-
-      while (parent) {
-        if (llvm::isa<ImplicitCastExpr>(parent)) {
-          // do nothing, search parents
-        } else if (llvm::isa<CXXDependentScopeMemberExpr>(parent)) {
-          // we're inside a template, don't panic
-          auto *memberExpr = llvm::cast<CXXDependentScopeMemberExpr>(parent);
-          auto name = memberExpr->getMemberNameInfo().getAsString();
-          printf("Found (template) member: %s\n", name.c_str());
-          lastDataMember->dataFlow = (DataMember::DataFlow) (lastDataMember->dataFlow | DataMember::DataFlow::Members);
-          DataMember *existingMemberMaybe = nullptr;
-          for (auto &existingMember : lastDataMember->members) if (existingMember.name == name) existingMemberMaybe = &existingMember;
-          if (!existingMemberMaybe) {
-            DataMember d{
-              .name = name.c_str(),
-              .type = memberExpr->getType(),
-              .parent = lastDataMember,
-            };
-            lastDataMember->members.push_back(d);
-            lastDataMember = &lastDataMember->members.back();
-          } else lastDataMember = existingMemberMaybe;
-          lastMember = memberExpr;
-        } else if (llvm::isa<MemberExpr>(parent)) {
-          auto *memberExpr = llvm::cast<CXXDependentScopeMemberExpr>(parent);
-          auto name = memberExpr->getMemberNameInfo().getAsString();
-          printf("Found member: %s\n", name.c_str());
-          lastDataMember->dataFlow = (DataMember::DataFlow) (lastDataMember->dataFlow | DataMember::DataFlow::Members);
-          DataMember *existingMemberMaybe = nullptr;
-          for (auto &existingMember : lastDataMember->members) if (existingMember.name == name) existingMemberMaybe = &existingMember;
-          if (!existingMemberMaybe) {
-            DataMember d{
-                .name = name.c_str(),
-                .type = memberExpr->getType(),
-                .parent = lastDataMember,
-            };
-            lastDataMember->members.push_back(d);
-            lastDataMember = &lastDataMember->members.back();
-          } else lastDataMember = existingMemberMaybe;
-          lastMember = memberExpr;
-        } else if (llvm::isa<CallExpr>(parent)) {
-          auto *callExpr = llvm::cast<CallExpr>(parent);
-          auto *callee = callExpr->getCallee();
-          if (lastMember != callee) {
-            printf("Member used to read\n");
-            lastDataMember->dataFlow = (DataMember::DataFlow) (lastDataMember->dataFlow | DataMember::DataFlow::Read);
-            break;
-          }
-          printf("Member is a function\n");
-          lastDataMember->syntax = (DataMember::Syntax) (lastDataMember->syntax | DataMember::Syntax::Call);
-          lastMember = callExpr;
-        } else if (llvm::isa<BinaryOperator>(parent)) {
-          auto *binOp = llvm::cast<BinaryOperator>(parent);
-          if (!binOp->isAssignmentOp()) {
-            printf("Member used to read\n");
-            lastDataMember->dataFlow = (DataMember::DataFlow) (lastDataMember->dataFlow | DataMember::DataFlow::Read);
-            break;
-          }
-          if (binOp->getRHS() == lastMember) {
-            printf("Member used to read\n");
-            lastDataMember->dataFlow = (DataMember::DataFlow) (lastDataMember->dataFlow | DataMember::DataFlow::Read);
-            break;
-          }
-          if (binOp->isCompoundAssignmentOp()) {
-            printf("Member used to read\n");
-            lastDataMember->dataFlow = (DataMember::DataFlow) (lastDataMember->dataFlow | DataMember::DataFlow::Read);
-          }
-          printf("Member used to write\n");
-          lastDataMember->dataFlow = (DataMember::DataFlow) (lastDataMember->dataFlow | DataMember::DataFlow::Write);
-          break;
-        } else if (llvm::isa<ArraySubscriptExpr>(parent)) {
-          auto *arraySubscriptOp = llvm::cast<ArraySubscriptExpr>(parent);
-          if (parent == arraySubscriptOp->getIdx()) {
-            printf("Member used to read\n");
-            lastDataMember->dataFlow = (DataMember::DataFlow) (lastDataMember->dataFlow | DataMember::DataFlow::Read);
-            break;
-          }
-          printf("Member uses subscript ops\n");
-          lastDataMember->syntax = (DataMember::Syntax) (lastDataMember->syntax | DataMember::Syntax::Subscript);
-          lastMember = arraySubscriptOp;
-        } else {
-          printf("Member used to read (unknown node)\n");
-          lastDataMember->dataFlow = (DataMember::DataFlow) (lastDataMember->dataFlow | DataMember::DataFlow::Read);
-          break;
-        }
-
-        parent = GetImmediateParent(C, parent);
-      }
-      return true;
-    }
-  } M{.D = V, .rootMember = &rootMember};
-
-  M.TraverseStmt(S);
-
-  return;
-}
-
-struct UsageStats {
-  enum UsageKind {
-    Unknown = 0, Read = 1,
-    Write = 2,
-  };
-
-  CXXRecordDecl *record;
-  std::map<FieldDecl*, UsageKind> fields;
-  std::set<CXXMethodDecl*> methods;
-};
-
-template<typename T, typename U>
-T *GetImmediateParent(ASTContext &C, U *E) {
-  for (auto parent: C.getParentMapContext().getParents(*E)) {
-    auto *exprMaybe = parent.template get<T>();
-    if (exprMaybe) return (T*) exprMaybe;
-  }
-  return nullptr;
-}
-
 template<typename E>
 bool IsReadExpr(ASTContext &C, E *e) {
   auto dynNode = DynTypedNode::create(*e);
@@ -207,6 +40,18 @@ bool IsReadExpr(ASTContext &C, E *e) {
   }
 }
 
+struct UsageStats {
+  enum UsageKind {
+    Unknown = 0, Read = 1,
+    Write = 2,
+  };
+
+  CXXRecordDecl *record;
+  std::map<FieldDecl*, UsageKind> fields;
+  std::set<CXXMethodDecl*> methods;
+  std::map<FunctionDecl *, int> leakyFunctions;
+};
+
 std::string CreateReferenceView(ASTContext &C, UsageStats *S) {
   std::string view = "";
   view =+ "struct " + S->record->getNameAsString() + "_view { \n";
@@ -216,7 +61,7 @@ std::string CreateReferenceView(ASTContext &C, UsageStats *S) {
     } else {
       auto *arrType = llvm::cast<ConstantArrayType>(k->getType()->getAsArrayTypeUnsafe());
       auto size = arrType->getSExtSize();
-      view += arrType->getElementType().getAsString() + " " + k->getNameAsString() + "[" + std::to_string(size) + "];\n";
+      view += arrType->getElementType().getAsString() + " *" + k->getNameAsString() + ";\n";
     }
   }
 
@@ -244,9 +89,28 @@ struct UsageFinder : RecursiveASTVisitor<UsageFinder> {
   bool VisitMemberExpr(MemberExpr *E) {
     auto *memberDecl = E->getMemberDecl();
     auto *base = IgnoreImplicitCasts(E->getBase());
-    if (!llvm::isa<DeclRefExpr>(base)) return true;
-    auto *declRefBase = llvm::cast<DeclRefExpr>(base);
-    if (declRefBase->getDecl() != D) return true;
+
+    auto DType = D->getType();
+    CXXRecordDecl *DTypeDecl = nullptr;
+    if (DType->isPointerType())
+      DTypeDecl = DType->getPointeeType()->getAsCXXRecordDecl();
+    else if (DType->isReferenceType())
+      DTypeDecl = DType.getNonReferenceType()->getAsCXXRecordDecl();
+    else if (DType->isRecordType())
+      DTypeDecl = DType->getAsCXXRecordDecl();
+    else {
+      llvm::errs() << "SOA: Target type is not a record!\n";
+      return true;
+    }
+
+    if (llvm::isa<CXXThisExpr>(base)) {
+      auto *thisExpr = llvm::cast<CXXThisExpr>(base);
+      auto *thisRecord = thisExpr->getBestDynamicClassType();
+      if (thisRecord != DTypeDecl) return true;
+    } else if (llvm::isa<DeclRefExpr>(base)) {
+      auto *declRefBase = llvm::cast<DeclRefExpr>(base);
+      if (declRefBase->getDecl() != D) return true;
+    } else return true;
 
     auto &C = memberDecl->getASTContext();
 
@@ -276,7 +140,7 @@ struct UsageFinder : RecursiveASTVisitor<UsageFinder> {
   }
 };
 
-std::map<FunctionDecl *, int> FindLeakFunctions(VarDecl *D, Stmt *S) {
+void FindLeakFunctions(VarDecl *D, Stmt *S, std::map<FunctionDecl *, int> &functions) {
   struct LeakFinder : RecursiveASTVisitor<LeakFinder> {
     VarDecl *D;
     std::map<FunctionDecl *, int> *fs;
@@ -284,7 +148,7 @@ std::map<FunctionDecl *, int> FindLeakFunctions(VarDecl *D, Stmt *S) {
     bool VisitCallExpr(CallExpr *E) {
       auto numArgs = E->getNumArgs();
       for (int i = 0; i < numArgs; i++) {
-        auto *argExpr = E->getArgs()[i];
+        auto *argExpr = IgnoreImplicitCasts(E->getArgs()[i]);
         if (llvm::isa<ArraySubscriptExpr>(argExpr)) {
           auto *arrOp = llvm::cast<ArraySubscriptExpr>(argExpr);
           argExpr = arrOp->getBase();
@@ -301,22 +165,30 @@ std::map<FunctionDecl *, int> FindLeakFunctions(VarDecl *D, Stmt *S) {
     }
   };
 
-  std::map<FunctionDecl *, int> functions;
   LeakFinder{.D = D, .fs = &functions}.TraverseStmt(S);
-  return functions;
 }
 
 void FindUsages(VarDecl *D, UsageStats &stats, Stmt *S) {
-  UsageFinder f{.D = D, .Stats = &stats};
-  f.TraverseStmt(S);
+  UsageFinder{.D = D, .Stats = &stats}.TraverseStmt(S);
+  FindLeakFunctions(D, S, stats.leakyFunctions);
 
   while (true) {
     auto oldMethodCount = stats.methods.size();
-    for (auto *method : stats.methods) {
+    auto oldLeakyFunctionCount = stats.leakyFunctions.size();
+
+    auto methodsCopy = stats.methods; // cant modify set while iterating, hence a copy is needed
+    for (auto *method : methodsCopy) {
       UsageFinder{.D = D, .Stats = &stats}.TraverseCXXMethodDecl(method);
+      FindLeakFunctions(D, method->getBody(), stats.leakyFunctions);
     }
-    auto hasMethodCountChanged = stats.methods.size() > oldMethodCount;
-    if (!hasMethodCountChanged) break;
+    auto leakyFunctionsCopy = stats.leakyFunctions;
+    for (auto [leakyFunction, arg] : leakyFunctionsCopy) {
+      auto *D = leakyFunction->getParamDecl(arg);
+      UsageFinder{.D = D, .Stats = &stats}.TraverseFunctionDecl(leakyFunction);
+      FindLeakFunctions(D, leakyFunction->getBody(), stats.leakyFunctions);
+    }
+    auto haveStatsChanged = stats.methods.size() > oldMethodCount || stats.leakyFunctions.size() > oldLeakyFunctionCount;
+    if (!haveStatsChanged) break;
   }
 }
 
