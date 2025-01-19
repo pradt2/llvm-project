@@ -1195,6 +1195,8 @@ public:
   }
 
   bool VisitFunctionTemplateDecl(FunctionTemplateDecl *D) {
+    if (D->getName() != "kernel") return true;
+
     for (auto *FD : D->specializations()) {
       auto *arg0 = FD->getParamDecl(0);
       PrintUsages2(arg0, FD->getBody());

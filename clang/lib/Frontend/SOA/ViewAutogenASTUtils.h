@@ -207,6 +207,119 @@ bool IsReadExpr(ASTContext &C, E *e) {
   }
 }
 
+std::string CreateReferenceView(ASTContext &C, UsageStats *S) {
+  std::string view = "";
+  view =+ "struct " + S->record->getNameAsString() + "_view { \n";
+  for (auto [k, v] : S->fields) {
+    if (!k->getType()->isArrayType()) {
+      view += k->getType().getAsString() + (k->getType()->isReferenceType() ? " " : " &") + k->getNameAsString() + ";\n";
+    } else {
+      auto *arrType = llvm::cast<ConstantArrayType>(k->getType()->getAsArrayTypeUnsafe());
+      auto size = arrType->getSExtSize();
+      view += arrType->getElementType().getAsString() + " " + k->getNameAsString() + "[" + std::to_string(size) + "];\n";
+    }
+  }
+
+  auto &R = C.getSourceManager().getRewriter();
+  for (auto *method : S->methods) {
+    view += method->getReturnType().getAsString() + " " + method->getNameAsString() + "(";
+    for (auto *arg : method->parameters()) {
+      view += arg->getType().getAsString() + " " + arg->getNameAsString() + ", ";
+    }
+    if (method->param_size() != 0) {
+      view.pop_back();
+      view.pop_back();
+    }
+    view += ") " + R.getRewrittenText(method->getBody()->getSourceRange()) + "\n";
+  }
+  view += "};\n";
+
+  return view;
+}
+
+struct UsageFinder : RecursiveASTVisitor<UsageFinder> {
+  VarDecl *D;
+  UsageStats *Stats;
+
+  bool VisitMemberExpr(MemberExpr *E) {
+    auto *memberDecl = E->getMemberDecl();
+    auto *base = IgnoreImplicitCasts(E->getBase());
+    if (!llvm::isa<DeclRefExpr>(base)) return true;
+    auto *declRefBase = llvm::cast<DeclRefExpr>(base);
+    if (declRefBase->getDecl() != D) return true;
+
+    auto &C = memberDecl->getASTContext();
+
+    if (llvm::isa<CXXMethodDecl>(memberDecl)) {
+      auto *methodDecl = llvm::cast<CXXMethodDecl>(memberDecl);
+      this->Stats->methods.insert(methodDecl);
+      return true;
+    }
+
+    if (llvm::isa<FieldDecl>(memberDecl)) {
+      auto *fieldDecl = llvm::cast<FieldDecl>(memberDecl);
+
+      auto isNew = this->Stats->fields.count(fieldDecl) == 0;
+      if (isNew) this->Stats->fields[fieldDecl] = UsageStats::UsageKind::Unknown;
+
+      auto isReadAccess = IsReadExpr(C, E);
+      auto usageKind = isReadAccess ? UsageStats::UsageKind::Read : UsageStats::UsageKind::Write;
+
+      // for functions that possibly return references, always assume that the value is at least read
+      if (GetParent<ReturnStmt>(C, E)) usageKind = (UsageStats::UsageKind) (usageKind | UsageStats::UsageKind::Read);
+
+      this->Stats->fields[fieldDecl] = (UsageStats::UsageKind) (this->Stats->fields[fieldDecl] | usageKind);
+      return true;
+    }
+
+    return true;
+  }
+};
+
+std::map<FunctionDecl *, int> FindLeakFunctions(VarDecl *D, Stmt *S) {
+  struct LeakFinder : RecursiveASTVisitor<LeakFinder> {
+    VarDecl *D;
+    std::map<FunctionDecl *, int> *fs;
+
+    bool VisitCallExpr(CallExpr *E) {
+      auto numArgs = E->getNumArgs();
+      for (int i = 0; i < numArgs; i++) {
+        auto *argExpr = E->getArgs()[i];
+        if (llvm::isa<ArraySubscriptExpr>(argExpr)) {
+          auto *arrOp = llvm::cast<ArraySubscriptExpr>(argExpr);
+          argExpr = arrOp->getBase();
+        }
+        if (!llvm::isa<DeclRefExpr>(argExpr)) continue;
+        auto *declRefExpr = llvm::cast<DeclRefExpr>(argExpr);
+        if (D != declRefExpr->getDecl()) continue;
+
+        auto *callee = E->getDirectCallee();
+        (*fs)[callee] = i;
+        return true;
+      }
+      return true;
+    }
+  };
+
+  std::map<FunctionDecl *, int> functions;
+  LeakFinder{.D = D, .fs = &functions}.TraverseStmt(S);
+  return functions;
+}
+
+void FindUsages(VarDecl *D, UsageStats &stats, Stmt *S) {
+  UsageFinder f{.D = D, .Stats = &stats};
+  f.TraverseStmt(S);
+
+  while (true) {
+    auto oldMethodCount = stats.methods.size();
+    for (auto *method : stats.methods) {
+      UsageFinder{.D = D, .Stats = &stats}.TraverseCXXMethodDecl(method);
+    }
+    auto hasMethodCountChanged = stats.methods.size() > oldMethodCount;
+    if (!hasMethodCountChanged) break;
+  }
+}
+
 void PrintUsages2(VarDecl *D, Stmt *S) {
   CXXRecordDecl *decl;
   if (D->getType()->isPointerType()) {
@@ -215,61 +328,15 @@ void PrintUsages2(VarDecl *D, Stmt *S) {
     decl = D->getType().getNonReferenceType()->getAsCXXRecordDecl();
   } else decl = D->getType()->getAsCXXRecordDecl();
 
-  struct UsageFinder : RecursiveASTVisitor<UsageFinder> {
-    UsageStats *Stats;
-
-    bool VisitMemberExpr(MemberExpr *E) {
-      auto *memberDecl = E->getMemberDecl();
-      auto &C = memberDecl->getASTContext();
-
-      if (llvm::isa<CXXMethodDecl>(memberDecl)) {
-        auto *methodDecl = llvm::cast<CXXMethodDecl>(memberDecl);
-        auto *parentDecl = GetParent<CXXRecordDecl>(C, methodDecl);
-        if (parentDecl != this->Stats->record) return true;
-        this->Stats->methods.insert(methodDecl);
-        return true;
-      }
-
-      if (llvm::isa<FieldDecl>(memberDecl)) {
-        auto *fieldDecl = llvm::cast<FieldDecl>(memberDecl);
-        auto *parentDecl = GetParent<CXXRecordDecl>(C, fieldDecl);
-        if (parentDecl != this->Stats->record) return true;
-
-        auto isNew = this->Stats->fields.count(fieldDecl) == 0;
-        if (isNew) this->Stats->fields[fieldDecl] = UsageStats::UsageKind::Unknown;
-
-        auto isReadAccess = IsReadExpr(C, E);
-        auto usageKind = isReadAccess ? UsageStats::UsageKind::Read : UsageStats::UsageKind::Write;
-
-        // for functions that possibly return references, always assume that the value is at least read
-        if (GetParent<ReturnStmt>(C, E)) usageKind = (UsageStats::UsageKind) (usageKind | UsageStats::UsageKind::Read);
-
-        this->Stats->fields[fieldDecl] = (UsageStats::UsageKind) (this->Stats->fields[fieldDecl] | usageKind);
-        return true;
-      }
-
-      return true;
-    }
-  };
-
   UsageStats stats {
       .record = decl,
       .fields = {},
       .methods = {}
   };
 
-  UsageFinder f{.Stats = &stats};
-  f.TraverseStmt(S);
+  FindUsages(D, stats, S);
 
-  while (true) {
-    auto oldMethodCount = stats.methods.size();
-    for (auto *method : stats.methods) {
-      UsageFinder{.Stats = &stats}.TraverseCXXMethodDecl(method);
-    }
-    auto hasMethodCountChanged = stats.methods.size() > oldMethodCount;
-    if (!hasMethodCountChanged) break;
-  }
-
-
+  auto view = CreateReferenceView(D->getASTContext(), &stats);
+  printf("%s", view.c_str());
   return;
 }

@@ -1,3 +1,7 @@
+void doMe(auto *data) {
+
+}
+
 void kernel(auto *data) {
   auto v = data->a + data->b;
   data->c = v;
