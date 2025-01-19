@@ -346,57 +346,19 @@ static Attr *handleUnlikely(Sema &S, Stmt *St, const ParsedAttr &A,
   return ::new (S.Context) UnlikelyAttr(S.Context, A);
 }
 
-static Attr *handleSoaConversionDataItem(Sema &S, Stmt *St, const ParsedAttr &A,
-                                         SourceRange Range) {
-  auto argsSize = A.getNumArgs();
+static Attr *handleSoaConversion(Sema &S, Stmt *St, const ParsedAttr &A,
+                                 SourceRange Range) {
 
-  if (argsSize < 1 || argsSize > 2) {
-    llvm::errs() << "Attribute should have 1 or 2 args";
-    exit(1);
-  }
-
-  auto input = llvm::cast<StringLiteral>(A.getArgAsExpr(0))->getString();
-  auto output = argsSize > 1 ? llvm::cast<StringLiteral>(A.getArgAsExpr(1))->getString() : llvm::StringRef("");
-
-  return ::new (S.Context) SoaConversionDataItemAttr(S.Context, A, input, output);
+  return ::new (S.Context) SoaConversionAttr(S.Context, A);
 }
 
 static Attr *handleSoaConversionTarget(Sema &S, Stmt *St, const ParsedAttr &A,
                                        SourceRange Range) {
   if (A.getNumArgs() != 1) return nullptr;
-  auto expr = S.getASTContext().getSourceManager().getRewriter().getRewrittenText(A.getArgAsExpr(0)->getSourceRange());
+  auto *stringLiteral = llvm::cast<StringLiteral>(A.getArgAsExpr(0));
+  auto expr = stringLiteral->getString();
 
   return ::new (S.Context) SoaConversionTargetAttr(S.Context, A, expr);
-}
-
-static Attr *handleSoaConversionTargetSize(Sema &S, Stmt *St, const ParsedAttr &A,
-                                           SourceRange Range) {
-  if (A.getNumArgs() != 1) return nullptr;
-
-  std::string size;
-
-  auto *expr = A.getArgAsExpr(0);
-
-  llvm::SmallVector<PartialDiagnosticAt, 8> Notes;
-  Expr::EvalResult Eval;
-  Notes.clear();
-  Eval.Diag = &Notes;
-  int minValueInt = 0;
-
-  // this was causing weird segfaults when testing AOS-SOA on computeDensity kernel
-  // bool Result = expr->EvaluateAsConstantExpr(Eval, S.Context);
-
-  bool Result = false;
-  if (Result) {
-    assert(Eval.Val.hasValue());
-    size = std::to_string(Eval.Val.getInt().getExtValue());
-  } else {
-    size = S.getASTContext().getSourceManager().getRewriter().getRewrittenText(A.getArgAsExpr(0)->getSourceRange());
-  }
-
-  assert(size.size() != 0);
-
-  return ::new (S.Context) SoaConversionTargetSizeAttr(S.Context, A, size);
 }
 
 static Attr *handleSoaConversionDataMovementStrategy(Sema &S, Stmt *St, const ParsedAttr &A,
@@ -777,12 +739,10 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &A,
     return handleLikely(S, St, A, Range);
   case ParsedAttr::AT_Unlikely:
     return handleUnlikely(S, St, A, Range);
-  case ParsedAttr::AT_SoaConversionDataItem:
-    return handleSoaConversionDataItem(S, St, A, Range);
+  case ParsedAttr::AT_SoaConversion:
+    return handleSoaConversion(S, St, A, Range);
   case ParsedAttr::AT_SoaConversionTarget:
     return handleSoaConversionTarget(S, St, A, Range);
-  case ParsedAttr::AT_SoaConversionTargetSize:
-    return handleSoaConversionTargetSize(S, St, A, Range);
   case ParsedAttr::AT_SoaConversionDataMovementStrategy:
     return handleSoaConversionDataMovementStrategy(S, St, A, Range);
   case ParsedAttr::AT_SoaConversionAllocationStrategy:

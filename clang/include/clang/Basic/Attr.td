@@ -991,10 +991,17 @@ def View : DeclOrTypeAttr {
     let Documentation = [Undocumented];
 }
 
-def SoaConversionDataItem : StmtAttr {
-    let Spellings = [Clang<"soa_conversion_data_item">];
-    let Args = [StringArgument<"Input">, StringArgument<"Output">];
-    let Subjects = SubjectList<[ForStmt, CXXForRangeStmt],
+def SoaConversion : StmtAttr {
+    let Spellings = [Clang<"soa_conversion">];
+    let Subjects = SubjectList<[CXXForRangeStmt],
+                                ErrorDiag, "'for-range' statements">;
+    let Documentation = [Undocumented];
+}
+
+def SoaConversionTarget : StmtAttr {
+    let Spellings = [Clang<"soa_conversion_target">];
+    let Args = [StringArgument<"TargetRef">];
+    let Subjects = SubjectList<[ForStmt],
                                 ErrorDiag, "'for' statements">;
     let Documentation = [Undocumented];
 }
@@ -1012,22 +1019,6 @@ def SoaConversionDataMovementStrategy : StmtAttr {
     let Spellings = [Clang<"soa_conversion_data_movement_strategy">];
     let Args = [EnumArgument<"DataMovementStrategy", "DataMovementStrategyType", /*is_string=*/true,
                 ["in_situ", "move_to_outer", "move_to_outermost"], ["InSitu", "MoveToOuter", "MoveToOutermost"]>];
-    let Subjects = SubjectList<[ForStmt, CXXForRangeStmt],
-                                ErrorDiag, "'for' statements">;
-    let Documentation = [Undocumented];
-}
-
-def SoaConversionTarget : StmtAttr {
-    let Spellings = [Clang<"soa_conversion_target">];
-    let Args = [StringArgument<"TargetRef">];
-    let Subjects = SubjectList<[ForStmt],
-                                ErrorDiag, "'for' statements">;
-    let Documentation = [Undocumented];
-}
-
-def SoaConversionTargetSize : StmtAttr {
-    let Spellings = [Clang<"soa_conversion_target_size">];
-    let Args = [StringArgument<"TargetSizeExpr">];
     let Subjects = SubjectList<[ForStmt, CXXForRangeStmt],
                                 ErrorDiag, "'for' statements">;
     let Documentation = [Undocumented];

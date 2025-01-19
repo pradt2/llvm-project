@@ -40,6 +40,15 @@ bool IsReadExpr(ASTContext &C, E *e) {
   }
 }
 
+QualType StripIndirections(QualType t) {
+  while (true) {
+    if (t->isPointerType()) {
+      t = t->getPointeeType();
+    } else if (t->isReferenceType()) t = t.getNonReferenceType();
+    else return t;
+  }
+}
+
 struct UsageStats {
   enum UsageKind {
     Unknown = 0, Read = 1,
@@ -146,21 +155,36 @@ void FindLeakFunctions(VarDecl *D, Stmt *S, std::map<FunctionDecl *, int> &funct
     std::map<FunctionDecl *, int> *fs;
 
     bool VisitCallExpr(CallExpr *E) {
-      auto numArgs = E->getNumArgs();
-      for (int i = 0; i < numArgs; i++) {
-        auto *argExpr = IgnoreImplicitCasts(E->getArgs()[i]);
-        if (llvm::isa<ArraySubscriptExpr>(argExpr)) {
-          auto *arrOp = llvm::cast<ArraySubscriptExpr>(argExpr);
-          argExpr = arrOp->getBase();
-        }
-        if (!llvm::isa<DeclRefExpr>(argExpr)) continue;
-        auto *declRefExpr = llvm::cast<DeclRefExpr>(argExpr);
-        if (D != declRefExpr->getDecl()) continue;
+      auto *callee = E->getDirectCallee();
 
-        auto *callee = E->getDirectCallee();
-        (*fs)[callee] = i;
-        return true;
+      std::vector<int> argCandidates;
+      for (int i = 0; i < callee->param_size(); i++) {
+        auto *param = callee->getParamDecl(0);
+        auto paramType = StripIndirections(param->getType());
+        auto targetType = StripIndirections(D->getType());
+        if (paramType.getAsString() == targetType.getAsString()) argCandidates.push_back(i);
       }
+
+      if (argCandidates.empty()) return true;
+
+      for (auto argCandidate : argCandidates) {
+        struct DeclRefFinder : public RecursiveASTVisitor<DeclRefFinder> {
+          VarDecl *D;
+          bool found = false;
+
+          bool VisitDeclRefExpr(DeclRefExpr *E) {
+            if (E->getDecl() != D) return true;
+            found = true;
+            return false;
+          }
+        } finder{.D = D};
+        auto *argExpr = E->getArg(argCandidate);
+        finder.TraverseStmt(argExpr);
+        if (!finder.found) continue;
+        (*fs)[callee] = argCandidate;
+        break;
+      }
+
       return true;
     }
   };
@@ -192,23 +216,110 @@ void FindUsages(VarDecl *D, UsageStats &stats, Stmt *S) {
   }
 }
 
-void PrintUsages2(VarDecl *D, Stmt *S) {
-  CXXRecordDecl *decl;
-  if (D->getType()->isPointerType()) {
-    decl = D->getType()->getPointeeType()->getAsCXXRecordDecl();
-  } else if (D->getType()->isReferenceType()) {
-    decl = D->getType().getNonReferenceType()->getAsCXXRecordDecl();
-  } else decl = D->getType()->getAsCXXRecordDecl();
+struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
+  CompilerInstance &CI;
+  Rewriter &R;
 
-  UsageStats stats {
-      .record = decl,
-      .fields = {},
-      .methods = {}
-  };
+  template <typename T>
+  T *getAttr(ASTContext &C, Stmt *S) {
+    if (auto *AS = GetParent<AttributedStmt>(C, S)) {
+      for (auto *attr : AS->getAttrs()) {
+        if (llvm::isa<T>(attr)) return (T*) llvm::cast<T>(attr);
+      }
+    }
+    return nullptr;
+  }
 
-  FindUsages(D, stats, S);
+  std::string getIterCountExprStr(ForStmt *S) {
+    auto *init = llvm::cast<VarDecl>(llvm::cast<DeclStmt>(S->getInit())->getSingleDecl());
+    Expr::EvalResult initVal;
+    auto evalSuccess = init->getInit()->EvaluateAsInt(initVal, init->getASTContext());
+    if (!evalSuccess) {
+      llvm::errs() << "Cannot eval for loop counter init value\n";
+      return "<unknown>";
+    }
+    auto initValInt = initVal.Val.getInt().getExtValue();
+    if (initValInt != 0) {
+      llvm::errs() << "For loop counter init value is not zero\n";
+      return "unknown";
+    }
 
-  auto view = CreateReferenceView(D->getASTContext(), &stats);
-  printf("%s", view.c_str());
-  return;
-}
+    auto *inc = llvm::cast<UnaryOperator>(S->getInc());
+    if (inc->getOpcode() != UnaryOperatorKind::UO_PreInc && inc->getOpcode() != UnaryOperatorKind::UO_PostInc) {
+      llvm::errs() << "For loop uses a non-standard increment\n";
+      return "<unknown>";
+    }
+
+    auto cond = llvm::cast<BinaryOperator>(S->getCond());
+    auto condRhs = cond->getRHS();
+    auto condRhsString = R.getRewrittenText(condRhs->getSourceRange());
+    return condRhsString;
+  }
+
+  VarDecl *getVarDeclByName(llvm::StringRef name, Decl *ctx) {
+    struct VarDeclFinder : RecursiveASTVisitor<VarDeclFinder> {
+      llvm::StringRef name;
+      VarDecl *found = nullptr;
+
+      bool VisitVarDecl(VarDecl *D) {
+        if (D->getName() != name) return true;
+        found = D;
+        return false;
+      }
+    } finder{.name = name};
+
+    finder.TraverseDecl(ctx);
+    auto *foundDecl = finder.found;
+    return foundDecl;
+  }
+
+  void getUsageStats(UsageStats *Stats, VarDecl *D, Stmt *S) {
+    CXXRecordDecl *decl;
+    if (D->getType()->isPointerType()) {
+      decl = D->getType()->getPointeeType()->getAsCXXRecordDecl();
+    } else if (D->getType()->isReferenceType()) {
+      decl = D->getType().getNonReferenceType()->getAsCXXRecordDecl();
+    } else decl = D->getType()->getAsCXXRecordDecl();
+
+    Stats->record = decl;
+    FindUsages(D, *Stats, S);
+  }
+
+  bool VisitForStmt(ForStmt *S) {
+    auto *soaConversionTargetAttr = this->getAttr<SoaConversionTargetAttr>(CI.getASTContext(), S);
+    if (!soaConversionTargetAttr) return true;
+
+    auto *functionDecl = GetParent<FunctionDecl>(CI.getASTContext(), S);
+
+    auto *targetDecl = getVarDeclByName(soaConversionTargetAttr->getTargetRef(), functionDecl);
+    auto usageStats = UsageStats{};
+    getUsageStats(&usageStats, targetDecl, S);
+    return true;
+  }
+};
+
+struct SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<SoaConversionASTConsumer> {
+  CompilerInstance &CI;
+  Rewriter &R;
+
+public:
+  SoaConversionASTConsumer(CompilerInstance &CI) : CI(CI), R(CI.getSourceManager().getRewriter()) {}
+
+  bool VisitFunctionDecl(FunctionDecl *D) {
+    if (D->isTemplated()) return true;
+    SoaHandler{.CI = CI, .R = R}.TraverseDecl(D);
+    return true;
+  }
+
+  bool VisitFunctionTemplateDecl(FunctionTemplateDecl *D) {
+    for (auto *FD : D->specializations()) {
+      VisitFunctionDecl(FD);
+    }
+    return true;
+  }
+
+  void HandleTranslationUnit(ASTContext &Context) override {
+    TranslationUnitDecl *D = Context.getTranslationUnitDecl();
+    TraverseDecl(D);
+  }
+};
