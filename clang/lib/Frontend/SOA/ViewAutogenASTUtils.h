@@ -40,13 +40,18 @@ bool IsReadExpr(ASTContext &C, E *e) {
   }
 }
 
-QualType StripIndirections(QualType t) {
+static QualType StripIndirections(QualType t) {
   while (true) {
     if (t->isPointerType()) {
       t = t->getPointeeType();
     } else if (t->isReferenceType()) t = t.getNonReferenceType();
     else return t;
   }
+}
+
+static std::string TypeToString(QualType type) {
+  auto s = type.getCanonicalType().getAsString();
+  return s;
 }
 
 struct UsageStats {
@@ -60,36 +65,6 @@ struct UsageStats {
   std::set<CXXMethodDecl*> methods;
   std::map<FunctionDecl *, int> leakyFunctions;
 };
-
-std::string CreateReferenceView(ASTContext &C, UsageStats *S) {
-  std::string view = "";
-  view =+ "struct " + S->record->getNameAsString() + "_view { \n";
-  for (auto [k, v] : S->fields) {
-    if (!k->getType()->isArrayType()) {
-      view += k->getType().getAsString() + (k->getType()->isReferenceType() ? " " : " &") + k->getNameAsString() + ";\n";
-    } else {
-      auto *arrType = llvm::cast<ConstantArrayType>(k->getType()->getAsArrayTypeUnsafe());
-      auto size = arrType->getSExtSize();
-      view += arrType->getElementType().getAsString() + " *" + k->getNameAsString() + ";\n";
-    }
-  }
-
-  auto &R = C.getSourceManager().getRewriter();
-  for (auto *method : S->methods) {
-    view += method->getReturnType().getAsString() + " " + method->getNameAsString() + "(";
-    for (auto *arg : method->parameters()) {
-      view += arg->getType().getAsString() + " " + arg->getNameAsString() + ", ";
-    }
-    if (method->param_size() != 0) {
-      view.pop_back();
-      view.pop_back();
-    }
-    view += ") " + R.getRewrittenText(method->getBody()->getSourceRange()) + "\n";
-  }
-  view += "};\n";
-
-  return view;
-}
 
 struct UsageFinder : RecursiveASTVisitor<UsageFinder> {
   VarDecl *D;
@@ -162,7 +137,7 @@ void FindLeakFunctions(VarDecl *D, Stmt *S, std::map<FunctionDecl *, int> &funct
         auto *param = callee->getParamDecl(0);
         auto paramType = StripIndirections(param->getType());
         auto targetType = StripIndirections(D->getType());
-        if (paramType.getAsString() == targetType.getAsString()) argCandidates.push_back(i);
+        if (TypeToString(paramType) == TypeToString(targetType)) argCandidates.push_back(i);
       }
 
       if (argCandidates.empty()) return true;
@@ -230,32 +205,6 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     return nullptr;
   }
 
-  std::string getIterCountExprStr(ForStmt *S) {
-    auto *init = llvm::cast<VarDecl>(llvm::cast<DeclStmt>(S->getInit())->getSingleDecl());
-    Expr::EvalResult initVal;
-    auto evalSuccess = init->getInit()->EvaluateAsInt(initVal, init->getASTContext());
-    if (!evalSuccess) {
-      llvm::errs() << "Cannot eval for loop counter init value\n";
-      return "<unknown>";
-    }
-    auto initValInt = initVal.Val.getInt().getExtValue();
-    if (initValInt != 0) {
-      llvm::errs() << "For loop counter init value is not zero\n";
-      return "unknown";
-    }
-
-    auto *inc = llvm::cast<UnaryOperator>(S->getInc());
-    if (inc->getOpcode() != UnaryOperatorKind::UO_PreInc && inc->getOpcode() != UnaryOperatorKind::UO_PostInc) {
-      llvm::errs() << "For loop uses a non-standard increment\n";
-      return "<unknown>";
-    }
-
-    auto cond = llvm::cast<BinaryOperator>(S->getCond());
-    auto condRhs = cond->getRHS();
-    auto condRhsString = R.getRewrittenText(condRhs->getSourceRange());
-    return condRhsString;
-  }
-
   VarDecl *getVarDeclByName(llvm::StringRef name, Decl *ctx) {
     struct VarDeclFinder : RecursiveASTVisitor<VarDeclFinder> {
       llvm::StringRef name;
@@ -285,6 +234,223 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     FindUsages(D, *Stats, S);
   }
 
+  std::string getIterCountExprStr(ForStmt *S) {
+    auto *init = llvm::cast<VarDecl>(llvm::cast<DeclStmt>(S->getInit())->getSingleDecl());
+    Expr::EvalResult initVal;
+    auto evalSuccess = init->getInit()->EvaluateAsInt(initVal, init->getASTContext());
+    if (!evalSuccess) {
+      llvm::errs() << "Cannot eval for loop counter init value\n";
+      return "<unknown>";
+    }
+    auto initValInt = initVal.Val.getInt().getExtValue();
+    if (initValInt != 0) {
+      llvm::errs() << "For loop counter init value is not zero\n";
+      return "unknown";
+    }
+
+    auto *inc = llvm::cast<UnaryOperator>(S->getInc());
+    if (inc->getOpcode() != UnaryOperatorKind::UO_PreInc && inc->getOpcode() != UnaryOperatorKind::UO_PostInc) {
+      llvm::errs() << "For loop uses a non-standard increment\n";
+      return "<unknown>";
+    }
+
+    auto cond = llvm::cast<BinaryOperator>(S->getCond());
+    auto condRhs = cond->getRHS();
+    auto condRhsString = R.getRewrittenText(condRhs->getSourceRange());
+    return condRhsString;
+  }
+
+  std::string getReferenceViewDecl(ASTContext &C, UsageStats *S) {
+    std::string view = "";
+    std::string structName = S->record->getNameAsString() + "_view";
+    view =+ "struct " + structName + " {\n";
+    for (auto [F, v] : S->fields) {
+      auto name = F->getNameAsString();
+      if (!F->getType()->isArrayType()) {
+        auto type = TypeToString(F->getType());
+        view += type + " &" + name + " = *((" + type + "*) 1);\n";
+      } else {
+        auto *arrType = llvm::cast<ConstantArrayType>(F->getType()->getAsArrayTypeUnsafe());
+        view += TypeToString(arrType->getElementType()) + " *" + F->getNameAsString() + ";\n";
+      }
+    }
+
+    auto &R = C.getSourceManager().getRewriter();
+    for (auto *method : S->methods) {
+      view += TypeToString(method->getReturnType()) + " " + method->getNameAsString() + "(";
+      for (auto *arg : method->parameters()) {
+        view += TypeToString(arg->getType()) + " " + arg->getNameAsString() + ", ";
+      }
+      if (method->param_size() != 0) {
+        view.pop_back();
+        view.pop_back();
+      }
+      view += ") " + R.getRewrittenText(method->getBody()->getSourceRange()) + "\n";
+    }
+
+    view += structName + " &operator[](int i) { return *this; }\n";
+    view += "};\n";
+
+    return view;
+  }
+
+  std::string getSoaHelperDecl(ASTContext &C, UsageStats *S) {
+    std::string soaHelperDecl = "";
+    std::string structName = S->record->getNameAsString() + "_SoaHelper";
+    soaHelperDecl += "struct " + structName + " {\n";
+    for (auto [F, usage] : S->fields) {
+      auto name = F->getNameAsString();
+      if (!F->getType()->isArrayType()) {
+        auto type = TypeToString(F->getType());
+        soaHelperDecl += type + " *" + name + ";\n";
+      } else {
+        auto *arrType = llvm::cast<ConstantArrayType>(F->getType()->getAsArrayTypeUnsafe());
+        soaHelperDecl += TypeToString(arrType->getElementType()) + " *" + name + ";\n";
+      }
+    }
+    std::string viewName = S->record->getNameAsString() + "_view";
+    soaHelperDecl += viewName + " operator[](int i) {\n";
+    soaHelperDecl += "return {\n";
+    for (auto [F, usage] : S->fields) {
+      auto name = F->getNameAsString();
+      if (!F->getType()->isArrayType()) {
+        soaHelperDecl += name + "[i],\n";
+      } else {
+        auto *arrType = llvm::cast<ConstantArrayType>(F->getType()->getAsArrayTypeUnsafe());
+        auto size = std::to_string(arrType->getSExtSize());
+        soaHelperDecl += name + " + i * " + size + ",\n";
+      }
+    }
+    soaHelperDecl += "};\n";
+    soaHelperDecl += "}\n";
+    soaHelperDecl += "};\n";
+    return soaHelperDecl;
+  }
+
+  std::string getSoaBuffersDecl(std::string &sizeExprStr, UsageStats &S) {
+    std::string soaBuffersDecl = "";
+    for (auto [F, usage] : S.fields) {
+      auto name = F->getNameAsString();
+      if (!F->getType()->isArrayType()) {
+        auto type = TypeToString(F->getType());
+        soaBuffersDecl += "alignas(64) " + type + " " + name + "[" + sizeExprStr + "];\n";
+      } else {
+        auto *arrType = llvm::cast<ConstantArrayType>(F->getType()->getAsArrayTypeUnsafe());
+        auto type = TypeToString(arrType->getElementType());
+        auto size = arrType->getSExtSize();
+        soaBuffersDecl += "alignas(64) " + type + " " + name + + "[" + sizeExprStr + " * " + std::to_string(size) + "];\n";
+      }
+    }
+    return soaBuffersDecl;
+  }
+
+  std::string getSoaBuffersInit(std::string &sizeExprStr, VarDecl *D, UsageStats &S) {
+    std::string soaBuffersInit = "";
+    soaBuffersInit += "for (int i = 0; i < " + sizeExprStr + "; i++) {\n";
+    auto declName = D->getNameAsString();
+    auto &Layout = D->getASTContext().getASTRecordLayout(S.record);
+
+    for (auto [F, usage] : S.fields) {
+      if (!(usage & UsageStats::UsageKind::Read)) continue;
+
+      auto idx = -1;
+      auto found = false;
+      for (auto *field : S.record->fields()) {
+        idx++;
+        if (field != F) continue;
+        found = true;
+        break;
+      }
+      if (!found) {
+        llvm::errs() << "SOA: soa field not found in struct\n";
+        exit(1);
+      }
+
+      auto name = F->getNameAsString();
+      auto offset = std::to_string(Layout.getFieldOffset(idx) / 8);
+      if (!F->getType()->isArrayType()) {
+        auto type = TypeToString(F->getType());
+        soaBuffersInit += name + "[i] = " + "*((" + type + "*) (((char*) &" + declName + "[i]) + " + offset + "));\n";
+      } else {
+        auto *arrType = llvm::cast<ConstantArrayType>(F->getType()->getAsArrayTypeUnsafe());
+        auto type = TypeToString(arrType->getElementType());
+        auto size = arrType->getSExtSize();
+        for (int i = 0; i < size; i++) {
+          soaBuffersInit += name + "[i * " + std::to_string(size) + " + " + std::to_string(i) + "] = " + "*(((" + type + "*) (((char*) &" + declName + "[i]) + " + offset + ") " + std::to_string(i) + "));\n";
+        }
+      }
+    }
+    soaBuffersInit += "}\n";
+    return soaBuffersInit;
+  }
+
+  std::string getSoaHelperInstance(UsageStats &S) {
+    std::string soaHelperInstance = "";
+    std::string structName = S.record->getNameAsString() + "_SoaHelper";
+    std::string instanceName = S.record->getNameAsString() + "_SoaHelper_instance";
+    soaHelperInstance += "auto " + instanceName + " = " + structName + "{";
+    for (auto [F, usage] : S.fields) {
+      soaHelperInstance += F->getNameAsString() + ",";
+    }
+    soaHelperInstance += "};\n";
+    return soaHelperInstance;
+  }
+
+  void rewriteLoop(VarDecl *D, Rewriter &R, UsageStats &Stats, ForStmt *S) {
+    auto iterVarName = llvm::cast<VarDecl>(llvm::cast<DeclStmt>(S->getInit())->getSingleDecl())->getNameAsString();
+    std::string instanceName = Stats.record->getNameAsString() + "_SoaHelper_instance";
+
+    if (!llvm::isa<CompoundStmt>(S->getBody())) {
+      llvm::errs() << "SOA: loop is not a compound stmt\n";
+      exit(1);
+    }
+
+    auto bodyBegin = llvm::cast<CompoundStmt>(S->getBody())->getLBracLoc().getLocWithOffset(1);
+    std::string source = "";
+    source += "auto " + D->getNameAsString() + " = " + instanceName + "[" + iterVarName + "];\n";
+    R.InsertTextAfter(bodyBegin, source);
+  }
+
+  std::string getSoaBuffersWriteback(std::string &sizeExprStr, VarDecl *D, UsageStats &S) {
+    std::string soaBuffersWriteback = "";
+    soaBuffersWriteback += "for (int i = 0; i < " + sizeExprStr + "; i++) {\n";
+    auto declName = D->getNameAsString();
+    auto &Layout = D->getASTContext().getASTRecordLayout(S.record);
+
+    for (auto [F, usage] : S.fields) {
+      if (!(usage & UsageStats::UsageKind::Write)) continue;
+
+      auto name = F->getNameAsString();
+      auto idx = -1;
+      auto found = false;
+      for (auto *field : S.record->fields()) {
+        idx++;
+        if (field != F) continue;
+        found = true;
+        break;
+      }
+      if (!found) {
+        llvm::errs() << "SOA: soa field not found in struct\n";
+        exit(1);
+      }
+
+      auto offset = std::to_string(Layout.getFieldOffset(idx) / 8);
+      if (!F->getType()->isArrayType()) {
+        auto type = TypeToString(F->getType());
+        soaBuffersWriteback += "*((" + type + "*) (((char*) &" + declName + "[i]) + " + offset + ")) = " + name + "[i];\n";
+      } else {
+        auto *arrType = llvm::cast<ConstantArrayType>(F->getType()->getAsArrayTypeUnsafe());
+        auto type = TypeToString(arrType->getElementType());
+        auto size = arrType->getSExtSize();
+        for (int i = 0; i < size; i++) {
+          soaBuffersWriteback += "*(((" + type + "*) (((char*) &" + declName + "[i]) + " + offset + ") " + std::to_string(i) + ")) = " + name + "[i * " + std::to_string(size) + " + " + std::to_string(i) + "];\n";
+        }
+      }
+    }
+    soaBuffersWriteback += "}\n";
+    return soaBuffersWriteback;
+  }
+
   bool VisitForStmt(ForStmt *S) {
     auto *soaConversionTargetAttr = this->getAttr<SoaConversionTargetAttr>(CI.getASTContext(), S);
     if (!soaConversionTargetAttr) return true;
@@ -293,7 +459,36 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
 
     auto *targetDecl = getVarDeclByName(soaConversionTargetAttr->getTargetRef(), functionDecl);
     auto usageStats = UsageStats{};
+
     getUsageStats(&usageStats, targetDecl, S);
+
+    auto sizeExprStr = getIterCountExprStr(S);
+    auto soaBuffersDecl = getSoaBuffersDecl(sizeExprStr, usageStats);
+    auto soaBuffersInit = getSoaBuffersInit(sizeExprStr, targetDecl, usageStats);
+    auto refViewDecl = getReferenceViewDecl(CI.getASTContext(), &usageStats);
+    auto soaHelperDecl = getSoaHelperDecl(CI.getASTContext(), &usageStats);
+    auto soaHelperInstanceDecl = getSoaHelperInstance(usageStats);
+
+    std::string prologue = "\n";
+    prologue += soaBuffersDecl + "\n";
+    prologue += soaBuffersInit + "\n";
+    prologue += refViewDecl + "\n";
+    prologue += soaHelperDecl + "\n";
+    prologue += soaHelperInstanceDecl + "\n";
+
+    auto prologueLoc = GetParent<AttributedStmt>(CI.getASTContext(), S)->getBeginLoc();
+    R.InsertTextBefore(prologueLoc, prologue);
+
+    rewriteLoop(targetDecl, R, usageStats, S);
+
+    auto soaWriteback = getSoaBuffersWriteback(sizeExprStr, targetDecl, usageStats);
+
+    std::string epilogue = "\n";
+    epilogue += soaWriteback + "\n";
+
+    auto epilogueLoc = GetParent<AttributedStmt>(CI.getASTContext(), S)->getEndLoc().getLocWithOffset(1);
+    R.InsertTextAfter(epilogueLoc, epilogue);
+
     return true;
   }
 };
