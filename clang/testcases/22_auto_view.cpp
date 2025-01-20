@@ -8,7 +8,7 @@ struct Vector {
     return copy;
   }
 
-  Vector operator +(Vector &v) {
+  Vector operator +(Vector v) {
     Vector copy = *this;
     for (int i = 0; i < size; i++) copy.data[i] += v.data[i];
     return copy;
@@ -60,6 +60,21 @@ void mockLinearKernelForLoop(auto *particles, int size) {
   }
 }
 
+void mockQuadraticKernel(auto &pLocal, auto &pActive) {
+  pLocal.setVel(pLocal.getVel() + pLocal.getRho() + pActive.getVel());
+}
+
+void mockQuadraticKernelForLoop(auto *pLocals, int pLocalsSize, auto *pActives, int pActivesSize) {
+  [[clang::soa_conversion_target("pLocals")]]
+  for (int i = 0; i < pLocalsSize; i++) {
+    [[clang::soa_conversion_target("pActives")]]
+    for (int j = 0; j < pActivesSize; j++) {
+      mockQuadraticKernel(pLocals[i], pActives[j]);
+    }
+  }
+}
+
 int main() {
   mockLinearKernelForLoop((Particle*) 0, 1024);
+  mockQuadraticKernelForLoop((Particle*) 0, 1024, (Particle*) 0, 1024);
 }
