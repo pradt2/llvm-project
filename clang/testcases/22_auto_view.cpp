@@ -1,3 +1,5 @@
+#include <vector>
+
 template<typename T, int size>
 struct Vector {
   T data[size];
@@ -60,6 +62,13 @@ void mockLinearKernelForLoop(auto *particles, int size) {
   }
 }
 
+void mockLinearKernelForRangeLoop(auto &particles) {
+  [[clang::soa_conversion]]
+  for (auto &particle : particles) {
+    mockLinearKernel(particle);
+  }
+}
+
 void mockQuadraticKernel(auto &pLocal, auto &pActive) {
   pLocal.setVel(pLocal.getVel() + pLocal.getRho() + pActive.getVel());
 }
@@ -75,7 +84,21 @@ void mockQuadraticKernelForLoop(auto *pLocals, int pLocalsSize, auto *pActives, 
   }
 }
 
+void mockQuadraticKernelForRangeLoop(auto &pLocals, auto &pActives) {
+  [[clang::soa_conversion]]
+  for (auto &pLocal : pLocals) {
+    [[clang::soa_conversion]]
+    [[clang::soa_conversion_data_movement_strategy(move_to_outermost)]]
+    for (auto &pActive : pActives) {
+      mockQuadraticKernel(pLocal, pActive);
+    }
+  }
+}
+
 int main() {
   mockLinearKernelForLoop((Particle*) 0, 1024);
   mockQuadraticKernelForLoop((Particle*) 0, 1024, (Particle*) 0, 1024);
+
+  mockLinearKernelForRangeLoop(*(std::vector<Particle>*) 0);
+  mockQuadraticKernelForRangeLoop(*(std::vector<Particle>*) 0, *(std::vector<Particle>*) 0);
 }

@@ -201,7 +201,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
   CompilerInstance &CI;
   Rewriter &R;
 
-  std::string getUniqueName(std::string name, ForStmt *S) {
+  std::string getUniqueName(std::string name, Stmt *S) {
     return name + "_" + std::to_string((unsigned long) S);
   }
 
@@ -270,11 +270,11 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     return condRhsString;
   }
 
-  std::string getReferenceViewDeclName(UsageStats &Stats, ForStmt *S) {
+  std::string getReferenceViewDeclName(UsageStats &Stats, Stmt *S) {
       return getUniqueName(Stats.record->getNameAsString() + "_view", S);
   }
 
-  std::string getReferenceViewDecl(ASTContext &C, UsageStats &Stats, ForStmt *S) {
+  std::string getReferenceViewDecl(ASTContext &C, UsageStats &Stats, Stmt *S) {
     std::string view = "";
     std::string structName = getReferenceViewDeclName(Stats, S);
     view =+ "struct " + structName + " {\n";
@@ -308,11 +308,11 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     return view;
   }
 
-  std::string getSoaHelperDeclName(UsageStats &Stats, ForStmt *S) {
+  std::string getSoaHelperDeclName(UsageStats &Stats, Stmt *S) {
      return getUniqueName(Stats.record->getNameAsString() + "_SoaHelper", S);
   }
 
-  std::string getSoaHelperDecl(ASTContext &C, UsageStats &Stats, ForStmt *S) {
+  std::string getSoaHelperDecl(ASTContext &C, UsageStats &Stats, Stmt *S) {
     std::string soaHelperDecl = "";
     std::string structName = getSoaHelperDeclName(Stats, S);
     soaHelperDecl += "struct " + structName + " {\n";
@@ -345,7 +345,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     return soaHelperDecl;
   }
 
-  std::string getSoaBuffersDecl(std::string &sizeExprStr, UsageStats &Stats, ForStmt *S) {
+  std::string getSoaBuffersDecl(std::string &sizeExprStr, UsageStats &Stats, Stmt *S) {
     std::string soaBuffersDecl = "";
     for (auto [F, usage] : Stats.fields) {
       auto name = getUniqueName(F->getNameAsString(), S);
@@ -362,7 +362,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     return soaBuffersDecl;
   }
 
-  std::string getSoaBuffersInit(std::string &sizeExprStr, VarDecl *D, UsageStats &Stats, ForStmt *S) {
+  std::string getSoaBuffersInitForLoop(std::string &sizeExprStr, VarDecl *D, UsageStats &Stats, Stmt *S) {
     std::string soaBuffersInit = "";
     soaBuffersInit += "for (int i = 0; i < " + sizeExprStr + "; i++) {\n";
     auto declName = D->getNameAsString();
@@ -402,11 +402,54 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     return soaBuffersInit;
   }
 
-  std::string getSoaHelperInstanceName(UsageStats &Stats, ForStmt *S) {
+  std::string getSoaBuffersInitForRangeLoop(std::string &sizeExprStr, VarDecl *target, ValueDecl *container, UsageStats &Stats, Stmt *S) {
+    std::string soaBuffersInit = "";
+    std::string itemName = getUniqueName(target->getNameAsString(), S);
+    std::string counterName = getUniqueName("__soa_init_counter", S);
+    soaBuffersInit += "unsigned long " + counterName + " = 0;\n";
+    soaBuffersInit += "for (auto &" + itemName + " : " + container->getNameAsString() + ") {\n";
+    auto &Layout = target->getASTContext().getASTRecordLayout(Stats.record);
+
+    for (auto [F, usage] : Stats.fields) {
+      if (!(usage & UsageStats::UsageKind::Read)) continue;
+
+      auto idx = -1;
+      auto found = false;
+      for (auto *field : Stats.record->fields()) {
+        idx++;
+        if (field != F) continue;
+        found = true;
+        break;
+      }
+      if (!found) {
+        llvm::errs() << "SOA: soa field not found in struct\n";
+        exit(1);
+      }
+
+      auto name = getUniqueName(F->getNameAsString(), S);
+      auto offset = std::to_string(Layout.getFieldOffset(idx) / 8);
+      if (!F->getType()->isArrayType()) {
+        auto type = TypeToString(F->getType());
+        soaBuffersInit += name + "[" + counterName + "] = " + "*((" + type + "*) (((char*) &" + itemName + ") + " + offset + "));\n";
+      } else {
+        auto *arrType = llvm::cast<ConstantArrayType>(F->getType()->getAsArrayTypeUnsafe());
+        auto type = TypeToString(arrType->getElementType());
+        auto size = arrType->getSExtSize();
+        for (int i = 0; i < size; i++) {
+          soaBuffersInit += name + "[" + counterName + " * " + std::to_string(size) + " + " + std::to_string(i) + "] = " + "*(((" + type + "*) (((char*) &" + itemName + ") + " + offset + ") " + std::to_string(i) + "));\n";
+        }
+      }
+    }
+    soaBuffersInit += "++" + counterName + ";\n";
+    soaBuffersInit += "}\n";
+    return soaBuffersInit;
+  }
+
+  std::string getSoaHelperInstanceName(UsageStats &Stats, Stmt *S) {
       return getUniqueName(Stats.record->getNameAsString() + "_SoaHelper_instance", S);
   }
 
-  std::string getSoaHelperInstance(UsageStats &Stats, ForStmt *S) {
+  std::string getSoaHelperInstance(UsageStats &Stats, Stmt *S) {
     std::string soaHelperInstance = "";
     std::string structName = getSoaHelperDeclName(Stats, S);
     std::string instanceName = getSoaHelperInstanceName(Stats, S);
@@ -419,7 +462,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     return soaHelperInstance;
   }
 
-  void rewriteLoop(VarDecl *D, Rewriter &R, UsageStats &Stats, ForStmt *S) {
+  void rewriteForLoop(VarDecl *D, Rewriter &R, UsageStats &Stats, ForStmt *S) {
     auto iterVarName = llvm::cast<VarDecl>(llvm::cast<DeclStmt>(S->getInit())->getSingleDecl())->getNameAsString();
     std::string instanceName = getSoaHelperInstanceName(Stats, S);
 
@@ -434,7 +477,27 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     R.InsertTextAfter(bodyBegin, source);
   }
 
-  std::string getSoaBuffersWriteback(std::string &sizeExprStr, VarDecl *D, UsageStats &Stats, ForStmt *S) {
+  void rewriteForRangeLoop(VarDecl *D, Rewriter &R, std::string sizeExprStr, UsageStats &Stats, CXXForRangeStmt *S) {
+    auto iterVarName = getUniqueName("iter", S);
+    std::string instanceName = getSoaHelperInstanceName(Stats, S);
+
+    if (!llvm::isa<CompoundStmt>(S->getBody())) {
+      llvm::errs() << "SOA: loop is not a compound stmt\n";
+      exit(1);
+    }
+
+    std::string source = "\n";
+    source += "for (unsigned long " + iterVarName + " = 0; " + iterVarName + " < " + sizeExprStr + "; ++" + iterVarName + ") {\n";
+    source += "auto " + D->getNameAsString() + " = " + instanceName + "[" + iterVarName + "];\n";
+    auto bodyBegin = llvm::cast<CompoundStmt>(S->getBody())->getLBracLoc().getLocWithOffset(1);
+    auto bodyEnd = llvm::cast<CompoundStmt>(S->getBody())->getRBracLoc().getLocWithOffset(-1);
+    source += R.getRewrittenText(SourceRange(bodyBegin, bodyEnd));
+    source += "}\n";
+    auto *attrStmt = GetParent<AttributedStmt>(D->getASTContext(), S, true);
+    R.ReplaceText(attrStmt->getSourceRange(), source);
+  }
+
+  std::string getSoaBuffersWritebackForLoop(std::string &sizeExprStr, VarDecl *D, UsageStats &Stats, Stmt *S) {
     std::string soaBuffersWriteback = "";
     soaBuffersWriteback += "for (int i = 0; i < " + sizeExprStr + "; i++) {\n";
     auto declName = D->getNameAsString();
@@ -474,7 +537,51 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     return soaBuffersWriteback;
   }
 
-  SourceLocation getPrologueLoc(ASTContext &C, ForStmt *S) {
+  std::string getSoaBuffersWritebackForRangeLoop(std::string &sizeExprStr, VarDecl *target, ValueDecl *container, UsageStats &Stats, Stmt *S) {
+    std::string soaBuffersWriteback = "";
+    std::string itemName = getUniqueName(target->getNameAsString(), S);
+    std::string counterName = getUniqueName("__soa_writeback_counter", S);
+    soaBuffersWriteback += "unsigned long " + counterName + " = 0;\n";
+    soaBuffersWriteback += "for (auto &" + itemName + " : " + container->getNameAsString() + ") {\n";
+    auto &Layout = target->getASTContext().getASTRecordLayout(Stats.record);
+
+    for (auto [F, usage] : Stats.fields) {
+      if (!(usage & UsageStats::UsageKind::Write)) continue;
+
+      auto idx = -1;
+      auto found = false;
+      for (auto *field : Stats.record->fields()) {
+        idx++;
+        if (field != F) continue;
+        found = true;
+        break;
+      }
+      if (!found) {
+        llvm::errs() << "SOA: soa field not found in struct\n";
+        exit(1);
+      }
+
+      auto name = getUniqueName(F->getNameAsString(), S);
+      auto offset = std::to_string(Layout.getFieldOffset(idx) / 8);
+      if (!F->getType()->isArrayType()) {
+        auto type = TypeToString(F->getType());
+        soaBuffersWriteback += "*((" + type + "*) (((char*) &" + itemName + ") + " + offset + ")) = " + name + "[" + counterName + "];\n";
+      } else {
+        auto *arrType = llvm::cast<ConstantArrayType>(F->getType()->getAsArrayTypeUnsafe());
+        auto type = TypeToString(arrType->getElementType());
+        auto size = arrType->getSExtSize();
+        for (int i = 0; i < size; i++) {
+          soaBuffersWriteback += "*(((" + type + "*) (((char*) &" + itemName + ") + " + offset + ") " + std::to_string(i) + ")) = " + name + "[" + counterName + " * " + std::to_string(size) + " + " + std::to_string(i) + "];\n";
+        }
+      }
+    }
+    soaBuffersWriteback += "++" + counterName + ";\n";
+    soaBuffersWriteback += "}\n";
+    return soaBuffersWriteback;
+  }
+
+  template<typename Stmt>
+  SourceLocation getPrologueLoc(ASTContext &C, Stmt *S) {
     auto *dataMovement = getAttr<SoaConversionDataMovementStrategyAttr>(C, S);
     auto defaultLoc =
         GetParent<AttributedStmt>(CI.getASTContext(), S)->getBeginLoc();
@@ -485,7 +592,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     case decltype(dataMovementKind)::InSitu:
       return defaultLoc;
     case decltype(dataMovementKind)::MoveToOuter: {
-      auto *parent = GetParent<ForStmt>(C, S);
+      auto *parent = GetParent<Stmt>(C, S);
       auto *parentAttributed = GetParent<AttributedStmt>(C, parent, true);
       if (parentAttributed)
         return parentAttributed->getBeginLoc();
@@ -494,11 +601,11 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       return defaultLoc;
     }
     case decltype(dataMovementKind)::MoveToOutermost: {
-      auto *parent = GetParent<ForStmt>(C, S);
+      auto *parent = GetParent<Stmt>(C, S);
       auto *oldParent = parent;
       do {
         oldParent = parent;
-        parent = GetParent<ForStmt>(C, oldParent);
+        parent = GetParent<Stmt>(C, oldParent);
       } while (parent != nullptr);
       parent = oldParent;
       auto *parentAttributed = GetParent<AttributedStmt>(C, parent, true);
@@ -514,7 +621,9 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     }
     }
   }
-  SourceLocation getEpilogueLoc(ASTContext &C, ForStmt *S) {
+
+  template<typename Stmt>
+  SourceLocation getEpilogueLoc(ASTContext &C, Stmt *S) {
     auto *dataMovement = getAttr<SoaConversionDataMovementStrategyAttr>(C, S);
     auto defaultLoc =
         GetParent<AttributedStmt>(CI.getASTContext(), S)->getEndLoc();
@@ -525,7 +634,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     case decltype(dataMovementKind)::InSitu:
       return defaultLoc;
     case decltype(dataMovementKind)::MoveToOuter: {
-      auto *parent = GetParent<ForStmt>(C, S);
+      auto *parent = GetParent<Stmt>(C, S);
       auto *parentAttributed = GetParent<AttributedStmt>(C, parent, true);
       if (parentAttributed)
         return parentAttributed->getEndLoc();
@@ -534,11 +643,11 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       return defaultLoc;
     }
     case decltype(dataMovementKind)::MoveToOutermost: {
-      auto *parent = GetParent<ForStmt>(C, S);
+      auto *parent = GetParent<Stmt>(C, S);
       auto *oldParent = parent;
       do {
         oldParent = parent;
-        parent = GetParent<ForStmt>(C, oldParent);
+        parent = GetParent<Stmt>(C, oldParent);
       } while (parent != nullptr);
       parent = oldParent;
       auto *parentAttributed = GetParent<AttributedStmt>(C, parent, true);
@@ -568,7 +677,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
 
     auto sizeExprStr = getIterCountExprStr(S);
     auto soaBuffersDecl = getSoaBuffersDecl(sizeExprStr, usageStats, S);
-    auto soaBuffersInit = getSoaBuffersInit(sizeExprStr, targetDecl, usageStats, S);
+    auto soaBuffersInit = getSoaBuffersInitForLoop(sizeExprStr, targetDecl, usageStats, S);
     auto refViewDecl = getReferenceViewDecl(CI.getASTContext(), usageStats, S);
     auto soaHelperDecl = getSoaHelperDecl(CI.getASTContext(), usageStats, S);
     auto soaHelperInstanceDecl = getSoaHelperInstance(usageStats, S);
@@ -585,9 +694,52 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     auto prologueLoc = getPrologueLoc(CI.getASTContext(), S).getLocWithOffset(-1);
     R.InsertTextBefore(prologueLoc, prologue);
 
-    rewriteLoop(targetDecl, R, usageStats, S);
+    rewriteForLoop(targetDecl, R, usageStats, S);
 
-    auto soaWriteback = getSoaBuffersWriteback(sizeExprStr, targetDecl, usageStats, S);
+    auto soaWriteback = getSoaBuffersWritebackForLoop(sizeExprStr, targetDecl, usageStats, S);
+
+    std::string epilogue = "\n";
+    epilogue += soaWriteback + "\n";
+    epilogue += "#pragma clang diagnostic pop\n";
+
+    auto epilogueLoc = getEpilogueLoc(CI.getASTContext(), S).getLocWithOffset(1);
+    R.InsertTextAfter(epilogueLoc, epilogue);
+
+    return true;
+  }
+
+  bool VisitCXXForRangeStmt(CXXForRangeStmt *S) {
+    auto *soaConversionAttr = this->getAttr<SoaConversionAttr>(CI.getASTContext(), S);
+    if (!soaConversionAttr) return true;
+
+    auto *targetDecl = S->getLoopVariable();
+    auto *containerDecl = llvm::cast<DeclRefExpr>(S->getRangeInit())->getDecl();
+
+    auto usageStats = UsageStats{};
+    getUsageStats(&usageStats, targetDecl, S);
+
+    auto sizeExprStr = containerDecl->getNameAsString() + ".size()\n";
+    auto soaBuffersDecl = getSoaBuffersDecl(sizeExprStr, usageStats, S);
+    auto soaBuffersInit = getSoaBuffersInitForRangeLoop(sizeExprStr, targetDecl, containerDecl, usageStats, S);
+    auto refViewDecl = getReferenceViewDecl(CI.getASTContext(), usageStats, S);
+    auto soaHelperDecl = getSoaHelperDecl(CI.getASTContext(), usageStats, S);
+    auto soaHelperInstanceDecl = getSoaHelperInstance(usageStats, S);
+
+    std::string prologue = "\n";
+    prologue += "#pragma clang diagnostic push\n";
+    prologue += "#pragma clang diagnostic ignored \"-Wvla-cxx-extension\"\n";
+    prologue += soaBuffersDecl + "\n";
+    prologue += soaBuffersInit + "\n";
+    prologue += refViewDecl + "\n";
+    prologue += soaHelperDecl + "\n";
+    prologue += soaHelperInstanceDecl + "\n";
+
+    auto prologueLoc = getPrologueLoc(CI.getASTContext(), S).getLocWithOffset(-1);
+    R.InsertTextBefore(prologueLoc, prologue);
+
+    rewriteForRangeLoop(targetDecl, R, sizeExprStr, usageStats, S);
+
+    auto soaWriteback = getSoaBuffersWritebackForRangeLoop(sizeExprStr, targetDecl, containerDecl, usageStats, S);
 
     std::string epilogue = "\n";
     epilogue += soaWriteback + "\n";
