@@ -35,10 +35,15 @@ bool IsReadExpr(ASTContext &C, E *e) {
   auto dynNode = DynTypedNode::create(*e);
   while (true) {
     auto *implicitCast = GetParent<ImplicitCastExpr>(C, dynNode);
-    if (!implicitCast) return false;
+    if (!implicitCast) break;
     if (implicitCast->getCastKind() == CastKind::CK_LValueToRValue) return true;
     dynNode = DynTypedNode::create(*implicitCast);
   }
+
+  dynNode = DynTypedNode::create(*e);
+  auto *implicitCast = GetParent<CXXConstructExpr>(C, dynNode);
+  if (implicitCast) return true;
+  return false;
 }
 
 static QualType StripIndirections(QualType t) {
