@@ -68,6 +68,7 @@ void mockQuadraticKernelForLoop(auto *pLocals, int pLocalsSize, auto *pActives, 
   [[clang::soa_conversion_target("pLocals")]]
   for (int i = 0; i < pLocalsSize; i++) {
     [[clang::soa_conversion_target("pActives")]]
+    [[clang::soa_conversion_data_movement_strategy(move_to_outermost)]]
     for (int j = 0; j < pActivesSize; j++) {
       mockQuadraticKernel(pLocals[i], pActives[j]);
     }

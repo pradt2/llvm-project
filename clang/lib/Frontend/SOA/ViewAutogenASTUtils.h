@@ -469,6 +469,87 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     return soaBuffersWriteback;
   }
 
+  SourceLocation getPrologueLoc(ASTContext &C, ForStmt *S) {
+    auto *dataMovement = getAttr<SoaConversionDataMovementStrategyAttr>(C, S);
+    auto defaultLoc =
+        GetParent<AttributedStmt>(CI.getASTContext(), S)->getBeginLoc();
+    if (!dataMovement)
+      return defaultLoc;
+    auto dataMovementKind = dataMovement->getDataMovementStrategy();
+    switch (dataMovementKind) {
+    case decltype(dataMovementKind)::InSitu:
+      return defaultLoc;
+    case decltype(dataMovementKind)::MoveToOuter: {
+      auto *parent = GetParent<ForStmt>(C, S);
+      auto *parentAttributed = GetParent<AttributedStmt>(C, parent, true);
+      if (parentAttributed)
+        return parentAttributed->getBeginLoc();
+      if (parent)
+        return parent->getBeginLoc();
+      return defaultLoc;
+    }
+    case decltype(dataMovementKind)::MoveToOutermost: {
+      auto *parent = GetParent<ForStmt>(C, S);
+      auto *oldParent = parent;
+      do {
+        oldParent = parent;
+        parent = GetParent<ForStmt>(C, oldParent);
+      } while (parent != nullptr);
+      parent = oldParent;
+      auto *parentAttributed = GetParent<AttributedStmt>(C, parent, true);
+      if (parentAttributed)
+        return parentAttributed->getBeginLoc();
+      if (parent)
+        return parent->getBeginLoc();
+      return defaultLoc;
+    }
+    default: {
+      llvm::errs() << "SOA: Unknown data movement strategy!\n";
+      exit(1);
+    }
+    }
+  }
+  SourceLocation getEpilogueLoc(ASTContext &C, ForStmt *S) {
+    auto *dataMovement = getAttr<SoaConversionDataMovementStrategyAttr>(C, S);
+    auto defaultLoc =
+        GetParent<AttributedStmt>(CI.getASTContext(), S)->getEndLoc();
+    if (!dataMovement)
+      return defaultLoc;
+    auto dataMovementKind = dataMovement->getDataMovementStrategy();
+    switch (dataMovementKind) {
+    case decltype(dataMovementKind)::InSitu:
+      return defaultLoc;
+    case decltype(dataMovementKind)::MoveToOuter: {
+      auto *parent = GetParent<ForStmt>(C, S);
+      auto *parentAttributed = GetParent<AttributedStmt>(C, parent, true);
+      if (parentAttributed)
+        return parentAttributed->getEndLoc();
+      if (parent)
+        return parent->getEndLoc();
+      return defaultLoc;
+    }
+    case decltype(dataMovementKind)::MoveToOutermost: {
+      auto *parent = GetParent<ForStmt>(C, S);
+      auto *oldParent = parent;
+      do {
+        oldParent = parent;
+        parent = GetParent<ForStmt>(C, oldParent);
+      } while (parent != nullptr);
+      parent = oldParent;
+      auto *parentAttributed = GetParent<AttributedStmt>(C, parent, true);
+      if (parentAttributed)
+        return parentAttributed->getEndLoc();
+      if (parent)
+        return parent->getEndLoc();
+      return defaultLoc;
+    }
+    default: {
+      llvm::errs() << "SOA: Unknown data movement strategy!\n";
+      exit(1);
+    }
+    }
+  }
+
   bool VisitForStmt(ForStmt *S) {
     auto *soaConversionTargetAttr = this->getAttr<SoaConversionTargetAttr>(CI.getASTContext(), S);
     if (!soaConversionTargetAttr) return true;
@@ -496,7 +577,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     prologue += soaHelperDecl + "\n";
     prologue += soaHelperInstanceDecl + "\n";
 
-    auto prologueLoc = GetParent<AttributedStmt>(CI.getASTContext(), S)->getBeginLoc();
+    auto prologueLoc = getPrologueLoc(CI.getASTContext(), S).getLocWithOffset(-1);
     R.InsertTextBefore(prologueLoc, prologue);
 
     rewriteLoop(targetDecl, R, usageStats, S);
@@ -507,7 +588,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     epilogue += soaWriteback + "\n";
     epilogue += "#pragma clang diagnostic pop\n";
 
-    auto epilogueLoc = GetParent<AttributedStmt>(CI.getASTContext(), S)->getEndLoc().getLocWithOffset(1);
+    auto epilogueLoc = getEpilogueLoc(CI.getASTContext(), S).getLocWithOffset(1);
     R.InsertTextAfter(epilogueLoc, epilogue);
 
     return true;
