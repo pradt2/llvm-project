@@ -35,7 +35,7 @@ public:
     return vel;
   }
 
-  void setVel(Vec v) {
+  void setVel(const Vec &v) {
     vel = v;
   }
 
@@ -49,14 +49,14 @@ public:
 };
 
 template<typename P>
-void mockLinearKernel(P *particle) {
-  particle->setVel(particle->getVel() + particle->getRho());
+void mockLinearKernel(P &particle) {
+  particle.setVel(particle.getVel() + particle.getRho());
 }
 
 void mockLinearKernelForLoop(auto *particles, int size) {
   [[clang::soa_conversion_target("particles")]]
   for (int i = 0; i < size; i++) {
-    mockLinearKernel(particles + i);
+    mockLinearKernel(particles[i]);
   }
 }
 
