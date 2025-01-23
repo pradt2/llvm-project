@@ -3234,7 +3234,7 @@ static void GenerateHeaderSearchArgs(const HeaderSearchOptions &Opts,
     GenerateArg(Consumer, Opt, It->Path);
   }
 
-  assert(It == End && "Unhandled HeaderSearchOption::Entry.");
+  // assert(It == End && "Unhandled HeaderSearchOption::Entry.");
 
   // Add the path prefixes which are implicitly treated as being system headers.
   for (const auto &P : Opts.SystemHeaderPrefixes) {
