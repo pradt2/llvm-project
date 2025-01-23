@@ -121,6 +121,7 @@ struct UsageFinder : RecursiveASTVisitor<UsageFinder> {
 
       // for functions that possibly return references, always assume that the value is at least read
       if (GetParent<ReturnStmt>(C, E)) usageKind = (UsageStats::UsageKind) (usageKind | UsageStats::UsageKind::Read);
+      if (GetParent<BinaryOperator>(C, E)) usageKind = (UsageStats::UsageKind) (usageKind | UsageStats::UsageKind::Read);
 
       this->Stats->fields[fieldDecl] = (UsageStats::UsageKind) (this->Stats->fields[fieldDecl] | usageKind);
       return true;
@@ -137,9 +138,10 @@ void FindLeakFunctions(VarDecl *D, Stmt *S, std::map<FunctionDecl *, int> &funct
 
     bool VisitCallExpr(CallExpr *E) {
       auto *callee = E->getDirectCallee();
+      if (!callee) return true;
 
       std::vector<int> argCandidates;
-      for (int i = 0; i < callee->param_size(); i++) {
+      for (int i = 0; i < callee->getNumParams(); i++) {
         auto *param = callee->getParamDecl(0);
         auto paramType = StripIndirections(param->getType());
         auto targetType = StripIndirections(D->getType());
@@ -233,13 +235,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
   }
 
   void getUsageStats(UsageStats *Stats, VarDecl *D, Stmt *S) {
-    CXXRecordDecl *decl;
-    if (D->getType()->isPointerType()) {
-      decl = D->getType()->getPointeeType()->getAsCXXRecordDecl();
-    } else if (D->getType()->isReferenceType()) {
-      decl = D->getType().getNonReferenceType()->getAsCXXRecordDecl();
-    } else decl = D->getType()->getAsCXXRecordDecl();
-
+    CXXRecordDecl *decl = StripIndirections(D->getType())->getAsCXXRecordDecl();
     Stats->record = decl;
     FindUsages(D, *Stats, S);
   }
@@ -756,6 +752,26 @@ struct SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor
   CompilerInstance &CI;
   Rewriter &R;
 
+  bool isTransformationCandidate(Decl *D) {
+    struct IsTransformationCandidate : public RecursiveASTVisitor<IsTransformationCandidate> {
+      bool isCandidate = false;
+
+      bool VisitAttributedStmt(AttributedStmt *S) {
+        for (auto *A : S->getAttrs()) {
+          if (llvm::isa<SoaConversionAttr>(A) || llvm::isa<SoaConversionTargetAttr>(A)) {
+            isCandidate = true;
+            return false;
+          }
+        }
+        return true;
+      }
+
+    } Finder{.isCandidate = false};
+    Finder.TraverseDecl(D);
+    auto isCandidate = Finder.isCandidate;
+    return isCandidate;
+  }
+
 public:
   SoaConversionASTConsumer(CompilerInstance &CI) : CI(CI), R(CI.getSourceManager().getRewriter()) {}
 
@@ -766,9 +782,56 @@ public:
   }
 
   bool VisitFunctionTemplateDecl(FunctionTemplateDecl *D) {
-    for (auto *FD : D->specializations()) {
-      VisitFunctionDecl(FD);
+    auto isConversionCandidate = isTransformationCandidate(D);
+    if (!isConversionCandidate) return true;
+
+    int specCount = 0;
+    for (auto *FD : D->specializations()) specCount++;
+
+    if (specCount == 0) return true;
+    if (specCount == 1) {
+      for (auto *FD : D->specializations()) VisitFunctionDecl(FD);
+      return true;
     }
+
+    auto origSourceRange = D->getSourceRange();
+    if (origSourceRange.getBegin().isInvalid()) {
+      // templates with only auto args do not have a valid begin loc
+      // likely because the begin loc is defined as the loc of the
+      // template keyword. in this case, treat the type loc as begin loc
+      origSourceRange.setBegin(D->getTemplatedDecl()->getSourceRange().getBegin());
+    }
+
+    auto origF = R.getRewrittenText(origSourceRange);
+
+    std::string implicitSpecialisations;
+
+    auto &origR = R;
+    for (auto *FD : D->specializations()) {
+      auto newR = Rewriter(R.getSourceMgr(), R.getLangOpts());
+      this->R = newR;
+
+      VisitFunctionDecl(FD);
+
+      for (auto *Param : FD->parameters()) {
+        auto typeSourceRange = Param->getTypeSourceInfo()->getTypeLoc().getSourceRange();
+        auto typeStr = Param->getType().getCanonicalType().getAsString();
+        R.ReplaceText(typeSourceRange, typeStr);
+      }
+
+      auto modifiedTemplate = R.getRewrittenText(origSourceRange);
+      if (!FD->getTemplateSpecializationInfo()->isExplicitInstantiationOrSpecialization()) {
+        implicitSpecialisations += modifiedTemplate + "\n";
+      } else {
+        llvm::errs() << "SOA: Explicit instantiations are not yet supported\n";
+        exit(1);
+      }
+
+      this->R = origR;
+    }
+    R.InsertTextBefore(origSourceRange.getBegin().getLocWithOffset(-1), implicitSpecialisations);
+    R.ReplaceText(origSourceRange, origF);
+
     return true;
   }
 
