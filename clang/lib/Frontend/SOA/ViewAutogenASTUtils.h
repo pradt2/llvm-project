@@ -831,6 +831,7 @@ public:
       VisitFunctionDecl(FD);
 
       for (auto *Param : FD->parameters()) {
+        if (Param->getType()->isFunctionType()) continue;
         auto typeSourceRange = Param->getTypeSourceInfo()->getTypeLoc().getSourceRange();
         auto typeStr = Param->getType().getCanonicalType().getAsString();
         R.ReplaceText(typeSourceRange, typeStr);
@@ -849,6 +850,7 @@ public:
         auto *prevFD = previousDecl->getAsFunction();
         for (int paramIdx = 0; paramIdx < prevFD->getNumParams(); paramIdx++) {
           auto *Param = prevFD->getParamDecl(paramIdx);
+          if (Param->getType()->isFunctionType()) continue;
           auto typeSourceRange = Param->getTypeSourceInfo()->getTypeLoc().getSourceRange();
           auto typeStr = FD->getParamDecl(paramIdx)->getType().getCanonicalType().getAsString();
           R.ReplaceText(typeSourceRange, typeStr);
