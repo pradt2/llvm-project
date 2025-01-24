@@ -801,12 +801,29 @@ public:
       // template keyword. in this case, treat the type loc as begin loc
       origSourceRange.setBegin(D->getTemplatedDecl()->getSourceRange().getBegin());
     }
-
     auto origF = R.getRewrittenText(origSourceRange);
 
+    auto *previousDecl = D->getPreviousDecl();
+    SourceRange origPrevSourceRange;
+    if (previousDecl) {
+      origPrevSourceRange = previousDecl->getSourceRange();
+      if (origPrevSourceRange.getBegin().isInvalid()) {
+        // templates with only auto args do not have a valid begin loc
+        // likely because the begin loc is defined as the loc of the
+        // template keyword. in this case, treat the type loc as begin loc
+        origPrevSourceRange.setBegin(previousDecl->getTemplatedDecl()->getSourceRange().getBegin());
+      }
+    }
+    std::string origForwardDecl;
+    if (previousDecl) {
+      origForwardDecl = R.getRewrittenText(origPrevSourceRange);
+    }
+
+    std::string forwardDeclarations;
     std::string implicitSpecialisations;
 
     auto &origR = R;
+
     for (auto *FD : D->specializations()) {
       auto newR = Rewriter(R.getSourceMgr(), R.getLangOpts());
       this->R = newR;
@@ -827,11 +844,29 @@ public:
         exit(1);
       }
 
+      // if the template has an explicit declaration, we must do the same
+      if (previousDecl) {
+        auto *prevFD = previousDecl->getAsFunction();
+        for (int paramIdx = 0; paramIdx < prevFD->getNumParams(); paramIdx++) {
+          auto *Param = prevFD->getParamDecl(paramIdx);
+          auto typeSourceRange = Param->getTypeSourceInfo()->getTypeLoc().getSourceRange();
+          auto typeStr = FD->getParamDecl(paramIdx)->getType().getCanonicalType().getAsString();
+          R.ReplaceText(typeSourceRange, typeStr);
+        }
+
+        auto modifiedForwardDecl = R.getRewrittenText(origPrevSourceRange);
+        forwardDeclarations += modifiedForwardDecl + ";\n";
+      }
+
       this->R = origR;
     }
+
     R.InsertTextBefore(origSourceRange.getBegin().getLocWithOffset(-1), implicitSpecialisations);
     R.ReplaceText(origSourceRange, origF);
-
+    if (previousDecl) {
+      R.InsertTextBefore(origPrevSourceRange.getBegin().getLocWithOffset(-1), forwardDeclarations);
+      R.ReplaceText(origPrevSourceRange, origForwardDecl);
+    }
     return true;
   }
 
