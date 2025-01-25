@@ -136,10 +136,25 @@ void FindLeakFunctions(VarDecl *D, Stmt *S, std::map<FunctionDecl *, int> &funct
     VarDecl *D;
     std::map<FunctionDecl *, int> *fs;
 
-    bool VisitCallExpr(CallExpr *E) {
-      auto *callee = E->getDirectCallee();
-      if (!callee) return true;
+    std::vector<CallExpr *> findInvocationsOfFunction(FunctionDecl *D) {
+      std::vector<CallExpr *> invocations;
+      struct Finder : RecursiveASTVisitor<Finder> {
+        FunctionDecl *FD;
+        std::vector<CallExpr *> &v;
 
+        bool VisitCallExpr(CallExpr *E) {
+          auto *callee = E->getDirectCallee();
+          if (!callee) return true;
+          if (callee != FD) return true;
+          v.push_back(E);
+          return true;
+        }
+      } finder{.FD = D, .v = invocations};
+      finder.TraverseDecl(D->getTranslationUnitDecl());
+      return invocations;
+    }
+
+    void handleFunctionDecl(FunctionDecl *callee, CallExpr *E) {
       std::vector<int> argCandidates;
       for (int i = 0; i < callee->getNumParams(); i++) {
         auto *param = callee->getParamDecl(0);
@@ -148,7 +163,7 @@ void FindLeakFunctions(VarDecl *D, Stmt *S, std::map<FunctionDecl *, int> &funct
         if (TypeToString(paramType) == TypeToString(targetType)) argCandidates.push_back(i);
       }
 
-      if (argCandidates.empty()) return true;
+      if (argCandidates.empty()) return;
 
       for (auto argCandidate : argCandidates) {
         struct DeclRefFinder : public RecursiveASTVisitor<DeclRefFinder> {
@@ -167,7 +182,50 @@ void FindLeakFunctions(VarDecl *D, Stmt *S, std::map<FunctionDecl *, int> &funct
         (*fs)[callee] = argCandidate;
         break;
       }
+    }
 
+    void handleArgFunctions(CallExpr *E) {
+      auto *Param = llvm::cast<ParmVarDecl>(E->getCalleeDecl());
+      auto *FD = GetParent<FunctionDecl>(D->getASTContext(), E);
+      auto paramIdx = -1;
+      for (int i = 0; i < FD->getNumParams(); i++) {
+        if (FD->getParamDecl(i) != Param) continue;
+        paramIdx = i;
+        break;
+      }
+      if (paramIdx == -1) {
+        llvm::errs() << "SOA: can't establish param idx\n";
+        exit(1);
+      }
+      auto invocations = findInvocationsOfFunction(FD);
+      if (invocations.empty()) {
+        llvm::errs() << "SOA: parent function is never called\n";
+        exit(1);
+      }
+
+      for (auto *callExpr : invocations) {
+        auto *argExpr = IgnoreImplicitCasts(callExpr->getArg(paramIdx));
+        if (!llvm::isa<DeclRefExpr>(argExpr)) {
+          llvm::errs() << "SOA: expected function argument, got something else\n";
+          exit(1);
+        }
+        auto *argDecl = llvm::cast<DeclRefExpr>(argExpr);
+        auto *argFnDecl = llvm::cast<FunctionDecl>(argDecl->getDecl());
+        handleFunctionDecl(argFnDecl, E);
+      }
+      return;
+    }
+
+    bool VisitCallExpr(CallExpr *E) {
+      auto *callee = E->getDirectCallee();
+      if (callee) {
+        handleFunctionDecl(callee, E);
+        return true;
+      }
+
+      auto *calleeDecl = E->getCalleeDecl();
+      if (!llvm::isa<ParmVarDecl>(calleeDecl)) return true;
+      handleArgFunctions(E);
       return true;
     }
   };
@@ -782,15 +840,25 @@ public:
   }
 
   bool VisitFunctionTemplateDecl(FunctionTemplateDecl *D) {
-    auto isConversionCandidate = isTransformationCandidate(D);
-    if (!isConversionCandidate) return true;
+//    auto isConversionCandidate = isTransformationCandidate(D);
+//    if (!isConversionCandidate) return true;
+
+    struct X : RecursiveASTVisitor<X> {
+      bool VisitCallExpr(CallExpr *E) {
+        auto *VD = llvm::cast<DeclRefExpr>(E->getCallee()->IgnoreImplicit())->getDecl();
+        return true;
+      }
+    } x;
 
     int specCount = 0;
     for (auto *FD : D->specializations()) specCount++;
 
     if (specCount == 0) return true;
     if (specCount == 1) {
-      for (auto *FD : D->specializations()) VisitFunctionDecl(FD);
+      for (auto *FD : D->specializations()) {
+        x.TraverseDecl(FD);
+        VisitFunctionDecl(FD);
+      }
       return true;
     }
 
