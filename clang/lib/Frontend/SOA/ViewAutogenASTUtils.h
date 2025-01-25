@@ -12,7 +12,7 @@ static Expr *IgnoreImplicitCasts(Expr *E) {
 }
 
 template<typename T>
-T *GetParent(ASTContext &C, DynTypedNode node, bool immediateOnly = false) {
+static T *GetParent(ASTContext &C, DynTypedNode node, bool immediateOnly = false) {
   for (auto parent: C.getParentMapContext().getParents(node)) {
     auto *exprMaybe = parent.get<T>();
     if (exprMaybe) return (T*) exprMaybe;
@@ -24,14 +24,14 @@ T *GetParent(ASTContext &C, DynTypedNode node, bool immediateOnly = false) {
 }
 
 template<typename T, typename U>
-T *GetParent(ASTContext &C, U *E, bool immediateOnly = false) {
+static T *GetParent(ASTContext &C, U *E, bool immediateOnly = false) {
   auto dynNode = DynTypedNode::create(*E);
   auto *parentMaybe = GetParent<T>(C, dynNode, immediateOnly);
   return parentMaybe;
 }
 
 template<typename E>
-bool IsReadExpr(ASTContext &C, E *e) {
+static bool IsReadExpr(ASTContext &C, E *e) {
   auto dynNode = DynTypedNode::create(*e);
   while (true) {
     auto *implicitCast = GetParent<ImplicitCastExpr>(C, dynNode);
@@ -53,6 +53,50 @@ static QualType StripIndirections(QualType t) {
     } else if (t->isReferenceType()) t = t.getNonReferenceType();
     else return t;
   }
+}
+
+static std::vector<CallExpr *> FindInvocations(FunctionDecl *D) {
+  std::vector<CallExpr *> invocations;
+  struct Finder : RecursiveASTVisitor<Finder> {
+    FunctionDecl *FD;
+    std::vector<CallExpr *> &v;
+
+    bool VisitCallExpr(CallExpr *E) {
+      auto *callee = E->getDirectCallee();
+      if (!callee) return true;
+      if (callee != FD) return true;
+      v.push_back(E);
+      return true;
+    }
+  } finder{.FD = D, .v = invocations};
+  finder.TraverseDecl(D->getTranslationUnitDecl());
+  return invocations;
+}
+
+static std::vector<Expr*> GetParmVals(ParmVarDecl *D) {
+  std::vector<Expr*> vals;
+  auto *FD = GetParent<FunctionDecl>(D->getASTContext(), D);
+  auto paramIdx = -1;
+  for (int i = 0; i < FD->getNumParams(); i++) {
+    if (FD->getParamDecl(i) != D) continue;
+    paramIdx = i;
+    break;
+  }
+  if (paramIdx == -1) {
+    llvm::errs() << "SOA: can't establish param idx\n";
+    exit(1);
+  }
+  auto invocations = FindInvocations(FD);
+  if (invocations.empty()) {
+    llvm::errs() << "SOA: parent function is never called\n";
+    exit(1);
+  }
+
+  for (auto *callExpr : invocations) {
+    auto *argExpr = callExpr->getArg(paramIdx);
+    vals.push_back(argExpr);
+  }
+  return vals;
 }
 
 static std::string TypeToString(QualType type) {
@@ -136,24 +180,6 @@ void FindLeakFunctions(VarDecl *D, Stmt *S, std::map<FunctionDecl *, int> &funct
     VarDecl *D;
     std::map<FunctionDecl *, int> *fs;
 
-    std::vector<CallExpr *> findInvocationsOfFunction(FunctionDecl *D) {
-      std::vector<CallExpr *> invocations;
-      struct Finder : RecursiveASTVisitor<Finder> {
-        FunctionDecl *FD;
-        std::vector<CallExpr *> &v;
-
-        bool VisitCallExpr(CallExpr *E) {
-          auto *callee = E->getDirectCallee();
-          if (!callee) return true;
-          if (callee != FD) return true;
-          v.push_back(E);
-          return true;
-        }
-      } finder{.FD = D, .v = invocations};
-      finder.TraverseDecl(D->getTranslationUnitDecl());
-      return invocations;
-    }
-
     void handleFunctionDecl(FunctionDecl *callee, CallExpr *E) {
       std::vector<int> argCandidates;
       for (int i = 0; i < callee->getNumParams(); i++) {
@@ -186,33 +212,26 @@ void FindLeakFunctions(VarDecl *D, Stmt *S, std::map<FunctionDecl *, int> &funct
 
     void handleArgFunctions(CallExpr *E) {
       auto *Param = llvm::cast<ParmVarDecl>(E->getCalleeDecl());
-      auto *FD = GetParent<FunctionDecl>(D->getASTContext(), E);
-      auto paramIdx = -1;
-      for (int i = 0; i < FD->getNumParams(); i++) {
-        if (FD->getParamDecl(i) != Param) continue;
-        paramIdx = i;
-        break;
-      }
-      if (paramIdx == -1) {
-        llvm::errs() << "SOA: can't establish param idx\n";
-        exit(1);
-      }
-      auto invocations = findInvocationsOfFunction(FD);
-      if (invocations.empty()) {
-        llvm::errs() << "SOA: parent function is never called\n";
+      auto vals = GetParmVals(Param);
+      if (vals.empty()) {
+        llvm::errs() << "SOA: could not find arg functions\n";
         exit(1);
       }
 
-      for (auto *callExpr : invocations) {
-        auto *argExpr = IgnoreImplicitCasts(callExpr->getArg(paramIdx));
-        if (!llvm::isa<DeclRefExpr>(argExpr)) {
-          llvm::errs() << "SOA: expected function argument, got something else\n";
-          exit(1);
-        }
-        auto *argDecl = llvm::cast<DeclRefExpr>(argExpr);
-        auto *argFnDecl = llvm::cast<FunctionDecl>(argDecl->getDecl());
-        handleFunctionDecl(argFnDecl, E);
+      if (vals.size() > 1) {
+        llvm::errs() << "SOA: found too many arg functions\n";
+        exit(1);
       }
+
+      auto *argExpr = IgnoreImplicitCasts(vals[0]);
+      if (!llvm::isa<DeclRefExpr>(argExpr)) {
+        llvm::errs() << "SOA: expected function argument, got something else\n";
+        exit(1);
+      }
+      auto *argDecl = llvm::cast<DeclRefExpr>(argExpr);
+      auto *argFnDecl = llvm::cast<FunctionDecl>(argDecl->getDecl());
+      handleFunctionDecl(argFnDecl, E);
+
       return;
     }
 
@@ -516,6 +535,36 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     return soaHelperInstance;
   }
 
+  void inlineFunctionArgs(Rewriter &R, ASTContext &C, Stmt* S) {
+    auto *FD = GetParent<FunctionDecl>(C, S);
+    for (auto *Param : FD->parameters()) {
+      auto pType = Param->getType();
+      auto isFnOrFnPtr = pType->isFunctionType() || (pType->isPointerType() && pType->getPointeeType()->isFunctionType());
+      if (!isFnOrFnPtr) continue;
+      auto vals = GetParmVals(Param);
+      if (vals.size() != 1) {
+        llvm::errs() << "SOA: cannot inline function argument, multiple candidates\n";
+        exit(1);
+      }
+
+      auto *fnDecl = llvm::cast<FunctionDecl>(llvm::cast<DeclRefExpr>(IgnoreImplicitCasts(vals[0]))->getDecl());
+
+      struct Inliner : RecursiveASTVisitor<Inliner> {
+        ParmVarDecl *D;
+        FunctionDecl *FD;
+        Rewriter &R;
+
+        bool VisitDeclRefExpr(DeclRefExpr *E) {
+          if (E->getDecl() != D) return true;
+          auto newName = FD->getQualifiedNameAsString();
+          R.ReplaceText(E->getSourceRange(), newName);
+          return true;
+        }
+      } inliner {.D = Param, .FD = fnDecl, .R = R};
+      inliner.TraverseStmt(S);
+    }
+  }
+
   void rewriteForLoop(VarDecl *D, Rewriter &R, UsageStats &Stats, ForStmt *S) {
     auto iterVarName = llvm::cast<VarDecl>(llvm::cast<DeclStmt>(S->getInit())->getSingleDecl())->getNameAsString();
     std::string instanceName = getSoaHelperInstanceName(Stats, S);
@@ -529,6 +578,8 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     std::string source = "\n";
     source += "auto " + D->getNameAsString() + " = " + instanceName + "[" + iterVarName + "];\n";
     R.InsertTextAfter(bodyBegin, source);
+
+    inlineFunctionArgs(R, D->getASTContext(), S);
   }
 
   void rewriteForRangeLoop(VarDecl *D, Rewriter &R, std::string sizeExprStr, UsageStats &Stats, CXXForRangeStmt *S) {
@@ -549,6 +600,8 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     source += "}\n";
     auto *attrStmt = GetParent<AttributedStmt>(D->getASTContext(), S, true);
     R.ReplaceText(attrStmt->getSourceRange(), source);
+
+    inlineFunctionArgs(R, D->getASTContext(), S);
   }
 
   std::string getSoaBuffersWritebackForLoop(std::string &sizeExprStr, VarDecl *D, UsageStats &Stats, Stmt *S) {
