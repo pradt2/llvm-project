@@ -893,8 +893,8 @@ public:
   }
 
   bool VisitFunctionTemplateDecl(FunctionTemplateDecl *D) {
-//    auto isConversionCandidate = isTransformationCandidate(D);
-//    if (!isConversionCandidate) return true;
+    auto isConversionCandidate = isTransformationCandidate(D);
+    if (!isConversionCandidate) return true;
 
     struct X : RecursiveASTVisitor<X> {
       bool VisitCallExpr(CallExpr *E) {
