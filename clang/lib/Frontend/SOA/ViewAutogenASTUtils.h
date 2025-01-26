@@ -4,6 +4,10 @@
 
 using namespace clang;
 
+static Rewriter CreateRewriter(const Rewriter *oldR) {
+  return Rewriter(oldR->getSourceMgr(), oldR->getLangOpts());
+}
+
 static Expr *IgnoreImplicitCasts(Expr *E) {
   if (!E || !llvm::isa<ImplicitCastExpr>(E)) return E;
   auto *implicitCast = llvm::cast<ImplicitCastExpr>(E);
@@ -278,7 +282,7 @@ void FindUsages(VarDecl *D, UsageStats &stats, Stmt *S) {
 
 struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
   CompilerInstance &CI;
-  Rewriter &R;
+  Rewriter *R;
 
   std::string getUniqueName(std::string name, Stmt *S) {
     return name + "_" + std::to_string((unsigned long) S);
@@ -339,7 +343,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
 
     auto cond = llvm::cast<BinaryOperator>(S->getCond());
     auto condRhs = cond->getRHS();
-    auto condRhsString = R.getRewrittenText(condRhs->getSourceRange());
+    auto condRhsString = R->getRewrittenText(condRhs->getSourceRange());
     return condRhsString;
   }
 
@@ -362,7 +366,6 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       }
     }
 
-    auto &R = C.getSourceManager().getRewriter();
     for (auto *method : Stats.methods) {
       view += TypeToString(method->getReturnType()) + " " + method->getNameAsString() + "(";
       for (auto *arg : method->parameters()) {
@@ -372,7 +375,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
         view.pop_back();
         view.pop_back();
       }
-      view += ") " + R.getRewrittenText(method->getBody()->getSourceRange()) + "\n";
+      view += ") " + R->getRewrittenText(method->getBody()->getSourceRange()) + "\n";
     }
 
     view += structName + " &operator[](int i) { return *this; }\n";
@@ -535,7 +538,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     return soaHelperInstance;
   }
 
-  void inlineFunctionArgs(Rewriter &R, ASTContext &C, Stmt* S) {
+  void inlineFunctionArgs(ASTContext &C, Stmt* S) {
     auto *FD = GetParent<FunctionDecl>(C, S);
     for (auto *Param : FD->parameters()) {
       auto pType = Param->getType();
@@ -552,12 +555,12 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       struct Inliner : RecursiveASTVisitor<Inliner> {
         ParmVarDecl *D;
         FunctionDecl *FD;
-        Rewriter &R;
+        Rewriter *R;
 
         bool VisitDeclRefExpr(DeclRefExpr *E) {
           if (E->getDecl() != D) return true;
           auto newName = FD->getQualifiedNameAsString();
-          R.ReplaceText(E->getSourceRange(), newName);
+          R->ReplaceText(E->getSourceRange(), newName);
           return true;
         }
       } inliner {.D = Param, .FD = fnDecl, .R = R};
@@ -565,7 +568,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     }
   }
 
-  void inlineTemplateParams(Rewriter &R, ASTContext &C, Stmt* S) {
+  void inlineTemplateParams(ASTContext &C, Stmt* S) {
     auto *FD = GetParent<FunctionDecl>(C, S);
     auto *D = FD->getPrimaryTemplate();
     if (!D) return;
@@ -585,12 +588,12 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       struct Inliner : RecursiveASTVisitor<Inliner> {
         NamedDecl *D;
         FunctionDecl *FD;
-        Rewriter &R;
+        Rewriter *R;
 
         bool VisitSubstNonTypeTemplateParmExpr(SubstNonTypeTemplateParmExpr *E) {
           if (E->getParameter() != D) return true;
           auto newName = FD->getQualifiedNameAsString();
-          R.ReplaceText(E->getSourceRange(), newName);
+          R->ReplaceText(E->getSourceRange(), newName);
           return true;
         }
       } inliner {.D = templateArgDecl, .FD = llvm::cast<FunctionDecl>(templateArgVal.getAsDecl()), .R = R};
@@ -598,7 +601,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     }
   }
 
-  void rewriteForLoop(VarDecl *D, Rewriter &R, UsageStats &Stats, ForStmt *S) {
+  void rewriteForLoop(VarDecl *D, UsageStats &Stats, ForStmt *S) {
     auto iterVarName = llvm::cast<VarDecl>(llvm::cast<DeclStmt>(S->getInit())->getSingleDecl())->getNameAsString();
     std::string instanceName = getSoaHelperInstanceName(Stats, S);
 
@@ -610,13 +613,13 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     auto bodyBegin = llvm::cast<CompoundStmt>(S->getBody())->getLBracLoc().getLocWithOffset(1);
     std::string source = "\n";
     source += "auto " + D->getNameAsString() + " = " + instanceName + "[" + iterVarName + "];\n";
-    R.InsertTextAfter(bodyBegin, source);
+    R->InsertTextAfter(bodyBegin, source);
 
-    inlineFunctionArgs(R, D->getASTContext(), S);
-    inlineTemplateParams(R, D->getASTContext(), S);
+    inlineFunctionArgs(D->getASTContext(), S);
+    inlineTemplateParams(D->getASTContext(), S);
   }
 
-  void rewriteForRangeLoop(VarDecl *D, Rewriter &R, std::string sizeExprStr, UsageStats &Stats, CXXForRangeStmt *S) {
+  void rewriteForRangeLoop(VarDecl *D, std::string sizeExprStr, UsageStats &Stats, CXXForRangeStmt *S) {
     auto iterVarName = getUniqueName("iter", S);
     std::string instanceName = getSoaHelperInstanceName(Stats, S);
 
@@ -630,13 +633,13 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     source += "auto " + D->getNameAsString() + " = " + instanceName + "[" + iterVarName + "];\n";
     auto bodyBegin = llvm::cast<CompoundStmt>(S->getBody())->getLBracLoc().getLocWithOffset(1);
     auto bodyEnd = llvm::cast<CompoundStmt>(S->getBody())->getRBracLoc().getLocWithOffset(-1);
-    source += R.getRewrittenText(SourceRange(bodyBegin, bodyEnd));
+    source += R->getRewrittenText(SourceRange(bodyBegin, bodyEnd));
     source += "}\n";
     auto *attrStmt = GetParent<AttributedStmt>(D->getASTContext(), S, true);
-    R.ReplaceText(attrStmt->getSourceRange(), source);
+    R->ReplaceText(attrStmt->getSourceRange(), source);
 
-    inlineFunctionArgs(R, D->getASTContext(), S);
-    inlineTemplateParams(R, D->getASTContext(), S);
+    inlineFunctionArgs(D->getASTContext(), S);
+    inlineTemplateParams(D->getASTContext(), S);
   }
 
   std::string getSoaBuffersWritebackForLoop(std::string &sizeExprStr, VarDecl *D, UsageStats &Stats, Stmt *S) {
@@ -834,9 +837,9 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     prologue += soaHelperInstanceDecl + "\n";
 
     auto prologueLoc = getPrologueLoc(CI.getASTContext(), S).getLocWithOffset(-1);
-    R.InsertTextBefore(prologueLoc, prologue);
+    R->InsertTextBefore(prologueLoc, prologue);
 
-    rewriteForLoop(targetDecl, R, usageStats, S);
+    rewriteForLoop(targetDecl, usageStats, S);
 
     auto soaWriteback = getSoaBuffersWritebackForLoop(sizeExprStr, targetDecl, usageStats, S);
 
@@ -845,7 +848,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     epilogue += "#pragma clang diagnostic pop\n";
 
     auto epilogueLoc = getEpilogueLoc(CI.getASTContext(), S).getLocWithOffset(1);
-    R.InsertTextAfter(epilogueLoc, epilogue);
+    R->InsertTextAfter(epilogueLoc, epilogue);
 
     return true;
   }
@@ -877,9 +880,9 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     prologue += soaHelperInstanceDecl + "\n";
 
     auto prologueLoc = getPrologueLoc(CI.getASTContext(), S).getLocWithOffset(-1);
-    R.InsertTextBefore(prologueLoc, prologue);
+    R->InsertTextBefore(prologueLoc, prologue);
 
-    rewriteForRangeLoop(targetDecl, R, sizeExprStr, usageStats, S);
+    rewriteForRangeLoop(targetDecl, sizeExprStr, usageStats, S);
 
     auto soaWriteback = getSoaBuffersWritebackForRangeLoop(sizeExprStr, targetDecl, containerDecl, usageStats, S);
 
@@ -888,7 +891,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     epilogue += "#pragma clang diagnostic pop\n";
 
     auto epilogueLoc = getEpilogueLoc(CI.getASTContext(), S).getLocWithOffset(1);
-    R.InsertTextAfter(epilogueLoc, epilogue);
+    R->InsertTextAfter(epilogueLoc, epilogue);
 
     return true;
   }
@@ -896,7 +899,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
 
 struct SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor<SoaConversionASTConsumer> {
   CompilerInstance &CI;
-  Rewriter &R;
+  Rewriter *R;
 
   bool isTransformationCandidate(Decl *D) {
     struct IsTransformationCandidate : public RecursiveASTVisitor<IsTransformationCandidate> {
@@ -919,7 +922,7 @@ struct SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor
   }
 
 public:
-  SoaConversionASTConsumer(CompilerInstance &CI) : CI(CI), R(CI.getSourceManager().getRewriter()) {}
+  SoaConversionASTConsumer(CompilerInstance &CI) : CI(CI), R(&CI.getSourceManager().getRewriter()) {}
 
   bool VisitFunctionDecl(FunctionDecl *D) {
     if (D->isTemplated()) return true;
@@ -949,7 +952,6 @@ public:
       // template keyword. in this case, treat the type loc as begin loc
       origSourceRange.setBegin(D->getTemplatedDecl()->getSourceRange().getBegin());
     }
-    auto origF = R.getRewrittenText(origSourceRange);
 
     auto *previousDecl = D->getPreviousDecl();
     SourceRange origPrevSourceRange;
@@ -962,15 +964,11 @@ public:
         origPrevSourceRange.setBegin(previousDecl->getTemplatedDecl()->getSourceRange().getBegin());
       }
     }
-    std::string origForwardDecl;
-    if (previousDecl) {
-      origForwardDecl = R.getRewrittenText(origPrevSourceRange);
-    }
 
     std::string forwardDeclarations;
     std::string implicitSpecialisations;
 
-    auto &origR = R;
+    auto *origR = R;
 
     auto hasNonTypeTemplateArgs = false;
     for (auto *TemplateArgDecl : D->getTemplateParameters()->asArray()) {
@@ -980,8 +978,8 @@ public:
     }
 
     for (auto *FD : D->specializations()) {
-      auto newR = Rewriter(R.getSourceMgr(), R.getLangOpts());
-      this->R = newR;
+      auto newR = CreateRewriter(origR);
+      this->R = &newR;
 
       VisitFunctionDecl(FD);
 
@@ -989,16 +987,40 @@ public:
         if (Param->getType()->isFunctionType()) continue;
         auto typeSourceRange = Param->getTypeSourceInfo()->getTypeLoc().getSourceRange();
         auto typeStr = Param->getType().getCanonicalType().getAsString();
-        R.ReplaceText(typeSourceRange, typeStr);
+        R->ReplaceText(typeSourceRange, typeStr);
       }
 
       if (hasNonTypeTemplateArgs) {
-        auto name = FD->getQualifiedNameAsString();
+        auto newName = FD->getQualifiedNameAsString() + "_" + std::to_string((unsigned long) FD);
         auto nameSourceRange = FD->getNameInfo().getSourceRange();
-        R.ReplaceText(nameSourceRange, name + "_" + std::to_string((unsigned long) FD));
+        R->ReplaceText(nameSourceRange, newName);
+
+        struct CallRewriter : RecursiveASTVisitor<CallRewriter> {
+          FunctionDecl *D;
+          Rewriter *R;
+          std::string &newName;
+
+          bool VisitCallExpr(CallExpr *E) {
+            if (E->getCalleeDecl() != D) return true;
+            auto *declRefExpr = llvm::cast<DeclRefExpr>(IgnoreImplicitCasts(E->getCallee()));
+            auto declRefExprString = R->getRewrittenText(declRefExpr->getSourceRange());
+
+            auto nameSourceRange = declRefExpr->getSourceRange();
+
+            auto sRef = llvm::StringRef(declRefExprString);
+            auto lPos = sRef.find('<');
+            if (lPos != std::string::npos) {
+              nameSourceRange.setEnd(nameSourceRange.getBegin().getLocWithOffset(lPos).getLocWithOffset(-1));
+            }
+
+            R->ReplaceText(nameSourceRange, newName);
+            return true;
+          }
+        } CallRewriter{.D = FD, .R = origR, .newName = newName};
+        CallRewriter.TraverseDecl(D->getTranslationUnitDecl());
       }
 
-      auto modifiedTemplate = R.getRewrittenText(origSourceRange);
+      auto modifiedTemplate = R->getRewrittenText(origSourceRange);
       if (!FD->getTemplateSpecializationInfo()->isExplicitInstantiationOrSpecialization()) {
         implicitSpecialisations += modifiedTemplate + "\n";
       } else {
@@ -1014,21 +1036,19 @@ public:
           if (Param->getType()->isFunctionType()) continue;
           auto typeSourceRange = Param->getTypeSourceInfo()->getTypeLoc().getSourceRange();
           auto typeStr = FD->getParamDecl(paramIdx)->getType().getCanonicalType().getAsString();
-          R.ReplaceText(typeSourceRange, typeStr);
+          R->ReplaceText(typeSourceRange, typeStr);
         }
 
-        auto modifiedForwardDecl = R.getRewrittenText(origPrevSourceRange);
+        auto modifiedForwardDecl = R->getRewrittenText(origPrevSourceRange);
         forwardDeclarations += modifiedForwardDecl + ";\n";
       }
-
-      this->R = origR;
     }
 
-    R.InsertTextBefore(origSourceRange.getBegin().getLocWithOffset(-1), implicitSpecialisations);
-    R.ReplaceText(origSourceRange, origF);
+    this->R = origR;
+
+    R->InsertTextBefore(origSourceRange.getBegin().getLocWithOffset(-1), implicitSpecialisations);
     if (previousDecl) {
-      R.InsertTextBefore(origPrevSourceRange.getBegin().getLocWithOffset(-1), forwardDeclarations);
-      R.ReplaceText(origPrevSourceRange, origForwardDecl);
+      R->InsertTextBefore(origPrevSourceRange.getBegin().getLocWithOffset(-1), forwardDeclarations);
     }
     return true;
   }
