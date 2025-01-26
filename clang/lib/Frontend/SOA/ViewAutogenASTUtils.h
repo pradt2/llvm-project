@@ -379,6 +379,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     }
 
     view += structName + " &operator[](int i) { return *this; }\n";
+    view += structName + " &operator*() { return *this; }\n";
     view += "};\n";
 
     return view;
