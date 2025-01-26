@@ -108,7 +108,9 @@ static std::vector<Expr*> GetParmVals(ParmVarDecl *D) {
 }
 
 static std::string TypeToString(QualType type) {
-  auto s = type.getCanonicalType().getAsString();
+  type = type.getCanonicalType();
+  if (type->isBooleanType()) return "bool";
+  auto s = type.getAsString();
   return s;
 }
 
@@ -371,6 +373,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     }
 
     for (auto *method : Stats.methods) {
+      auto isConst = method->isConst();
       view += TypeToString(method->getReturnType()) + " " + method->getNameAsString() + "(";
       for (auto *arg : method->parameters()) {
         view += TypeToString(arg->getType()) + " " + arg->getNameAsString() + ", ";
@@ -379,7 +382,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
         view.pop_back();
         view.pop_back();
       }
-      view += ") " + R->getRewrittenText(method->getBody()->getSourceRange()) + "\n";
+      view += ") " + std::string(isConst ? "const " : "") + R->getRewrittenText(method->getBody()->getSourceRange()) + "\n";
     }
 
     view += structName + " &operator[](int i) { return *this; }\n";
@@ -991,7 +994,7 @@ public:
       for (auto *Param : FD->parameters()) {
         if (Param->getType()->isFunctionType()) continue;
         auto typeSourceRange = Param->getTypeSourceInfo()->getTypeLoc().getSourceRange();
-        auto typeStr = Param->getType().getCanonicalType().getAsString();
+        auto typeStr = TypeToString(Param->getType());
         R->ReplaceText(typeSourceRange, typeStr);
       }
 
@@ -1040,7 +1043,7 @@ public:
           auto *Param = prevFD->getParamDecl(paramIdx);
           if (Param->getType()->isFunctionType()) continue;
           auto typeSourceRange = Param->getTypeSourceInfo()->getTypeLoc().getSourceRange();
-          auto typeStr = FD->getParamDecl(paramIdx)->getType().getCanonicalType().getAsString();
+          auto typeStr = TypeToString(FD->getParamDecl(paramIdx)->getType());
           R->ReplaceText(typeSourceRange, typeStr);
         }
 
