@@ -555,7 +555,8 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     std::string itemName = getUniqueName(target->getNameAsString(), S);
     std::string counterName = getUniqueName("__soa_init_counter", S);
     soaBuffersInit += "unsigned long " + counterName + " = 0;\n";
-    soaBuffersInit += "for (auto &" + itemName + " : " + container->getNameAsString() + ") {\n";
+    auto deref = std::string(target->getType()->isPointerType() ? "*" : "&");
+    soaBuffersInit += "for (auto " + deref + itemName + " : " + container->getNameAsString() + ") {\n";
     auto &Layout = target->getASTContext().getASTRecordLayout(Stats.record);
 
     for (auto [F, usage] : Stats.fields) {
@@ -690,7 +691,8 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     std::string itemName = getUniqueName(target->getNameAsString(), S);
     std::string counterName = getUniqueName("__soa_writeback_counter", S);
     soaBuffersWriteback += "unsigned long " + counterName + " = 0;\n";
-    soaBuffersWriteback += "for (auto &" + itemName + " : " + container->getNameAsString() + ") {\n";
+    auto deref = std::string(target->getType()->isPointerType() ? "*" : "&");
+    soaBuffersWriteback += "for (auto " + deref + itemName + " : " + container->getNameAsString() + ") {\n";
     auto &Layout = target->getASTContext().getASTRecordLayout(Stats.record);
 
     for (auto [F, usage] : Stats.fields) {
