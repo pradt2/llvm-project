@@ -55,8 +55,12 @@ static QualType StripIndirections(QualType t) {
     if (t->isPointerType()) {
       t = t->getPointeeType();
     } else if (t->isReferenceType()) t = t.getNonReferenceType();
-    else return t;
+    else break;
   }
+  if (t.isConstQualified()) {
+    t.removeLocalConst();
+  }
+  return t;
 }
 
 static std::vector<CallExpr *> FindInvocations(FunctionDecl *D) {
