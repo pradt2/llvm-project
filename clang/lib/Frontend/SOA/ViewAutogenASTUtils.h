@@ -972,6 +972,13 @@ public:
 
     auto &origR = R;
 
+    auto hasNonTypeTemplateArgs = false;
+    for (auto *TemplateArgDecl : D->getTemplateParameters()->asArray()) {
+      if (llvm::isa<NonTypeTemplateParmDecl>(TemplateArgDecl)) continue;
+      hasNonTypeTemplateArgs = true;
+      break;
+    }
+
     for (auto *FD : D->specializations()) {
       auto newR = Rewriter(R.getSourceMgr(), R.getLangOpts());
       this->R = newR;
@@ -983,6 +990,12 @@ public:
         auto typeSourceRange = Param->getTypeSourceInfo()->getTypeLoc().getSourceRange();
         auto typeStr = Param->getType().getCanonicalType().getAsString();
         R.ReplaceText(typeSourceRange, typeStr);
+      }
+
+      if (hasNonTypeTemplateArgs) {
+        auto name = FD->getQualifiedNameAsString();
+        auto nameSourceRange = FD->getNameInfo().getSourceRange();
+        R.ReplaceText(nameSourceRange, name + "_" + std::to_string((unsigned long) FD));
       }
 
       auto modifiedTemplate = R.getRewrittenText(origSourceRange);
