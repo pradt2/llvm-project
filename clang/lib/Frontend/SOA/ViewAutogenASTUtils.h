@@ -565,6 +565,39 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     }
   }
 
+  void inlineTemplateParams(Rewriter &R, ASTContext &C, Stmt* S) {
+    auto *FD = GetParent<FunctionDecl>(C, S);
+    auto *D = FD->getPrimaryTemplate();
+    if (!D) return;
+
+    auto templateArgDefs = D->getTemplateParameters()->asArray();
+    auto templateArgVals = FD->getTemplateSpecializationArgs()->asArray();
+
+    for (int i = 0; i < templateArgDefs.size(); i++) {
+      auto *templateArgDecl = templateArgDefs[i];
+      auto templateArgVal = templateArgVals[i];
+
+      if (templateArgVal.getKind() != clang::TemplateArgument::Declaration) continue;
+
+      auto isFunction = templateArgVal.getAsDecl()->getType()->isFunctionType();
+      if (!isFunction) continue;
+
+      struct Inliner : RecursiveASTVisitor<Inliner> {
+        NamedDecl *D;
+        FunctionDecl *FD;
+        Rewriter &R;
+
+        bool VisitSubstNonTypeTemplateParmExpr(SubstNonTypeTemplateParmExpr *E) {
+          if (E->getParameter() != D) return true;
+          auto newName = FD->getQualifiedNameAsString();
+          R.ReplaceText(E->getSourceRange(), newName);
+          return true;
+        }
+      } inliner {.D = templateArgDecl, .FD = llvm::cast<FunctionDecl>(templateArgVal.getAsDecl()), .R = R};
+      inliner.TraverseStmt(S);
+    }
+  }
+
   void rewriteForLoop(VarDecl *D, Rewriter &R, UsageStats &Stats, ForStmt *S) {
     auto iterVarName = llvm::cast<VarDecl>(llvm::cast<DeclStmt>(S->getInit())->getSingleDecl())->getNameAsString();
     std::string instanceName = getSoaHelperInstanceName(Stats, S);
@@ -580,6 +613,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     R.InsertTextAfter(bodyBegin, source);
 
     inlineFunctionArgs(R, D->getASTContext(), S);
+    inlineTemplateParams(R, D->getASTContext(), S);
   }
 
   void rewriteForRangeLoop(VarDecl *D, Rewriter &R, std::string sizeExprStr, UsageStats &Stats, CXXForRangeStmt *S) {
@@ -602,6 +636,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     R.ReplaceText(attrStmt->getSourceRange(), source);
 
     inlineFunctionArgs(R, D->getASTContext(), S);
+    inlineTemplateParams(R, D->getASTContext(), S);
   }
 
   std::string getSoaBuffersWritebackForLoop(std::string &sizeExprStr, VarDecl *D, UsageStats &Stats, Stmt *S) {
