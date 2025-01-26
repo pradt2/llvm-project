@@ -187,7 +187,7 @@ void FindLeakFunctions(VarDecl *D, Stmt *S, std::map<FunctionDecl *, int> &funct
     void handleFunctionDecl(FunctionDecl *callee, CallExpr *E) {
       std::vector<int> argCandidates;
       for (int i = 0; i < callee->getNumParams(); i++) {
-        auto *param = callee->getParamDecl(0);
+        auto *param = callee->getParamDecl(i);
         auto paramType = StripIndirections(param->getType());
         auto targetType = StripIndirections(D->getType());
         if (TypeToString(paramType) == TypeToString(targetType)) argCandidates.push_back(i);
