@@ -373,7 +373,6 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     }
 
     for (auto *method : Stats.methods) {
-      auto isConst = method->isConst();
       view += TypeToString(method->getReturnType()) + " " + method->getNameAsString() + "(";
       for (auto *arg : method->parameters()) {
         view += TypeToString(arg->getType()) + " " + arg->getNameAsString() + ", ";
@@ -382,7 +381,9 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
         view.pop_back();
         view.pop_back();
       }
-      view += ") " + std::string(isConst ? "const " : "") + R->getRewrittenText(method->getBody()->getSourceRange()) + "\n";
+      view += ") " + std::string(method->isConst() ? "const " : "");
+      if (method->isStatic()) view += "{ return " + method->getQualifiedNameAsString() + "(); }\n";
+      else view += R->getRewrittenText(method->getBody()->getSourceRange()) + "\n";
     }
 
     view += structName + " &operator[](int i) { return *this; }\n";
