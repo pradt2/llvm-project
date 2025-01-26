@@ -107,6 +107,69 @@ static std::vector<Expr*> GetParmVals(ParmVarDecl *D) {
   return vals;
 }
 
+static void InlineFunctionArgs(ASTContext &C, Stmt* S, Rewriter *R) {
+  auto *FD = GetParent<FunctionDecl>(C, S);
+  for (auto *Param : FD->parameters()) {
+    auto pType = Param->getType();
+    auto isFnOrFnPtr = pType->isFunctionType() || (pType->isPointerType() && pType->getPointeeType()->isFunctionType());
+    if (!isFnOrFnPtr) continue;
+    auto vals = GetParmVals(Param);
+    if (vals.size() != 1) {
+      llvm::errs() << "SOA: cannot inline function argument, multiple candidates\n";
+      exit(1);
+    }
+
+    auto *fnDecl = llvm::cast<FunctionDecl>(llvm::cast<DeclRefExpr>(IgnoreImplicitCasts(vals[0]))->getDecl());
+
+    struct Inliner : RecursiveASTVisitor<Inliner> {
+      ParmVarDecl *D;
+      FunctionDecl *FD;
+      Rewriter *R;
+
+      bool VisitDeclRefExpr(DeclRefExpr *E) {
+        if (E->getDecl() != D) return true;
+        auto newName = FD->getQualifiedNameAsString();
+        R->ReplaceText(E->getSourceRange(), newName);
+        return true;
+      }
+    } inliner {.D = Param, .FD = fnDecl, .R = R};
+    inliner.TraverseStmt(S);
+  }
+}
+
+static void InlineTemplateParams(ASTContext &C, Stmt* S, Rewriter *R) {
+  auto *FD = GetParent<FunctionDecl>(C, S);
+  auto *D = FD->getPrimaryTemplate();
+  if (!D) return;
+
+  auto templateArgDefs = D->getTemplateParameters()->asArray();
+  auto templateArgVals = FD->getTemplateSpecializationArgs()->asArray();
+
+  for (int i = 0; i < templateArgDefs.size(); i++) {
+    auto *templateArgDecl = templateArgDefs[i];
+    auto templateArgVal = templateArgVals[i];
+
+    if (templateArgVal.getKind() != clang::TemplateArgument::Declaration) continue;
+
+    auto isFunction = templateArgVal.getAsDecl()->getType()->isFunctionType();
+    if (!isFunction) continue;
+
+    struct Inliner : RecursiveASTVisitor<Inliner> {
+      NamedDecl *D;
+      FunctionDecl *FD;
+      Rewriter *R;
+
+      bool VisitSubstNonTypeTemplateParmExpr(SubstNonTypeTemplateParmExpr *E) {
+        if (E->getParameter() != D) return true;
+        auto newName = FD->getQualifiedNameAsString();
+        R->ReplaceText(E->getSourceRange(), newName);
+        return true;
+      }
+    } inliner {.D = templateArgDecl, .FD = llvm::cast<FunctionDecl>(templateArgVal.getAsDecl()), .R = R};
+    inliner.TraverseStmt(S);
+  }
+}
+
 static std::string TypeToString(QualType type) {
   type = type.getCanonicalType();
   if (type->isBooleanType()) return "bool";
@@ -547,69 +610,6 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     return soaHelperInstance;
   }
 
-  void inlineFunctionArgs(ASTContext &C, Stmt* S) {
-    auto *FD = GetParent<FunctionDecl>(C, S);
-    for (auto *Param : FD->parameters()) {
-      auto pType = Param->getType();
-      auto isFnOrFnPtr = pType->isFunctionType() || (pType->isPointerType() && pType->getPointeeType()->isFunctionType());
-      if (!isFnOrFnPtr) continue;
-      auto vals = GetParmVals(Param);
-      if (vals.size() != 1) {
-        llvm::errs() << "SOA: cannot inline function argument, multiple candidates\n";
-        exit(1);
-      }
-
-      auto *fnDecl = llvm::cast<FunctionDecl>(llvm::cast<DeclRefExpr>(IgnoreImplicitCasts(vals[0]))->getDecl());
-
-      struct Inliner : RecursiveASTVisitor<Inliner> {
-        ParmVarDecl *D;
-        FunctionDecl *FD;
-        Rewriter *R;
-
-        bool VisitDeclRefExpr(DeclRefExpr *E) {
-          if (E->getDecl() != D) return true;
-          auto newName = FD->getQualifiedNameAsString();
-          R->ReplaceText(E->getSourceRange(), newName);
-          return true;
-        }
-      } inliner {.D = Param, .FD = fnDecl, .R = R};
-      inliner.TraverseStmt(S);
-    }
-  }
-
-  void inlineTemplateParams(ASTContext &C, Stmt* S) {
-    auto *FD = GetParent<FunctionDecl>(C, S);
-    auto *D = FD->getPrimaryTemplate();
-    if (!D) return;
-
-    auto templateArgDefs = D->getTemplateParameters()->asArray();
-    auto templateArgVals = FD->getTemplateSpecializationArgs()->asArray();
-
-    for (int i = 0; i < templateArgDefs.size(); i++) {
-      auto *templateArgDecl = templateArgDefs[i];
-      auto templateArgVal = templateArgVals[i];
-
-      if (templateArgVal.getKind() != clang::TemplateArgument::Declaration) continue;
-
-      auto isFunction = templateArgVal.getAsDecl()->getType()->isFunctionType();
-      if (!isFunction) continue;
-
-      struct Inliner : RecursiveASTVisitor<Inliner> {
-        NamedDecl *D;
-        FunctionDecl *FD;
-        Rewriter *R;
-
-        bool VisitSubstNonTypeTemplateParmExpr(SubstNonTypeTemplateParmExpr *E) {
-          if (E->getParameter() != D) return true;
-          auto newName = FD->getQualifiedNameAsString();
-          R->ReplaceText(E->getSourceRange(), newName);
-          return true;
-        }
-      } inliner {.D = templateArgDecl, .FD = llvm::cast<FunctionDecl>(templateArgVal.getAsDecl()), .R = R};
-      inliner.TraverseStmt(S);
-    }
-  }
-
   void rewriteForLoop(VarDecl *D, UsageStats &Stats, ForStmt *S) {
     auto iterVarName = llvm::cast<VarDecl>(llvm::cast<DeclStmt>(S->getInit())->getSingleDecl())->getNameAsString();
     std::string instanceName = getSoaHelperInstanceName(Stats, S);
@@ -623,9 +623,6 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     std::string source = "\n";
     source += "auto " + D->getNameAsString() + " = " + instanceName + "[" + iterVarName + "];\n";
     R->InsertTextAfter(bodyBegin, source);
-
-    inlineFunctionArgs(D->getASTContext(), S);
-    inlineTemplateParams(D->getASTContext(), S);
   }
 
   void rewriteForRangeLoop(VarDecl *D, std::string sizeExprStr, UsageStats &Stats, CXXForRangeStmt *S) {
@@ -646,9 +643,6 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     source += "}\n";
     auto *attrStmt = GetParent<AttributedStmt>(D->getASTContext(), S, true);
     R->ReplaceText(attrStmt->getSourceRange(), source);
-
-    inlineFunctionArgs(D->getASTContext(), S);
-    inlineTemplateParams(D->getASTContext(), S);
   }
 
   std::string getSoaBuffersWritebackForLoop(std::string &sizeExprStr, VarDecl *D, UsageStats &Stats, Stmt *S) {
@@ -935,6 +929,10 @@ public:
 
   bool VisitFunctionDecl(FunctionDecl *D) {
     if (D->isTemplated()) return true;
+
+    auto isConversionCandidate = isTransformationCandidate(D);
+    if (!isConversionCandidate) return true;
+
     SoaHandler{.CI = CI, .R = R}.TraverseDecl(D);
     return true;
   }
@@ -950,6 +948,8 @@ public:
     if (specCount == 1) {
       for (auto *FD : D->specializations()) {
         VisitFunctionDecl(FD);
+        InlineFunctionArgs(FD->getASTContext(), FD->getBody(), R);
+        InlineTemplateParams(FD->getASTContext(), FD->getBody(), R);
       }
       return true;
     }
@@ -991,6 +991,8 @@ public:
       this->R = &newR;
 
       VisitFunctionDecl(FD);
+      InlineFunctionArgs(FD->getASTContext(), FD->getBody(), R);
+      InlineTemplateParams(FD->getASTContext(), FD->getBody(), R);
 
       for (auto *Param : FD->parameters()) {
         if (Param->getType()->isFunctionType()) continue;
