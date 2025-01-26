@@ -896,20 +896,12 @@ public:
     auto isConversionCandidate = isTransformationCandidate(D);
     if (!isConversionCandidate) return true;
 
-    struct X : RecursiveASTVisitor<X> {
-      bool VisitCallExpr(CallExpr *E) {
-        auto *VD = llvm::cast<DeclRefExpr>(E->getCallee()->IgnoreImplicit())->getDecl();
-        return true;
-      }
-    } x;
-
     int specCount = 0;
     for (auto *FD : D->specializations()) specCount++;
 
     if (specCount == 0) return true;
     if (specCount == 1) {
       for (auto *FD : D->specializations()) {
-        x.TraverseDecl(FD);
         VisitFunctionDecl(FD);
       }
       return true;
