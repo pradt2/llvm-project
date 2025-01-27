@@ -15,6 +15,16 @@ static Expr *IgnoreImplicitCasts(Expr *E) {
   return base;
 }
 
+static Expr *IgnoreCommonIndirections(Expr *E) {
+  while (true) {
+    if (!E) return E;
+    else if (llvm::isa<ImplicitCastExpr>(E)) E = llvm::cast<ImplicitCastExpr>(E)->IgnoreImpCasts();
+    else if (llvm::isa<ParenExpr>(E)) E = llvm::cast<ParenExpr>(E)->IgnoreParens();
+    else if (llvm::isa<UnaryOperator>(E)) E = llvm::cast<UnaryOperator>(E)->getSubExpr();
+    else return E;
+  }
+}
+
 template<typename T>
 static T *GetParent(ASTContext &C, DynTypedNode node, bool immediateOnly = false) {
   for (auto parent: C.getParentMapContext().getParents(node)) {
@@ -195,20 +205,9 @@ struct UsageFinder : RecursiveASTVisitor<UsageFinder> {
 
   bool VisitMemberExpr(MemberExpr *E) {
     auto *memberDecl = E->getMemberDecl();
-    auto *base = IgnoreImplicitCasts(E->getBase());
+    auto *base = IgnoreCommonIndirections(E->getBase());
 
-    auto DType = D->getType();
-    CXXRecordDecl *DTypeDecl = nullptr;
-    if (DType->isPointerType())
-      DTypeDecl = DType->getPointeeType()->getAsCXXRecordDecl();
-    else if (DType->isReferenceType())
-      DTypeDecl = DType.getNonReferenceType()->getAsCXXRecordDecl();
-    else if (DType->isRecordType())
-      DTypeDecl = DType->getAsCXXRecordDecl();
-    else {
-      llvm::errs() << "SOA: Target type is not a record!\n";
-      return true;
-    }
+    auto *DTypeDecl = StripIndirections(D->getType())->getAsCXXRecordDecl();
 
     if (llvm::isa<CXXThisExpr>(base)) {
       auto *thisExpr = llvm::cast<CXXThisExpr>(base);
