@@ -186,7 +186,7 @@ struct UsageStats {
   CXXRecordDecl *record;
   std::map<FieldDecl*, UsageKind> fields;
   std::set<CXXMethodDecl*> methods;
-  std::map<FunctionDecl *, int> leakyFunctions;
+  std::map<FunctionDecl *, std::set<int>> leakyFunctions;
 };
 
 struct UsageFinder : RecursiveASTVisitor<UsageFinder> {
@@ -248,10 +248,10 @@ struct UsageFinder : RecursiveASTVisitor<UsageFinder> {
   }
 };
 
-void FindLeakFunctions(VarDecl *D, Stmt *S, std::map<FunctionDecl *, int> &functions) {
+void FindLeakFunctions(VarDecl *D, Stmt *S, std::map<FunctionDecl *, std::set<int>> &functions) {
   struct LeakFinder : RecursiveASTVisitor<LeakFinder> {
     VarDecl *D;
-    std::map<FunctionDecl *, int> *fs;
+    std::map<FunctionDecl *, std::set<int>> *fs;
 
     void handleFunctionDecl(FunctionDecl *callee, CallExpr *E) {
       std::vector<int> argCandidates;
@@ -278,7 +278,7 @@ void FindLeakFunctions(VarDecl *D, Stmt *S, std::map<FunctionDecl *, int> &funct
         auto *argExpr = E->getArg(argCandidate);
         finder.TraverseStmt(argExpr);
         if (!finder.found) continue;
-        (*fs)[callee] = argCandidate;
+        (*fs)[callee].insert(argCandidate);
         break;
       }
     }
@@ -339,10 +339,12 @@ void FindUsages(VarDecl *D, UsageStats &stats, Stmt *S) {
       FindLeakFunctions(D, method->getBody(), stats.leakyFunctions);
     }
     auto leakyFunctionsCopy = stats.leakyFunctions;
-    for (auto [leakyFunction, arg] : leakyFunctionsCopy) {
-      auto *D = leakyFunction->getParamDecl(arg);
-      UsageFinder{.D = D, .Stats = &stats}.TraverseFunctionDecl(leakyFunction);
-      FindLeakFunctions(D, leakyFunction->getBody(), stats.leakyFunctions);
+    for (auto [leakyFunction, args] : leakyFunctionsCopy) {
+      for (auto arg : args) {
+        auto *D = leakyFunction->getParamDecl(arg);
+        UsageFinder{.D = D, .Stats = &stats}.TraverseFunctionDecl(leakyFunction);
+        FindLeakFunctions(D, leakyFunction->getBody(), stats.leakyFunctions);
+      }
     }
     auto haveStatsChanged = stats.methods.size() > oldMethodCount || stats.leakyFunctions.size() > oldLeakyFunctionCount;
     if (!haveStatsChanged) break;
