@@ -426,6 +426,40 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     std::string view = "";
     std::string structName = getReferenceViewDeclName(Stats, S);
     view =+ "struct " + structName + " {\n";
+
+    for (auto *decl : Stats.record->decls()) {
+      if (llvm::isa<CXXRecordDecl>(decl)) {
+        auto *recordDecl = llvm::cast<CXXRecordDecl>(decl);
+        if (recordDecl->isImplicit()) continue;
+        view += "using " + recordDecl->getNameAsString() + " = " + recordDecl->getQualifiedNameAsString() + ";\n";
+      } else if (llvm::isa<EnumDecl>(decl)) {
+        auto *enumDecl = llvm::cast<EnumDecl>(decl);
+        view += "using " + enumDecl->getNameAsString() + " = " + enumDecl->getQualifiedNameAsString() + ";\n";
+      } else if (llvm::isa<CXXMethodDecl>(decl)) {
+        auto *method = llvm::cast<CXXMethodDecl>(decl);
+        if (!method->isStatic()) continue;
+        view += "static " + TypeToString(method->getReturnType()) + " " + method->getNameAsString() + "(";
+        for (auto *arg : method->parameters()) {
+          view += TypeToString(arg->getType()) + " " + arg->getNameAsString() + ", ";
+        }
+        if (method->param_size() != 0) {
+          view.pop_back();
+          view.pop_back();
+        }
+        view += ") { ";
+        if (!method->getReturnType()->isVoidType()) view += "return ";
+        view += method->getQualifiedNameAsString() + "(";
+        for (auto *arg : method->parameters()) {
+          view += arg->getNameAsString() + ", ";
+        }
+        if (method->param_size() != 0) {
+          view.pop_back();
+          view.pop_back();
+        }
+        view += "); }\n";
+      }
+    }
+
     for (auto [F, v] : Stats.fields) {
       auto name = F->getNameAsString();
       if (!F->getType()->isArrayType()) {
@@ -438,7 +472,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     }
 
     for (auto *method : Stats.methods) {
-      view += std::string(method->isStatic() ? "static " : "");
+      if (method->isStatic()) continue;
       view += TypeToString(method->getReturnType()) + " " + method->getNameAsString() + "(";
       for (auto *arg : method->parameters()) {
         view += TypeToString(arg->getType()) + " " + arg->getNameAsString() + ", ";
@@ -448,8 +482,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
         view.pop_back();
       }
       view += ") " + std::string(method->isConst() ? "const " : "");
-      if (method->isStatic()) view += "{ return " + method->getQualifiedNameAsString() + "(); }\n";
-      else view += R->getRewrittenText(method->getBody()->getSourceRange()) + "\n";
+      view += R->getRewrittenText(method->getBody()->getSourceRange()) + "\n";
     }
 
     view += structName + " &operator[](int i) { return *this; }\n";
