@@ -21,6 +21,7 @@ static Expr *IgnoreCommonIndirections(Expr *E) {
     else if (llvm::isa<ImplicitCastExpr>(E)) E = llvm::cast<ImplicitCastExpr>(E)->IgnoreImpCasts();
     else if (llvm::isa<ParenExpr>(E)) E = llvm::cast<ParenExpr>(E)->IgnoreParens();
     else if (llvm::isa<UnaryOperator>(E)) E = llvm::cast<UnaryOperator>(E)->getSubExpr();
+    else if (llvm::isa<ArraySubscriptExpr>(E)) E = llvm::cast<ArraySubscriptExpr>(E)->getBase();
     else return E;
   }
 }
