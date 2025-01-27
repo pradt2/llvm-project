@@ -438,6 +438,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     }
 
     for (auto *method : Stats.methods) {
+      view += std::string(method->isStatic() ? "static " : "");
       view += TypeToString(method->getReturnType()) + " " + method->getNameAsString() + "(";
       for (auto *arg : method->parameters()) {
         view += TypeToString(arg->getType()) + " " + arg->getNameAsString() + ", ";
