@@ -991,6 +991,8 @@ public:
     }
 
     for (auto *FD : D->specializations()) {
+      if (!FD->hasBody()) continue;
+
       auto newR = CreateRewriter(origR);
       this->R = &newR;
 
@@ -1008,7 +1010,7 @@ public:
       if (hasNonTypeTemplateArgs) {
         auto newName = FD->getQualifiedNameAsString() + "_" + std::to_string((unsigned long) FD);
         auto nameSourceRange = FD->getNameInfo().getSourceRange();
-        R->ReplaceText(nameSourceRange, newName);
+        R->ReplaceText(nameSourceRange, FD->getNameAsString() + "_" + std::to_string((unsigned long) FD));
 
         struct CallRewriter : RecursiveASTVisitor<CallRewriter> {
           FunctionDecl *D;
@@ -1046,6 +1048,10 @@ public:
       // if the template has an explicit declaration, we must do the same
       if (previousDecl) {
         auto *prevFD = previousDecl->getAsFunction();
+
+        auto nameSourceRange = prevFD->getNameInfo().getSourceRange();
+        R->ReplaceText(nameSourceRange, prevFD->getNameAsString() + "_" + std::to_string((unsigned long) FD));
+
         for (int paramIdx = 0; paramIdx < prevFD->getNumParams(); paramIdx++) {
           auto *Param = prevFD->getParamDecl(paramIdx);
           if (Param->getType()->isFunctionType()) continue;
