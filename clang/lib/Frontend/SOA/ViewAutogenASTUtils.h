@@ -61,14 +61,14 @@ static bool IsReadExpr(ASTContext &C, E *e) {
   return false;
 }
 
-static QualType StripIndirections(QualType t) {
+static QualType StripIndirections(QualType t, bool stripConst = true) {
   while (true) {
     if (t->isPointerType()) {
       t = t->getPointeeType();
     } else if (t->isReferenceType()) t = t.getNonReferenceType();
     else break;
   }
-  if (t.isConstQualified()) {
+  if (stripConst && t.isConstQualified()) {
     t.removeLocalConst();
   }
   return t;
@@ -116,6 +116,14 @@ static std::vector<Expr*> GetParmVals(ParmVarDecl *D) {
     vals.push_back(argExpr);
   }
   return vals;
+}
+
+static SourceRange GetFullTypeSourceRange(TypeLoc TL) {
+  auto range = TL.getSourceRange();
+  if (StripIndirections(TL.getType(), false).isConstQualified()) {
+    range.setBegin(range.getBegin().getLocWithOffset(-6) /* 'const ' */);
+  }
+  return range;
 }
 
 static void InlineFunctionArgs(ASTContext &C, Stmt* S, Rewriter *R) {
@@ -1036,7 +1044,7 @@ public:
 
       for (auto *Param : FD->parameters()) {
         if (Param->getType()->isFunctionType()) continue;
-        auto typeSourceRange = Param->getTypeSourceInfo()->getTypeLoc().getSourceRange();
+        auto typeSourceRange = GetFullTypeSourceRange(Param->getTypeSourceInfo()->getTypeLoc());
         auto typeStr = TypeToString(Param->getType());
         R->ReplaceText(typeSourceRange, typeStr);
       }
@@ -1089,7 +1097,7 @@ public:
         for (int paramIdx = 0; paramIdx < prevFD->getNumParams(); paramIdx++) {
           auto *Param = prevFD->getParamDecl(paramIdx);
           if (Param->getType()->isFunctionType()) continue;
-          auto typeSourceRange = Param->getTypeSourceInfo()->getTypeLoc().getSourceRange();
+          auto typeSourceRange = GetFullTypeSourceRange(Param->getTypeSourceInfo()->getTypeLoc());
           auto typeStr = TypeToString(FD->getParamDecl(paramIdx)->getType());
           R->ReplaceText(typeSourceRange, typeStr);
         }
