@@ -1015,10 +1015,9 @@ def SoaConversionAllocationStrategy : StmtAttr {
     let Documentation = [Undocumented];
 }
 
-def SoaConversionDataMovementStrategy : StmtAttr {
-    let Spellings = [Clang<"soa_conversion_data_movement_strategy">];
-    let Args = [EnumArgument<"DataMovementStrategy", "DataMovementStrategyType", /*is_string=*/true,
-                ["in_situ", "move_to_outer", "move_to_outermost"], ["InSitu", "MoveToOuter", "MoveToOutermost"]>];
+def SoaConversionHoist : StmtAttr {
+    let Spellings = [Clang<"soa_conversion_hoist">];
+    let Args = [DefaultIntArgument<"Levels", 1>];
     let Subjects = SubjectList<[ForStmt, CXXForRangeStmt],
                                 ErrorDiag, "'for' statements">;
     let Documentation = [Undocumented];

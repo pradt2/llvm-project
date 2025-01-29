@@ -361,7 +361,7 @@ static Attr *handleSoaConversionTarget(Sema &S, Stmt *St, const ParsedAttr &A,
   return ::new (S.Context) SoaConversionTargetAttr(S.Context, A, expr);
 }
 
-static Attr *handleSoaConversionDataMovementStrategy(Sema &S, Stmt *St, const ParsedAttr &A,
+static Attr *handleSoaConversionHoist(Sema &S, Stmt *St, const ParsedAttr &A,
                                          SourceRange Range) {
   auto argsSize = A.getNumArgs();
 
@@ -370,23 +370,9 @@ static Attr *handleSoaConversionDataMovementStrategy(Sema &S, Stmt *St, const Pa
     exit(1);
   }
 
-  auto *arg = A.getArgAsIdent(0);
-  auto strategyName = arg->Ident->getName();
-
-  if (strategyName == "in_situ") {
-    auto type = SoaConversionDataMovementStrategyAttr::DataMovementStrategyType::InSitu;
-    return ::new (S.Context) SoaConversionDataMovementStrategyAttr(S.Context, A, type);
-  }
-  if (strategyName == "move_to_outer") {
-    auto type = SoaConversionDataMovementStrategyAttr::DataMovementStrategyType::MoveToOuter;
-    return ::new (S.Context) SoaConversionDataMovementStrategyAttr(S.Context, A, type);
-  }
-  if (strategyName == "move_to_outermost") {
-    auto type = SoaConversionDataMovementStrategyAttr::DataMovementStrategyType::MoveToOutermost;
-    return ::new (S.Context) SoaConversionDataMovementStrategyAttr(S.Context, A, type);
-  }
-  llvm::errs() << __FILE__ << ":" << __LINE__ << "Unknown data movement strategy";
-  exit(1);
+  Expr::EvalResult Result;
+  A.getArgAsExpr(0)->EvaluateAsInt(Result, S.getASTContext());
+  return ::new (S.Context) SoaConversionHoistAttr(S.Context, A, Result.Val.getInt().getSExtValue());
 }
 
 static Attr *handleSoaConversionAllocationStrategy(Sema &S, Stmt *St, const ParsedAttr &A,
@@ -743,8 +729,8 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &A,
     return handleSoaConversion(S, St, A, Range);
   case ParsedAttr::AT_SoaConversionTarget:
     return handleSoaConversionTarget(S, St, A, Range);
-  case ParsedAttr::AT_SoaConversionDataMovementStrategy:
-    return handleSoaConversionDataMovementStrategy(S, St, A, Range);
+  case ParsedAttr::AT_SoaConversionHoist:
+    return handleSoaConversionHoist(S, St, A, Range);
   case ParsedAttr::AT_SoaConversionAllocationStrategy:
     return handleSoaConversionAllocationStrategy(S, St, A, Range);
   case ParsedAttr::AT_CodeAlign:
