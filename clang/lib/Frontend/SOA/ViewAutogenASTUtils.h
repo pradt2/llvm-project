@@ -599,7 +599,9 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     std::string itemName = getUniqueName(target->getNameAsString(), S);
     std::string counterName = getUniqueName("__soa_init_counter", S);
     soaBuffersInit += "unsigned long " + counterName + " = 0;\n";
-    auto deref = std::string(target->getType()->isPointerType() ? "*" : "&");
+    auto isTargetTypePointer = target->getType()->isPointerType();
+    auto deref = std::string(isTargetTypePointer ? "*" : "&");
+    auto pointerArithmeticPrefix = std::string(isTargetTypePointer ? "" : "&");
     soaBuffersInit += "for (auto " + deref + itemName + " : " + container->getNameAsString() + ") {\n";
     auto &Layout = target->getASTContext().getASTRecordLayout(Stats.record);
 
@@ -623,13 +625,13 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       auto offset = std::to_string(Layout.getFieldOffset(idx) / 8);
       if (!F->getType()->isArrayType()) {
         auto type = TypeToString(F->getType());
-        soaBuffersInit += name + "[" + counterName + "] = " + "*((" + type + "*) (((char*) &" + itemName + ") + " + offset + "));\n";
+        soaBuffersInit += name + "[" + counterName + "] = " + "*((" + type + "*) (((char*) " + pointerArithmeticPrefix + itemName + ") + " + offset + "));\n";
       } else {
         auto *arrType = llvm::cast<ConstantArrayType>(F->getType()->getAsArrayTypeUnsafe());
         auto type = TypeToString(arrType->getElementType());
         auto size = arrType->getSExtSize();
         for (int i = 0; i < size; i++) {
-          soaBuffersInit += name + "[" + counterName + " * " + std::to_string(size) + " + " + std::to_string(i) + "] = " + "*(((" + type + "*) (((char*) &" + itemName + ") + " + offset + ") " + std::to_string(i) + "));\n";
+          soaBuffersInit += name + "[" + counterName + " * " + std::to_string(size) + " + " + std::to_string(i) + "] = " + "*(((" + type + "*) (((char*) " + pointerArithmeticPrefix + itemName + ") + " + offset + ") " + std::to_string(i) + "));\n";
         }
       }
     }
@@ -735,7 +737,9 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     std::string itemName = getUniqueName(target->getNameAsString(), S);
     std::string counterName = getUniqueName("__soa_writeback_counter", S);
     soaBuffersWriteback += "unsigned long " + counterName + " = 0;\n";
-    auto deref = std::string(target->getType()->isPointerType() ? "*" : "&");
+    auto isTargetTypePointer = target->getType()->isPointerType();
+    auto deref = std::string(isTargetTypePointer ? "*" : "&");
+    auto pointerArithmeticPrefix = std::string(isTargetTypePointer ? "" : "&");
     soaBuffersWriteback += "for (auto " + deref + itemName + " : " + container->getNameAsString() + ") {\n";
     auto &Layout = target->getASTContext().getASTRecordLayout(Stats.record);
 
@@ -759,13 +763,13 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       auto offset = std::to_string(Layout.getFieldOffset(idx) / 8);
       if (!F->getType()->isArrayType()) {
         auto type = TypeToString(F->getType());
-        soaBuffersWriteback += "*((" + type + "*) (((char*) &" + itemName + ") + " + offset + ")) = " + name + "[" + counterName + "];\n";
+        soaBuffersWriteback += "*((" + type + "*) (((char*) " + pointerArithmeticPrefix + itemName + ") + " + offset + ")) = " + name + "[" + counterName + "];\n";
       } else {
         auto *arrType = llvm::cast<ConstantArrayType>(F->getType()->getAsArrayTypeUnsafe());
         auto type = TypeToString(arrType->getElementType());
         auto size = arrType->getSExtSize();
         for (int i = 0; i < size; i++) {
-          soaBuffersWriteback += "*(((" + type + "*) (((char*) &" + itemName + ") + " + offset + ") " + std::to_string(i) + ")) = " + name + "[" + counterName + " * " + std::to_string(size) + " + " + std::to_string(i) + "];\n";
+          soaBuffersWriteback += "*(((" + type + "*) (((char*) " + pointerArithmeticPrefix + itemName + ") + " + offset + ") " + std::to_string(i) + ")) = " + name + "[" + counterName + " * " + std::to_string(size) + " + " + std::to_string(i) + "];\n";
         }
       }
     }
