@@ -780,31 +780,22 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
 
   template<typename Stmt>
   SourceLocation getPrologueLoc(ASTContext &C, Stmt *S) {
-    auto *dataMovement = getAttr<SoaConversionDataMovementStrategyAttr>(C, S);
+    auto *dataMovement = getAttr<SoaConversionHoistAttr>(C, S);
     auto defaultLoc =
         GetParent<AttributedStmt>(CI.getASTContext(), S)->getBeginLoc();
     if (!dataMovement)
       return defaultLoc;
-    auto dataMovementKind = dataMovement->getDataMovementStrategy();
-    switch (dataMovementKind) {
-    case decltype(dataMovementKind)::InSitu:
+    auto hoistLevels = dataMovement->getLevels();
+    switch (hoistLevels) {
+    case 0:
       return defaultLoc;
-    case decltype(dataMovementKind)::MoveToOuter: {
-      auto *parent = GetParent<Stmt>(C, S);
-      auto *parentAttributed = GetParent<AttributedStmt>(C, parent, true);
-      if (parentAttributed)
-        return parentAttributed->getBeginLoc();
-      if (parent)
-        return parent->getBeginLoc();
-      return defaultLoc;
-    }
-    case decltype(dataMovementKind)::MoveToOutermost: {
+    default: {
       auto *parent = GetParent<Stmt>(C, S);
       auto *oldParent = parent;
-      do {
+      for (int i = 0; i < hoistLevels; i++) {
         oldParent = parent;
         parent = GetParent<Stmt>(C, oldParent);
-      } while (parent != nullptr);
+      }
       parent = oldParent;
       auto *parentAttributed = GetParent<AttributedStmt>(C, parent, true);
       if (parentAttributed)
@@ -812,41 +803,28 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       if (parent)
         return parent->getBeginLoc();
       return defaultLoc;
-    }
-    default: {
-      llvm::errs() << "SOA: Unknown data movement strategy!\n";
-      exit(1);
     }
     }
   }
 
   template<typename Stmt>
   SourceLocation getEpilogueLoc(ASTContext &C, Stmt *S) {
-    auto *dataMovement = getAttr<SoaConversionDataMovementStrategyAttr>(C, S);
+    auto *dataMovement = getAttr<SoaConversionHoistAttr>(C, S);
     auto defaultLoc =
         GetParent<AttributedStmt>(CI.getASTContext(), S)->getEndLoc();
     if (!dataMovement)
       return defaultLoc;
-    auto dataMovementKind = dataMovement->getDataMovementStrategy();
-    switch (dataMovementKind) {
-    case decltype(dataMovementKind)::InSitu:
+    auto hoistLevels = dataMovement->getLevels();
+    switch (hoistLevels) {
+    case 0:
       return defaultLoc;
-    case decltype(dataMovementKind)::MoveToOuter: {
-      auto *parent = GetParent<Stmt>(C, S);
-      auto *parentAttributed = GetParent<AttributedStmt>(C, parent, true);
-      if (parentAttributed)
-        return parentAttributed->getEndLoc();
-      if (parent)
-        return parent->getEndLoc();
-      return defaultLoc;
-    }
-    case decltype(dataMovementKind)::MoveToOutermost: {
+    default: {
       auto *parent = GetParent<Stmt>(C, S);
       auto *oldParent = parent;
-      do {
+      for (int i = 0; i < hoistLevels; i++) {
         oldParent = parent;
         parent = GetParent<Stmt>(C, oldParent);
-      } while (parent != nullptr);
+      }
       parent = oldParent;
       auto *parentAttributed = GetParent<AttributedStmt>(C, parent, true);
       if (parentAttributed)
@@ -854,10 +832,6 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       if (parent)
         return parent->getEndLoc();
       return defaultLoc;
-    }
-    default: {
-      llvm::errs() << "SOA: Unknown data movement strategy!\n";
-      exit(1);
     }
     }
   }
