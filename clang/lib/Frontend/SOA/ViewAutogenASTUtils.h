@@ -882,7 +882,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
 
     std::string prologue = "\n";
     prologue += "#pragma clang diagnostic push\n";
-    prologue += "#pragma clang diagnostic ignored \"-Wvla-cxx-extension\"\n";
+    prologue += "#pragma clang diagnostic ignored \"-Wvla-cxx-extension\"\n\n";
     prologue += soaBuffersDecl + "\n";
     prologue += soaBuffersInit + "\n";
     prologue += refViewDecl + "\n";
@@ -916,7 +916,8 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     auto usageStats = UsageStats{};
     getUsageStats(&usageStats, targetDecl, S);
 
-    auto sizeExprStr = containerDecl->getNameAsString() + ".size()\n";
+    auto sizeExprStr = containerDecl->getNameAsString() + "__size";
+    auto sizeDeclStmt = std::string("auto ") + sizeExprStr + " = " + containerDecl->getNameAsString() + ".size();";
     auto soaBuffersDecl = getSoaBuffersDecl(sizeExprStr, usageStats, S);
     auto soaBuffersInit = getSoaBuffersInitForRangeLoop(sizeExprStr, targetDecl, containerDecl, usageStats, S);
     auto refViewDecl = getReferenceViewDecl(CI.getASTContext(), usageStats, S);
@@ -925,7 +926,8 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
 
     std::string prologue = "\n";
     prologue += "#pragma clang diagnostic push\n";
-    prologue += "#pragma clang diagnostic ignored \"-Wvla-cxx-extension\"\n";
+    prologue += "#pragma clang diagnostic ignored \"-Wvla-cxx-extension\"\n\n";
+    prologue += sizeDeclStmt + "\n";
     prologue += soaBuffersDecl + "\n";
     prologue += soaBuffersInit + "\n";
     prologue += refViewDecl + "\n";
