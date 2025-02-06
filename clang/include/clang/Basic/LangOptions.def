@@ -375,13 +375,11 @@ LANGOPT(
     CompleteMemberPointers, 1, 0,
     "Require member pointer base types to be complete at the point where the "
     "type's inheritance model would be determined under the Microsoft ABI")
-LANGOPT(HpcLanguageExtensions, 1, 0,
-        "HPC language extensions such as [[clang::pack]] attribute")
-LANGOPT(PackedAttributesLanguageExtension, 1, 0,
+LANGOPT(PackedAttributes, 1, 0,
         "Packed attributes language extension such as [[clang::pack]] attribute")
-LANGOPT(MpiAttributesLanguageExtension, 1, 0,
+LANGOPT(MpiAttributes, 1, 0,
         "MPI attributes language extension such as [[clang::map_mpi_datatype]] attribute")
-LANGOPT(SoaConversionAttributesLanguageExtension, 1, 0,
+LANGOPT(SoaConversionAttributes, 1, 0,
         "SOA conversion attributes language extension such as [[clang::soa_conv_target]] attribute")
 LANGOPT(PostprocessingOutputDump, 1, 0,
         "Dump post-processed output to stdout")
