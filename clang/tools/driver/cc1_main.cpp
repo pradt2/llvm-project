@@ -106,12 +106,7 @@ public:
       auto filename = entry.first;
       auto contents = entry.second;
 
-      char buff[PATH_MAX];
-      getcwd( buff, PATH_MAX );
-      std::string cwd( buff );
-      cwd += "/";
-
-      std::string targetPath = "/tmp/clang" + cwd + filename.str();
+      std::string targetPath = "/tmp/clang" + filename.str();
       std::string targetParent = targetPath.substr(0, targetPath.find_last_of('/'));
 
       std::string command = "mkdir -p " + targetParent;
