@@ -117,7 +117,7 @@ public:
       command = "touch " + targetPath;
       system(command.c_str());
 
-      FILE *F = fopen(targetPath.c_str(), "r+");
+      FILE *F = fopen(targetPath.c_str(), "w");
 
       if (!F) continue;
 
