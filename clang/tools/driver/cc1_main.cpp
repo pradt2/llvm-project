@@ -124,14 +124,6 @@ public:
 
       if (!F) continue;
 
-      fseek(F, 0L, SEEK_END);
-      auto size = (unsigned long) ftell(F);
-
-      if (size >= contents.str().size() ) {
-        fclose(F);
-        continue;
-      }
-
       rewind(F);
 
       fputs(contents.str().c_str(), F);
@@ -353,9 +345,9 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   CompilerInvocationResult Result;
   llvm::TimeTraceScope TimeScope("ExecuteCompiler");
 
-  bool enableHpcLangExtensions = Clang->getLangOpts().PackedAttributesLanguageExtension
-                              || Clang->getLangOpts().MpiAttributesLanguageExtension
-                              || Clang->getLangOpts().SoaConversionAttributesLanguageExtension;
+  bool enableHpcLangExtensions = Clang->getLangOpts().PackedAttributes
+                              || Clang->getLangOpts().MpiAttributes
+                              || Clang->getLangOpts().SoaConversionAttributes;
 
   RewrittenSourcesHandler rewrittenSourcesHandler;
 
@@ -363,7 +355,7 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
 
     std::unique_ptr<CompilerInstance> CompilerInstance;
 
-    if (Clang->getLangOpts().SoaConversionAttributesLanguageExtension) {
+    if (Clang->getLangOpts().SoaConversionAttributes) {
       CompilerInstance = CreateCompilerInstance(Argv, Argv0, MainAddr);
       Result = ExecuteCompilerInvocation(CompilerInstance.get(), std::make_unique<SoaConvertAction>());
       Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
@@ -372,7 +364,7 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
       Success = true;
     }
 
-    if (Result == FRONTEND_ACTION_SUCCESS && Clang->getLangOpts().PackedAttributesLanguageExtension) {
+    if (Result == FRONTEND_ACTION_SUCCESS && Clang->getLangOpts().PackedAttributes) {
       if (CompilerInstance.get())
         rewrittenSourcesHandler.loadRewrittenSources(CompilerInstance->getSourceManager().getRewriter());
 
@@ -386,7 +378,7 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
       Success = true;
     }
 
-    if (Result == FRONTEND_ACTION_SUCCESS && Clang->getLangOpts().MpiAttributesLanguageExtension) {
+    if (Result == FRONTEND_ACTION_SUCCESS && Clang->getLangOpts().MpiAttributes) {
       if (CompilerInstance.get())
         rewrittenSourcesHandler.loadRewrittenSources(CompilerInstance->getSourceManager().getRewriter());
 

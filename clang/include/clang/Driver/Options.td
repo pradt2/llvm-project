@@ -2002,17 +2002,17 @@ defm complete_member_pointers : BoolOption<"f", "complete-member-pointers",
           " member pointer base types to be complete if they"
             " would be significant under the Microsoft ABI">>,
   Group<f_clang_Group>;
-defm packed_attributes_language_extension : BoolFOption<"packed-attributes-language-extension",
-  LangOpts<"PackedAttributesLanguageExtension">, DefaultFalse,
+defm packed_attributes : BoolFOption<"packed-attributes",
+  LangOpts<"PackedAttributes">, DefaultFalse,
   PosFlag<SetTrue, [], [ClangOption, CC1Option], "Packing attributes such as [[clang::pack]] attribute">,
   NegFlag<SetFalse>>;
-defm mpi_attributes_language_extension : BoolFOption<"mpi-attributes-language-extension",
-  LangOpts<"MpiAttributesLanguageExtension">, DefaultFalse,
+defm soa_conversion_attributes : BoolFOption<"soa-conversion-attributes",
+    LangOpts<"SoaConversionAttributes">, DefaultFalse,
+    PosFlag<SetTrue, [], [ClangOption, CC1Option], "SOA conversion attributes such as [[clang::soa_target]] attribute">,
+    NegFlag<SetFalse>>;
+defm mpi_attributes : BoolFOption<"mpi-attributes",
+  LangOpts<"MpiAttributes">, DefaultFalse,
   PosFlag<SetTrue, [], [ClangOption, CC1Option], "MPI mapping extensions such as [[clang::map_mpi_datatype]] attribute">,
-  NegFlag<SetFalse>>;
-defm soa_conversion_attributes_language_extension : BoolFOption<"soa-conversion-attributes-language-extension",
-  LangOpts<"SoaConversionAttributesLanguageExtension">, DefaultFalse,
-  PosFlag<SetTrue, [], [ClangOption, CC1Option], "SOA conversion attributes such as [[clang::soa_conv_target]] attribute">,
   NegFlag<SetFalse>>;
 defm postprocessing_output_dump : BoolFOption<"postprocessing-output-dump",
     LangOpts<"PostprocessingOutputDump">, DefaultFalse,
