@@ -666,6 +666,15 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       exit(1);
     }
 
+    auto *attributedStmt = GetParent<AttributedStmt>(D->getASTContext(), S, true);
+    if (!attributedStmt) {
+      llvm::errs() << "SOA: cannot find loop attribute\n";
+      exit(1);
+    }
+
+    auto attrsSourceRange = SourceRange(attributedStmt->getBeginLoc(), S->getBeginLoc());
+    R->ReplaceText(attrsSourceRange, "#pragma omp simd\nfor ");
+
     auto bodyBegin = llvm::cast<CompoundStmt>(S->getBody())->getLBracLoc().getLocWithOffset(1);
     std::string source = "\n";
     source += "auto " + D->getNameAsString() + " = " + instanceName + "[" + iterVarName + "];\n";
@@ -681,7 +690,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       exit(1);
     }
 
-    std::string source = "\n";
+    std::string source = "\n#pragma omp simd\n";
     source += "for (unsigned long " + iterVarName + " = 0; " + iterVarName + " < " + sizeExprStr + "; ++" + iterVarName + ") {\n";
     source += "auto " + D->getNameAsString() + " = " + instanceName + "[" + iterVarName + "];\n";
     auto bodyBegin = llvm::cast<CompoundStmt>(S->getBody())->getLBracLoc().getLocWithOffset(1);
