@@ -520,7 +520,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     }
     std::string viewName = getReferenceViewDeclName(Stats, S);
     soaHelperDecl += viewName + " operator[](int i) {\n";
-    soaHelperDecl += "return {\n";
+    soaHelperDecl += "return " + viewName + "{\n";
     for (auto [F, usage] : Stats.fields) {
       auto name = F->getNameAsString();
       if (!F->getType()->isArrayType()) {
@@ -672,8 +672,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       exit(1);
     }
 
-    auto attrsSourceRange = SourceRange(attributedStmt->getBeginLoc(), S->getBeginLoc());
-    R->ReplaceText(attrsSourceRange, "#pragma omp simd\nfor ");
+    R->InsertTextBefore(attributedStmt->getBeginLoc(), "\n#pragma omp simd\n");
 
     auto bodyBegin = llvm::cast<CompoundStmt>(S->getBody())->getLBracLoc().getLocWithOffset(1);
     std::string source = "\n";
@@ -788,6 +787,13 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
   }
 
   template<typename Stmt>
+  SourceLocation getPrologueDefsLoc(ASTContext &C, Stmt *S) {
+    auto *FD = GetParent<FunctionDecl>(C, S);
+    auto loc = llvm::cast<CompoundStmt>(FD->getBody())->getLBracLoc().getLocWithOffset(1);
+    return loc;
+  }
+
+  template<typename Stmt>
   SourceLocation getPrologueLoc(ASTContext &C, Stmt *S) {
     auto *dataMovement = getAttr<SoaConversionHoistAttr>(C, S);
     auto defaultLoc =
@@ -863,13 +869,18 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     auto soaHelperDecl = getSoaHelperDecl(CI.getASTContext(), usageStats, S);
     auto soaHelperInstanceDecl = getSoaHelperInstance(usageStats, S);
 
+    std::string prologueDefs = "\n";
+    prologueDefs += "#pragma clang diagnostic push\n";
+    prologueDefs += "#pragma clang diagnostic ignored \"-Wvla-cxx-extension\"\n\n";
+    prologueDefs += refViewDecl + "\n";
+    prologueDefs += soaHelperDecl + "\n";
+
+    auto prologueDefsLoc = getPrologueDefsLoc(CI.getASTContext(), S);
+    R->InsertTextBefore(prologueDefsLoc, prologueDefs);
+
     std::string prologue = "\n";
-    prologue += "#pragma clang diagnostic push\n";
-    prologue += "#pragma clang diagnostic ignored \"-Wvla-cxx-extension\"\n\n";
     prologue += soaBuffersDecl + "\n";
     prologue += soaBuffersInit + "\n";
-    prologue += refViewDecl + "\n";
-    prologue += soaHelperDecl + "\n";
     prologue += soaHelperInstanceDecl + "\n";
 
     auto prologueLoc = getPrologueLoc(CI.getASTContext(), S).getLocWithOffset(-1);
@@ -907,14 +918,19 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     auto soaHelperDecl = getSoaHelperDecl(CI.getASTContext(), usageStats, S);
     auto soaHelperInstanceDecl = getSoaHelperInstance(usageStats, S);
 
+    std::string prologueDefs = "\n";
+    prologueDefs += "#pragma clang diagnostic push\n";
+    prologueDefs += "#pragma clang diagnostic ignored \"-Wvla-cxx-extension\"\n\n";
+    prologueDefs += refViewDecl + "\n";
+    prologueDefs += soaHelperDecl + "\n";
+
+    auto prologueDefsLoc = getPrologueDefsLoc(CI.getASTContext(), S);
+    R->InsertTextBefore(prologueDefsLoc, prologueDefs);
+
     std::string prologue = "\n";
-    prologue += "#pragma clang diagnostic push\n";
-    prologue += "#pragma clang diagnostic ignored \"-Wvla-cxx-extension\"\n\n";
     prologue += sizeDeclStmt + "\n";
     prologue += soaBuffersDecl + "\n";
     prologue += soaBuffersInit + "\n";
-    prologue += refViewDecl + "\n";
-    prologue += soaHelperDecl + "\n";
     prologue += soaHelperInstanceDecl + "\n";
 
     auto prologueLoc = getPrologueLoc(CI.getASTContext(), S).getLocWithOffset(-1);
