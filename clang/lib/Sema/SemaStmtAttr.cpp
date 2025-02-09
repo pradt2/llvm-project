@@ -375,6 +375,11 @@ static Attr *handleSoaConversionHoist(Sema &S, Stmt *St, const ParsedAttr &A,
   return ::new (S.Context) SoaConversionHoistAttr(S.Context, A, Result.Val.getInt().getSExtValue());
 }
 
+static Attr *handleSoaConversionOffloadCompute(Sema &S, Stmt *St, const ParsedAttr &A,
+                                               SourceRange Range) {
+  return ::new (S.Context) SoaConversionOffloadComputeAttr(S.Context, A);
+}
+
 static Attr *handleSoaConversionAllocationStrategy(Sema &S, Stmt *St, const ParsedAttr &A,
                                                    SourceRange Range) {
     auto argsSize = A.getNumArgs();
@@ -731,6 +736,8 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &A,
     return handleSoaConversionTarget(S, St, A, Range);
   case ParsedAttr::AT_SoaConversionHoist:
     return handleSoaConversionHoist(S, St, A, Range);
+  case ParsedAttr::AT_SoaConversionOffloadCompute:
+    return handleSoaConversionOffloadCompute(S, St, A, Range);
   case ParsedAttr::AT_SoaConversionAllocationStrategy:
     return handleSoaConversionAllocationStrategy(S, St, A, Range);
   case ParsedAttr::AT_CodeAlign:
