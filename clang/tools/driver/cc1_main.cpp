@@ -71,6 +71,7 @@ class RewrittenSourcesHandler {
   std::map<llvm::StringRef, llvm::StringRef> buffers;
 
 public:
+  bool empty() { return buffers.empty(); }
 
   void loadRewrittenSources(Rewriter &R) {
     for (auto IT = R.buffer_begin(); IT != R.buffer_end(); IT++) {
@@ -344,9 +345,9 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
                               || Clang->getLangOpts().MpiAttributes
                               || Clang->getLangOpts().SoaConversionAttributes;
 
-  RewrittenSourcesHandler rewrittenSourcesHandler;
+  static RewrittenSourcesHandler rewrittenSourcesHandler;
 
-  if (enableHpcLangExtensions) {
+  if (enableHpcLangExtensions && rewrittenSourcesHandler.empty()) {
 
     std::unique_ptr<CompilerInstance> CompilerInstance;
 
@@ -405,29 +406,7 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
     }
 
   } else {
-//    auto CompilerInstance = CreateCompilerInstance(Argv, Argv0, MainAddr);
-//    Result = ExecuteCompilerInvocation(CompilerInstance.get(), std::make_unique<ForceFloatLiteralAction>());
-//    Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
-//
-//    if (Result != FRONTEND_ACTION_SUCCESS) goto L1;
-//
-//    rewrittenSourcesHandler.loadRewrittenSources(CompilerInstance->getSourceManager().getRewriter());
-//    CompilerInstance = CreateCompilerInstance(Argv, Argv0, MainAddr);
-//
-//    rewrittenSourcesHandler.saveIntoOpts(CompilerInstance->getPreprocessorOpts());
-//
-//    std::map<std::string, std::string> fileMap;
-//    Result = ExecuteCompilerInvocation(CompilerInstance.get(), std::make_unique<ForceFloatAction>(fileMap));
-//    Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
-//
-//    if (Result != FRONTEND_ACTION_SUCCESS) goto L1;
-//
-//    for (auto kv : fileMap) {
-//      auto k_clone = kv.first;
-//      auto v_clone = kv.second;
-//      Clang->getPreprocessorOpts().addRemappedFile(k_clone, llvm::MemoryBuffer::getMemBufferCopy(v_clone).release());
-//    }
-
+    if (!rewrittenSourcesHandler.empty()) rewrittenSourcesHandler.saveIntoOpts(Clang->getPreprocessorOpts());
     Result = ExecuteCompilerInvocation(Clang.get());
     Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
   }
