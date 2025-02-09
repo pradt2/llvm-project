@@ -45,6 +45,16 @@ static T *GetParent(ASTContext &C, U *E, bool immediateOnly = false) {
   return parentMaybe;
 }
 
+template <typename T>
+T *GetAttr(ASTContext &C, Stmt *S) {
+  if (auto *AS = GetParent<AttributedStmt>(C, S, true)) {
+    for (auto *attr : AS->getAttrs()) {
+      if (llvm::isa<T>(attr)) return (T*) llvm::cast<T>(attr);
+    }
+  }
+  return nullptr;
+}
+
 template<typename E>
 static bool IsReadExpr(ASTContext &C, E *e) {
   auto dynNode = DynTypedNode::create(*e);
@@ -367,16 +377,6 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     return name + "_" + std::to_string((unsigned long) S);
   }
 
-  template <typename T>
-  T *getAttr(ASTContext &C, Stmt *S) {
-    if (auto *AS = GetParent<AttributedStmt>(C, S, true)) {
-      for (auto *attr : AS->getAttrs()) {
-        if (llvm::isa<T>(attr)) return (T*) llvm::cast<T>(attr);
-      }
-    }
-    return nullptr;
-  }
-
   VarDecl *getVarDeclByName(llvm::StringRef name, Decl *ctx) {
     struct VarDeclFinder : RecursiveASTVisitor<VarDeclFinder> {
       llvm::StringRef name;
@@ -424,6 +424,12 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     auto condRhs = cond->getRHS();
     auto condRhsString = R->getRewrittenText(condRhs->getSourceRange());
     return condRhsString;
+  }
+
+  std::string getIterCountExprStr(CXXForRangeStmt *S) {
+    auto *containerDecl = llvm::cast<DeclRefExpr>(S->getRangeInit())->getDecl();
+    auto sizeExprStr = containerDecl->getNameAsString() + "__size";
+    return sizeExprStr;
   }
 
   std::string getReferenceViewDeclName(UsageStats &Stats, Stmt *S) {
@@ -657,7 +663,105 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     return soaHelperInstance;
   }
 
-  void rewriteForLoop(VarDecl *D, UsageStats &Stats, ForStmt *S) {
+  std::vector<Stmt*> getConvertedNestedLoops(ASTContext &C, Stmt *S) {
+    std::vector<Stmt*> nestedLoops;
+    struct LoopFinder : RecursiveASTVisitor<LoopFinder> {
+      Stmt *root;
+      std::vector<Stmt*> *nestedLoops;
+      ASTContext &C;
+
+    public:
+      bool VisitForStmt(ForStmt *S) {
+        if (S == root) return true;
+        auto *attr = GetAttr<SoaConversionTargetAttr>(C, S);
+        if (!attr) return true;
+        nestedLoops->push_back(S);
+        return true;
+      }
+
+      bool VisitCXXForRangeStmt(CXXForRangeStmt *S) {
+        if (S == root) return true;
+        auto *attr = GetAttr<SoaConversionTargetAttr>(C, S);
+        if (!attr) return true;
+        nestedLoops->push_back(S);
+        return false;
+      }
+    } finder {.root = S, .nestedLoops = &nestedLoops, .C = C};
+    finder.TraverseStmt(S);
+    return nestedLoops;
+  }
+
+  std::string getOmpMapClauses(UsageStats &Stats, std::string &sizeExprStr, Stmt *S) {
+    std::string mapClauses = "";
+    auto soaHelperInstanceName = getSoaHelperInstanceName(Stats, S);
+    for (auto [F, usage] : Stats.fields) {
+      std::string mapClause = " map(";
+      switch (usage) {
+      case UsageStats::UsageKind::Unknown:
+      case UsageStats::UsageKind::Read | UsageStats::UsageKind::Write: {
+        mapClause += "tofrom: ";
+        break;
+      }
+      case UsageStats::UsageKind::Read: {
+        mapClause += "to: ";
+        break;
+      }
+      case UsageStats::UsageKind::Write: {
+        mapClause += "from: ";
+        break;
+      }
+      }
+      auto name = F->getNameAsString();
+      if (!F->getType()->isArrayType()) {
+        mapClause += soaHelperInstanceName + "." + name + "[0 : " + sizeExprStr + "])";
+      } else {
+        auto *arrType = llvm::cast<ConstantArrayType>(F->getType()->getAsArrayTypeUnsafe());
+        auto size = std::to_string(arrType->getSExtSize());
+        mapClause += soaHelperInstanceName + "." + name + "[0 : " + sizeExprStr + " * " + size + "])";
+      }
+      mapClauses += mapClause;
+    }
+    return mapClauses;
+  }
+
+  std::string getOmpPragmas(ASTContext &C, std::string &sizeExprStr, UsageStats &Stats, Stmt *S) {
+    auto *offloadAttr = GetAttr<SoaConversionOffloadComputeAttr>(C, S);
+    if (offloadAttr) {
+      std::string pragma = "#pragma omp target teams distribute parallel for";
+      auto ownMaps = getOmpMapClauses(Stats, sizeExprStr, S);
+      pragma += ownMaps;
+
+      for (auto *nestedLoop : getConvertedNestedLoops(C, S)) {
+        UsageStats nestedStats;
+        std::string sizeExpr;
+        if (llvm::isa<ForStmt>(nestedLoop)) {
+          auto *S = llvm::cast<ForStmt>(nestedLoop);
+          auto *soaConversionTargetAttr = GetAttr<SoaConversionTargetAttr>(CI.getASTContext(), S);
+          auto *functionDecl = GetParent<FunctionDecl>(CI.getASTContext(), S);
+          auto *targetDecl = getVarDeclByName(soaConversionTargetAttr->getTargetRef(), functionDecl);
+          getUsageStats(&nestedStats, targetDecl, S);
+          sizeExpr = getIterCountExprStr(S);
+        } else if (llvm::isa<CXXForRangeStmt>(nestedLoop)) {
+          auto *S = llvm::cast<CXXForRangeStmt>(nestedLoop);
+          auto *soaConversionAttr = GetAttr<SoaConversionAttr>(CI.getASTContext(), S);
+          auto *targetDecl = S->getLoopVariable();
+          auto *containerDecl = llvm::cast<DeclRefExpr>(S->getRangeInit())->getDecl();
+          getUsageStats(&nestedStats, targetDecl, S);
+          sizeExpr = getIterCountExprStr(S);
+        } else {
+          llvm::errs() << "SOA: Unknown converted loop type\n";
+          exit(1);
+        }
+        auto nestedLoopMapClauses = getOmpMapClauses(nestedStats, sizeExpr, nestedLoop);
+        pragma += nestedLoopMapClauses;
+      }
+
+      return pragma;
+    }
+    return "#pragma omp simd";
+  }
+
+  void rewriteForLoop(VarDecl *D, std::string &sizeExprStr, UsageStats &Stats, ForStmt *S) {
     auto iterVarName = llvm::cast<VarDecl>(llvm::cast<DeclStmt>(S->getInit())->getSingleDecl())->getNameAsString();
     std::string instanceName = getSoaHelperInstanceName(Stats, S);
 
@@ -672,7 +776,8 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       exit(1);
     }
 
-    R->InsertTextBefore(attributedStmt->getBeginLoc(), "\n#pragma omp simd\n");
+    auto pragma = "\n" + getOmpPragmas(D->getASTContext(), sizeExprStr, Stats, S) + "\n";
+    R->InsertTextBefore(attributedStmt->getBeginLoc(), pragma);
 
     auto bodyBegin = llvm::cast<CompoundStmt>(S->getBody())->getLBracLoc().getLocWithOffset(1);
     std::string source = "\n";
@@ -680,7 +785,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     R->InsertTextAfter(bodyBegin, source);
   }
 
-  void rewriteForRangeLoop(VarDecl *D, std::string sizeExprStr, UsageStats &Stats, CXXForRangeStmt *S) {
+  void rewriteForRangeLoop(VarDecl *D, std::string &sizeExprStr, UsageStats &Stats, CXXForRangeStmt *S) {
     auto iterVarName = getUniqueName("iter", S);
     std::string instanceName = getSoaHelperInstanceName(Stats, S);
 
@@ -689,7 +794,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       exit(1);
     }
 
-    std::string source = "\n#pragma omp simd\n";
+    std::string source = "\n" + getOmpPragmas(D->getASTContext(), sizeExprStr, Stats, S) + "\n";
     source += "for (unsigned long " + iterVarName + " = 0; " + iterVarName + " < " + sizeExprStr + "; ++" + iterVarName + ") {\n";
     source += "auto " + D->getNameAsString() + " = " + instanceName + "[" + iterVarName + "];\n";
     auto bodyBegin = llvm::cast<CompoundStmt>(S->getBody())->getLBracLoc().getLocWithOffset(1);
@@ -795,7 +900,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
 
   template<typename Stmt>
   SourceLocation getPrologueLoc(ASTContext &C, Stmt *S) {
-    auto *dataMovement = getAttr<SoaConversionHoistAttr>(C, S);
+    auto *dataMovement = GetAttr<SoaConversionHoistAttr>(C, S);
     auto defaultLoc =
         GetParent<AttributedStmt>(CI.getASTContext(), S)->getBeginLoc();
     if (!dataMovement)
@@ -824,7 +929,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
 
   template<typename Stmt>
   SourceLocation getEpilogueLoc(ASTContext &C, Stmt *S) {
-    auto *dataMovement = getAttr<SoaConversionHoistAttr>(C, S);
+    auto *dataMovement = GetAttr<SoaConversionHoistAttr>(C, S);
     auto defaultLoc =
         GetParent<AttributedStmt>(CI.getASTContext(), S)->getEndLoc();
     if (!dataMovement)
@@ -852,7 +957,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
   }
 
   bool VisitForStmt(ForStmt *S) {
-    auto *soaConversionTargetAttr = this->getAttr<SoaConversionTargetAttr>(CI.getASTContext(), S);
+    auto *soaConversionTargetAttr = GetAttr<SoaConversionTargetAttr>(CI.getASTContext(), S);
     if (!soaConversionTargetAttr) return true;
 
     auto *functionDecl = GetParent<FunctionDecl>(CI.getASTContext(), S);
@@ -886,7 +991,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     auto prologueLoc = getPrologueLoc(CI.getASTContext(), S).getLocWithOffset(-1);
     R->InsertTextBefore(prologueLoc, prologue);
 
-    rewriteForLoop(targetDecl, usageStats, S);
+    rewriteForLoop(targetDecl, sizeExprStr, usageStats, S);
 
     auto soaWriteback = getSoaBuffersWritebackForLoop(sizeExprStr, targetDecl, usageStats, S);
 
@@ -901,7 +1006,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
   }
 
   bool VisitCXXForRangeStmt(CXXForRangeStmt *S) {
-    auto *soaConversionAttr = this->getAttr<SoaConversionAttr>(CI.getASTContext(), S);
+    auto *soaConversionAttr = GetAttr<SoaConversionAttr>(CI.getASTContext(), S);
     if (!soaConversionAttr) return true;
 
     auto *targetDecl = S->getLoopVariable();
@@ -910,7 +1015,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     auto usageStats = UsageStats{};
     getUsageStats(&usageStats, targetDecl, S);
 
-    auto sizeExprStr = containerDecl->getNameAsString() + "__size";
+    auto sizeExprStr = getIterCountExprStr(S);
     auto sizeDeclStmt = std::string("auto ") + sizeExprStr + " = " + containerDecl->getNameAsString() + ".size();";
     auto soaBuffersDecl = getSoaBuffersDecl(sizeExprStr, usageStats, S);
     auto soaBuffersInit = getSoaBuffersInitForRangeLoop(sizeExprStr, targetDecl, containerDecl, usageStats, S);
