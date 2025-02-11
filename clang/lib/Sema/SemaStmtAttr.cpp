@@ -388,6 +388,11 @@ static Attr *handleSoaConversionOffloadCompute(Sema &S, Stmt *St, const ParsedAt
   return ::new (S.Context) SoaConversionOffloadComputeAttr(S.Context, A);
 }
 
+static Attr *handleSoaConversionSimd(Sema &S, Stmt *St, const ParsedAttr &A,
+                                               SourceRange Range) {
+  return ::new (S.Context) SoaConversionSimdAttr(S.Context, A);
+}
+
 static Attr *handleSoaConversionAllocationStrategy(Sema &S, Stmt *St, const ParsedAttr &A,
                                                    SourceRange Range) {
     auto argsSize = A.getNumArgs();
@@ -747,6 +752,8 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &A,
     return handleSoaConversionHoist(S, St, A, Range);
   case ParsedAttr::AT_SoaConversionOffloadCompute:
     return handleSoaConversionOffloadCompute(S, St, A, Range);
+  case ParsedAttr::AT_SoaConversionSimd:
+    return handleSoaConversionSimd(S, St, A, Range);
   case ParsedAttr::AT_SoaConversionAllocationStrategy:
     return handleSoaConversionAllocationStrategy(S, St, A, Range);
   case ParsedAttr::AT_CodeAlign:

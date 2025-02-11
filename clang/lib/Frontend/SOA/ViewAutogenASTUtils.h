@@ -758,7 +758,11 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
 
       return pragma;
     }
-    return "#pragma omp simd";
+    auto *simdAttr = GetAttr<SoaConversionSimdAttr>(C, S);
+    if (simdAttr) {
+      return "#pragma omp simd";
+    }
+    return "";
   }
 
   void rewriteForLoop(VarDecl *D, std::string &sizeExprStr, UsageStats &Stats, ForStmt *S) {
