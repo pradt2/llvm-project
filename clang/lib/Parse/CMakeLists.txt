@@ -23,7 +23,6 @@ add_clang_library(clangParse
   ParseTemplate.cpp
   ParseTentative.cpp
   Parser.cpp
-  ../Transform/TransformAST.cpp
   ParseOpenACC.cpp
 
   LINK_LIBS
