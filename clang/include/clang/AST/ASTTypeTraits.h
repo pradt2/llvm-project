@@ -127,6 +127,7 @@ public:
     return KindId > NKI_LastKindWithoutPointerIdentity;
   }
 
+private:
   /// Kind ids.
   ///
   /// Includes all possible base and derived kinds.

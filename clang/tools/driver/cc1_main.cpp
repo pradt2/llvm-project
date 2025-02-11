@@ -288,10 +288,13 @@ std::unique_ptr<CompilerInstance> CreateCompilerInstance(ArrayRef<const char *> 
 int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   ensureSufficientStack();
 
-  auto Clang = CreateCompilerInstance(Argv, Argv0, MainAddr);
+  std::unique_ptr<CompilerInstance> Clang(new CompilerInstance());
+  IntrusiveRefCntPtr<DiagnosticIDs> DiagID(new DiagnosticIDs());
 
-  if (!Clang)
-    return 1;
+  // Register the support for object-file-wrapped Clang modules.
+  auto PCHOps = Clang->getPCHContainerOperations();
+  PCHOps->registerWriter(std::make_unique<ObjectFilePCHContainerWriter>());
+  PCHOps->registerReader(std::make_unique<ObjectFilePCHContainerReader>());
 
   // Initialize targets first, so that --version shows registered targets.
   llvm::InitializeAllTargets();
@@ -299,9 +302,16 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   llvm::InitializeAllAsmPrinters();
   llvm::InitializeAllAsmParsers();
 
-  auto FrontendOpts = Clang->getFrontendOpts();
-  auto TargetOpts = Clang->getTargetOpts();
-  auto &Diags = Clang->getDiagnostics();
+  // Buffer diagnostics from argument parsing so that we can output them using a
+  // well formed diagnostic object.
+  IntrusiveRefCntPtr<DiagnosticOptions> DiagOpts = new DiagnosticOptions();
+  TextDiagnosticBuffer *DiagsBuffer = new TextDiagnosticBuffer;
+  DiagnosticsEngine Diags(DiagID, &*DiagOpts, DiagsBuffer);
+
+  // Setup round-trip remarks for the DiagnosticsEngine used in CreateFromArgs.
+  if (find(Argv, StringRef("-Rround-trip-cc1-args")) != Argv.end())
+    Diags.setSeverity(diag::remark_cc1_round_trip_generated,
+                      diag::Severity::Remark, {});
 
   bool Success = CompilerInvocation::CreateFromArgs(Clang->getInvocation(),
                                                     Argv, Diags, Argv0);
@@ -339,8 +349,14 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   llvm::install_fatal_error_handler(LLVMErrorHandler,
                                   static_cast<void*>(&Clang->getDiagnostics()));
 
+  DiagsBuffer->FlushDiagnostics(Clang->getDiagnostics());
+  if (!Success) {
+    Clang->getDiagnosticClient().finish();
+    return 1;
+  }
+
   // Execute the frontend actions.
-  CompilerInvocationResult Result;
+  bool Result;
   llvm::TimeTraceScope TimeScope("ExecuteCompiler");
 
   bool enableHpcLangExtensions = Clang->getLangOpts().PackedAttributes
@@ -356,13 +372,13 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
     if (Clang->getLangOpts().SoaConversionAttributes) {
       CompilerInstance = CreateCompilerInstance(Argv, Argv0, MainAddr);
       Result = ExecuteCompilerInvocation(CompilerInstance.get(), std::make_unique<SoaConvertAction>());
-      Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
+      Success = Result == true || Result == true;
     } else {
-      Result = clang::FRONTEND_ACTION_SUCCESS;
+      Result = true;
       Success = true;
     }
 
-    if (Result == FRONTEND_ACTION_SUCCESS && Clang->getLangOpts().PackedAttributes) {
+    if (Result == true && Clang->getLangOpts().PackedAttributes) {
       if (CompilerInstance.get())
         rewrittenSourcesHandler.loadRewrittenSources(CompilerInstance->getSourceManager().getRewriter());
 
@@ -370,13 +386,13 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
       rewrittenSourcesHandler.saveIntoOpts(CompilerInstance->getPreprocessorOpts());
 
       Result = ExecuteCompilerInvocation(CompilerInstance.get(), std::make_unique<CompressAction>());
-      Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
+      Success = Result == true || Result == true;
     } else {
-      Result = clang::FRONTEND_ACTION_SUCCESS;
+      Result = true;
       Success = true;
     }
 
-    if (Result == FRONTEND_ACTION_SUCCESS && Clang->getLangOpts().MpiAttributes) {
+    if (Result == true && Clang->getLangOpts().MpiAttributes) {
       if (CompilerInstance.get())
         rewrittenSourcesHandler.loadRewrittenSources(CompilerInstance->getSourceManager().getRewriter());
 
@@ -384,19 +400,19 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
       rewrittenSourcesHandler.saveIntoOpts(CompilerInstance->getPreprocessorOpts());
 
       Result = ExecuteCompilerInvocation(CompilerInstance.get(), std::make_unique<MapMpiDatatypesAction>());
-      Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
+      Success = Result == true || Result == true;
     } else {
-      Result = clang::FRONTEND_ACTION_SUCCESS;
+      Result = true;
       Success = true;
     }
 
-    if (Result == FRONTEND_ACTION_SUCCESS) {
+    if (Result == true) {
       if (CompilerInstance.get())
         rewrittenSourcesHandler.loadRewrittenSources(CompilerInstance->getSourceManager().getRewriter());
       rewrittenSourcesHandler.saveIntoOpts(Clang->getPreprocessorOpts());
 
       Result = ExecuteCompilerInvocation(Clang.get());
-      Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
+      Success = Result == true || Result == true;
     }
 
     if (Clang.get()->getLangOpts().PostprocessingOutputDump) {
@@ -410,7 +426,7 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   } else {
     if (!rewrittenSourcesHandler.empty()) rewrittenSourcesHandler.saveIntoOpts(Clang->getPreprocessorOpts());
     Result = ExecuteCompilerInvocation(Clang.get());
-    Success = Result == PRINT_ACTION_SUCCESS || Result == clang::FRONTEND_ACTION_SUCCESS;
+    Success = Result == true || Result == true;
   }
 L1:
   // If any timers were active but haven't been destroyed yet, print their
@@ -448,7 +464,7 @@ L1:
   llvm::remove_fatal_error_handler();
 
   // When running with -disable-free, don't do any destruction or shutdown.
-  if (FrontendOpts.DisableFree) {
+  if (Clang->getFrontendOpts().DisableFree) {
     llvm::BuryPointer(std::move(Clang));
     return !Success;
   }

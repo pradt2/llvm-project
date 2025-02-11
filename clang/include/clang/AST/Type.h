@@ -3068,7 +3068,6 @@ public:
 private:
   friend class ASTContext; // ASTContext creates these.
 
-public:
   BuiltinType(Kind K)
       : Type(Builtin, QualType(),
              K == Dependent ? TypeDependence::DependentInstantiation
@@ -3080,6 +3079,7 @@ public:
     BuiltinTypeBits.Kind = K;
   }
 
+public:
   Kind getKind() const { return static_cast<Kind>(BuiltinTypeBits.Kind); }
   StringRef getName(const PrintingPolicy &Policy) const;
 
@@ -6615,30 +6615,27 @@ class DeducedTemplateSpecializationType : public DeducedType,
 
   DeducedTemplateSpecializationType(TemplateName Template,
                                     QualType DeducedAsType,
-                                    bool IsDeducedAsDependent)
+                                    bool IsDeducedAsDependent, QualType Canon)
       : DeducedType(DeducedTemplateSpecialization, DeducedAsType,
                     toTypeDependence(Template.getDependence()) |
                         (IsDeducedAsDependent
                              ? TypeDependence::DependentInstantiation
                              : TypeDependence::None),
-                    DeducedAsType.isNull() ? QualType(this, 0)
-                                           : DeducedAsType.getCanonicalType()),
+                    Canon),
         Template(Template) {}
 
 public:
   /// Retrieve the name of the template that we are deducing.
   TemplateName getTemplateName() const { return Template;}
 
-  void Profile(llvm::FoldingSetNodeID &ID) {
+  void Profile(llvm::FoldingSetNodeID &ID) const {
     Profile(ID, getTemplateName(), getDeducedType(), isDependentType());
   }
 
   static void Profile(llvm::FoldingSetNodeID &ID, TemplateName Template,
                       QualType Deduced, bool IsDependent) {
     Template.Profile(ID);
-    QualType CanonicalType =
-        Deduced.isNull() ? Deduced : Deduced.getCanonicalType();
-    ID.AddPointer(CanonicalType.getAsOpaquePtr());
+    Deduced.Profile(ID);
     ID.AddBoolean(IsDependent || Template.isDependent());
   }
 

@@ -34,7 +34,6 @@ using namespace clang;
 /// ASTPrinter - Pretty-printer and dumper of ASTs
 
 namespace {
-
   class ASTPrinter : public ASTConsumer,
                      public RecursiveASTVisitor<ASTPrinter> {
     typedef RecursiveASTVisitor<ASTPrinter> base;

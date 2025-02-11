@@ -171,11 +171,6 @@ void CompilerInstance::setSourceManager(SourceManager *Value) {
   SourceMgr = Value;
 }
 
-SourceManager &CompilerInstance::getSourceManager() const {
-  assert(SourceMgr && "Compiler instance has no source manager!");
-  return *SourceMgr;
-}
-
 void CompilerInstance::setPreprocessor(std::shared_ptr<Preprocessor> Value) {
   PP = std::move(Value);
 }

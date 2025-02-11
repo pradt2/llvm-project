@@ -16,7 +16,6 @@
 
 #include <cstdint>
 #include <string>
-#include <cstdint>
 
 namespace llvm {
 class StringRef;

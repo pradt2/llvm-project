@@ -188,11 +188,11 @@ CreateFrontendAction(CompilerInstance &CI) {
   return Act;
 }
 
-CompilerInvocationResult ExecuteCompilerInvocation(CompilerInstance *Clang) {
+bool ExecuteCompilerInvocation(CompilerInstance *Clang) {
   return ExecuteCompilerInvocation(Clang, CreateFrontendAction(*Clang));
 }
 
-CompilerInvocationResult ExecuteCompilerInvocation(CompilerInstance *Clang, std::unique_ptr<FrontendAction> Action) {
+bool ExecuteCompilerInvocation(CompilerInstance *Clang, std::unique_ptr<FrontendAction> Action) {
   // Honor -help.
   if (Clang->getFrontendOpts().ShowHelp) {
     driver::getDriverOptTable().printHelp(
@@ -200,7 +200,7 @@ CompilerInvocationResult ExecuteCompilerInvocation(CompilerInstance *Clang, std:
         "LLVM 'Clang' Compiler: http://clang.llvm.org",
         /*ShowHidden=*/false, /*ShowAllAliases=*/false,
         llvm::opt::Visibility(driver::options::CC1Option));
-    return PRINT_ACTION_SUCCESS;
+    return true;
   }
 
   // Honor -version.
@@ -208,7 +208,7 @@ CompilerInvocationResult ExecuteCompilerInvocation(CompilerInstance *Clang, std:
   // FIXME: Use a better -version message?
   if (Clang->getFrontendOpts().ShowVersion) {
     llvm::cl::PrintVersionMessage();
-    return PRINT_ACTION_SUCCESS;
+    return true;
   }
 
   Clang->LoadRequestedPlugins();
@@ -236,39 +236,39 @@ CompilerInvocationResult ExecuteCompilerInvocation(CompilerInstance *Clang, std:
   if (AnOpts.ShowCheckerHelp || AnOpts.ShowCheckerHelpAlpha ||
       AnOpts.ShowCheckerHelpDeveloper) {
     ento::printCheckerHelp(llvm::outs(), *Clang);
-    return PRINT_ACTION_SUCCESS;
+    return true;
   }
 
   // Honor -analyzer-checker-option-help.
   if (AnOpts.ShowCheckerOptionList || AnOpts.ShowCheckerOptionAlphaList ||
       AnOpts.ShowCheckerOptionDeveloperList) {
     ento::printCheckerConfigList(llvm::outs(), *Clang);
-    return PRINT_ACTION_SUCCESS;
+    return true;
   }
 
   // Honor -analyzer-list-enabled-checkers.
   if (AnOpts.ShowEnabledCheckerList) {
     ento::printEnabledCheckerList(llvm::outs(), *Clang);
-    return PRINT_ACTION_SUCCESS;
+    return true;
   }
 
   // Honor -analyzer-config-help.
   if (AnOpts.ShowConfigOptionsList) {
     ento::printAnalyzerConfigList(llvm::outs());
-    return PRINT_ACTION_SUCCESS;
+    return true;
   }
 #endif
 
   // If there were errors in processing arguments, don't do anything else.
   if (Clang->getDiagnostics().hasErrorOccurred())
-    return FRONTEND_ACTION_FAILURE;
+    return false;
   // Create and execute the frontend action.
   if (!Action)
-    return FRONTEND_ACTION_FAILURE;
+    return false;
   bool Success = Clang->ExecuteAction(*Action);
   if (Clang->getFrontendOpts().DisableFree)
     llvm::BuryPointer(std::move(Action));
-  return Success ? FRONTEND_ACTION_SUCCESS : FRONTEND_ACTION_FAILURE;
+  return Success;
 }
 
 } // namespace clang

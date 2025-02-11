@@ -21,12 +21,6 @@ namespace clang {
 class CompilerInstance;
 class FrontendAction;
 
-enum CompilerInvocationResult {
-  PRINT_ACTION_SUCCESS, // e.g. print version, print help, etc.
-  FRONTEND_ACTION_SUCCESS,
-  FRONTEND_ACTION_FAILURE
-};
-
 /// Construct the FrontendAction of a compiler invocation based on the
 /// options specified for the compiler invocation.
 ///
@@ -37,9 +31,7 @@ std::unique_ptr<FrontendAction> CreateFrontendAction(CompilerInstance &CI);
 /// compiler invocation object in the given compiler instance.
 ///
 /// \return - True on success.
-CompilerInvocationResult ExecuteCompilerInvocation(CompilerInstance *Clang);
-
-CompilerInvocationResult ExecuteCompilerInvocation(CompilerInstance *Clang, std::unique_ptr<FrontendAction> Action);
+bool ExecuteCompilerInvocation(CompilerInstance *Clang);
 
 }  // end namespace clang
 
