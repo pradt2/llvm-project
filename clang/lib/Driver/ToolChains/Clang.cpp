@@ -7615,19 +7615,19 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                     options::OPT_fno_apple_pragma_pack);
 
   if (Args.hasFlag(options::OPT_fpacked_attributes,
-                   options::OPT_fno_packed_attributes, true)) {
+                   options::OPT_fno_packed_attributes, false)) {
     CmdArgs.push_back("-fpacked-attributes");
     CmdArgs.push_back("-D__PACKED_ATTRIBUTES__");
   }
 
   if (Args.hasFlag(options::OPT_fmpi_attributes,
-                   options::OPT_fno_mpi_attributes, true)) {
+                   options::OPT_fno_mpi_attributes, false)) {
     CmdArgs.push_back("-fmpi-attributes");
     CmdArgs.push_back("-D__MPI_ATTRIBUTES__");
   }
 
   if (Args.hasFlag(options::OPT_fsoa_conversion_attributes,
-                   options::OPT_fno_soa_conversion_attributes, true)) {
+                   options::OPT_fno_soa_conversion_attributes, false)) {
     CmdArgs.push_back("-fsoa-conversion-attributes");
     CmdArgs.push_back("-D__SOA_CONVERSION_ATTRIBUTES__");
   }

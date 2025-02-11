@@ -18,7 +18,6 @@
 #include "clang/AST/Stmt.h"
 #include "clang/Basic/DiagnosticParse.h"
 #include "clang/Parse/Parser.h"
-#include "clang/Transform/TransformAST.h"
 #include "clang/Sema/CodeCompleteConsumer.h"
 #include "clang/Sema/EnterExpressionEvaluationContext.h"
 #include "clang/Sema/Sema.h"

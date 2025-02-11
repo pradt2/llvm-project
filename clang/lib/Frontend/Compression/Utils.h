@@ -11,17 +11,21 @@
 using namespace clang;
 
 template<typename T>
-inline const T* getParentNodeOfType(ASTContext &Ctx, const Expr *E, ASTNodeKind::NodeKindId nodeKind) {
-  auto parents = Ctx.getParents(*E);
-  auto parent = parents[0];
-  while (!parents.empty()) {
-    parent = parents[0];
-    if (parent.getNodeKind().KindId == nodeKind) break;
-    parents = Ctx.getParents(parent);
+static inline T *getParentNodeOfType(ASTContext &C, DynTypedNode node) {
+  for (auto parent: C.getParentMapContext().getParents(node)) {
+    auto *exprMaybe = parent.get<T>();
+    if (exprMaybe) return (T*) exprMaybe;
+    exprMaybe = getParentNodeOfType<T>(C, parent);
+    if (exprMaybe) return (T*) exprMaybe;
   }
+  return nullptr;
+}
 
-  if (parents.empty()) return NULL;
-  return parent.get<T>();
+template<typename T, typename U>
+static inline T *getParentNodeOfType(ASTContext &C, U *E) {
+  auto dynNode = DynTypedNode::create(*E);
+  auto *parentMaybe = getParentNodeOfType<T>(C, dynNode);
+  return parentMaybe;
 }
 
 inline std::string to_constant(unsigned long a) {

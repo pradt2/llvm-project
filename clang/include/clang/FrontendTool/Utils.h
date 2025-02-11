@@ -33,6 +33,8 @@ std::unique_ptr<FrontendAction> CreateFrontendAction(CompilerInstance &CI);
 /// \return - True on success.
 bool ExecuteCompilerInvocation(CompilerInstance *Clang);
 
+bool ExecuteCompilerInvocation(CompilerInstance *Clang, std::unique_ptr<FrontendAction> Action);
+
 }  // end namespace clang
 
 #endif

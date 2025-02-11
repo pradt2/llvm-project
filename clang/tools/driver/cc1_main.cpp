@@ -66,8 +66,8 @@
 using namespace clang;
 using namespace llvm::opt;
 
-void CopyRewriterEntriesAsPreprocessorOpts(Rewriter *R, PreprocessorOptions &PreprocessorOpts);
-void DumpRewrittenSources(Rewriter *R);
+static void CopyRewriterEntriesAsPreprocessorOpts(Rewriter *R, PreprocessorOptions &PreprocessorOpts);
+static void DumpRewrittenSources(Rewriter *R);
 
 class RewrittenSourcesHandler {
   std::map<llvm::StringRef, llvm::StringRef> buffers;
@@ -283,11 +283,10 @@ static int PrintEnabledExtensions(const TargetOptions& TargetOpts) {
   return 0;
 }
 
-std::unique_ptr<CompilerInstance> CreateCompilerInstance(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr);
+static inline RewrittenSourcesHandler rewrittenSourcesHandler;
 
-int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
-  ensureSufficientStack();
-
+template<typename FrontendAction = void>
+int cc1_main_action(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   std::unique_ptr<CompilerInstance> Clang(new CompilerInstance());
   IntrusiveRefCntPtr<DiagnosticIDs> DiagID(new DiagnosticIDs());
 
@@ -337,7 +336,7 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   if (Clang->getHeaderSearchOpts().UseBuiltinIncludes &&
       Clang->getHeaderSearchOpts().ResourceDir.empty())
     Clang->getHeaderSearchOpts().ResourceDir =
-      CompilerInvocation::GetResourcesPath(Argv0, MainAddr);
+        CompilerInvocation::GetResourcesPath(Argv0, MainAddr);
 
   // Create the actual diagnostics engine.
   Clang->createDiagnostics(*llvm::vfs::getRealFileSystem());
@@ -347,7 +346,7 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   // Set an error handler, so that any LLVM backend diagnostics go through our
   // error handler.
   llvm::install_fatal_error_handler(LLVMErrorHandler,
-                                  static_cast<void*>(&Clang->getDiagnostics()));
+                                    static_cast<void*>(&Clang->getDiagnostics()));
 
   DiagsBuffer->FlushDiagnostics(Clang->getDiagnostics());
   if (!Success) {
@@ -356,79 +355,24 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   }
 
   // Execute the frontend actions.
-  bool Result;
   llvm::TimeTraceScope TimeScope("ExecuteCompiler");
+  {
+    llvm::TimeTraceScope TimeScope("ExecuteCompiler");
+    bool TimePasses = Clang->getCodeGenOpts().TimePasses;
+    if (TimePasses)
+      Clang->createFrontendTimer();
+    llvm::TimeRegion Timer(TimePasses ? &Clang->getFrontendTimer() : nullptr);
 
-  bool enableHpcLangExtensions = Clang->getLangOpts().PackedAttributes
-                              || Clang->getLangOpts().MpiAttributes
-                              || Clang->getLangOpts().SoaConversionAttributes;
+    rewrittenSourcesHandler.saveIntoOpts(Clang.get()->getPreprocessorOpts());
 
-  static RewrittenSourcesHandler rewrittenSourcesHandler;
-
-  if (enableHpcLangExtensions && rewrittenSourcesHandler.empty()) {
-
-    std::unique_ptr<CompilerInstance> CompilerInstance;
-
-    if (Clang->getLangOpts().SoaConversionAttributes) {
-      CompilerInstance = CreateCompilerInstance(Argv, Argv0, MainAddr);
-      Result = ExecuteCompilerInvocation(CompilerInstance.get(), std::make_unique<SoaConvertAction>());
-      Success = Result == true || Result == true;
+    if constexpr (std::is_same<FrontendAction, void>()) {
+      Success = ExecuteCompilerInvocation(Clang.get());
     } else {
-      Result = true;
-      Success = true;
+      Success = ExecuteCompilerInvocation(Clang.get(), std::make_unique<FrontendAction>());
+      rewrittenSourcesHandler.loadRewrittenSources(Clang.get()->getSourceManager().getRewriter());
     }
-
-    if (Result == true && Clang->getLangOpts().PackedAttributes) {
-      if (CompilerInstance.get())
-        rewrittenSourcesHandler.loadRewrittenSources(CompilerInstance->getSourceManager().getRewriter());
-
-      CompilerInstance = CreateCompilerInstance(Argv, Argv0, MainAddr);
-      rewrittenSourcesHandler.saveIntoOpts(CompilerInstance->getPreprocessorOpts());
-
-      Result = ExecuteCompilerInvocation(CompilerInstance.get(), std::make_unique<CompressAction>());
-      Success = Result == true || Result == true;
-    } else {
-      Result = true;
-      Success = true;
-    }
-
-    if (Result == true && Clang->getLangOpts().MpiAttributes) {
-      if (CompilerInstance.get())
-        rewrittenSourcesHandler.loadRewrittenSources(CompilerInstance->getSourceManager().getRewriter());
-
-      CompilerInstance = CreateCompilerInstance(Argv, Argv0, MainAddr);
-      rewrittenSourcesHandler.saveIntoOpts(CompilerInstance->getPreprocessorOpts());
-
-      Result = ExecuteCompilerInvocation(CompilerInstance.get(), std::make_unique<MapMpiDatatypesAction>());
-      Success = Result == true || Result == true;
-    } else {
-      Result = true;
-      Success = true;
-    }
-
-    if (Result == true) {
-      if (CompilerInstance.get())
-        rewrittenSourcesHandler.loadRewrittenSources(CompilerInstance->getSourceManager().getRewriter());
-      rewrittenSourcesHandler.saveIntoOpts(Clang->getPreprocessorOpts());
-
-      Result = ExecuteCompilerInvocation(Clang.get());
-      Success = Result == true || Result == true;
-    }
-
-    if (Clang.get()->getLangOpts().PostprocessingOutputDump) {
-      rewrittenSourcesHandler.dump();
-    }
-
-    if (Clang.get()->getLangOpts().PostprocessingOutputSave) {
-      rewrittenSourcesHandler.saveToDisk();
-    }
-
-  } else {
-    if (!rewrittenSourcesHandler.empty()) rewrittenSourcesHandler.saveIntoOpts(Clang->getPreprocessorOpts());
-    Result = ExecuteCompilerInvocation(Clang.get());
-    Success = Result == true || Result == true;
   }
-L1:
+
   // If any timers were active but haven't been destroyed yet, print their
   // results now.  This happens in -disable-free mode.
   llvm::TimerGroup::printAll(llvm::errs());
@@ -472,12 +416,16 @@ L1:
   return !Success;
 }
 
-std::unique_ptr<CompilerInstance> CreateCompilerInstance(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
+int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
+  ensureSufficientStack();
+
+  std::unique_ptr<CompilerInstance> Clang(new CompilerInstance());
+  IntrusiveRefCntPtr<DiagnosticIDs> DiagID(new DiagnosticIDs());
+
   // Buffer diagnostics from argument parsing so that we can output them using a
   // well formed diagnostic object.
   IntrusiveRefCntPtr<DiagnosticOptions> DiagOpts = new DiagnosticOptions();
   TextDiagnosticBuffer *DiagsBuffer = new TextDiagnosticBuffer;
-  IntrusiveRefCntPtr<DiagnosticIDs> DiagID(new DiagnosticIDs());
   DiagnosticsEngine Diags(DiagID, &*DiagOpts, DiagsBuffer);
 
   // Setup round-trip remarks for the DiagnosticsEngine used in CreateFromArgs.
@@ -485,30 +433,34 @@ std::unique_ptr<CompilerInstance> CreateCompilerInstance(ArrayRef<const char *> 
     Diags.setSeverity(diag::remark_cc1_round_trip_generated,
                       diag::Severity::Remark, {});
 
-  // Register the support for object-file-wrapped Clang modules.
-  std::unique_ptr<CompilerInstance> Clang(new CompilerInstance());
-  auto PCHOps = Clang->getPCHContainerOperations();
-  PCHOps->registerWriter(std::make_unique<ObjectFilePCHContainerWriter>());
-  PCHOps->registerReader(std::make_unique<ObjectFilePCHContainerReader>());
-
   bool Success = CompilerInvocation::CreateFromArgs(Clang->getInvocation(),
                                                     Argv, Diags, Argv0);
 
-  if (!Success)
-    return nullptr;
+  if (!Success) return 1;
 
-  // Create the actual diagnostics engine.
-  Clang->createDiagnostics();
-  if (!Clang->hasDiagnostics())
-    return nullptr;
+  if (rewrittenSourcesHandler.empty()) {
+    if (Clang->getLangOpts().PackedAttributes) {
+      auto RetCode = cc1_main_action<CompressAction>(Argv, Argv0, MainAddr);
+      if (RetCode != 0) return RetCode;
+    }
+    if (Clang->getLangOpts().SoaConversionAttributes) {
+      auto RetCode = cc1_main_action<SoaConvertAction>(Argv, Argv0, MainAddr);
+      if (RetCode != 0) return RetCode;
+    }
+    if (Clang->getLangOpts().MpiAttributes) {
+      auto RetCode = cc1_main_action<MapMpiDatatypesAction>(Argv, Argv0, MainAddr);
+      if (RetCode != 0) return RetCode;
+    }
+  }
 
-  DiagsBuffer->FlushDiagnostics(Clang->getDiagnostics());
+  if (Clang.get()->getLangOpts().PostprocessingOutputDump) {
+    rewrittenSourcesHandler.dump();
+  }
 
-  // Infer the builtin include path if unspecified.
-  if (Clang->getHeaderSearchOpts().UseBuiltinIncludes &&
-      Clang->getHeaderSearchOpts().ResourceDir.empty())
-    Clang->getHeaderSearchOpts().ResourceDir =
-        CompilerInvocation::GetResourcesPath(Argv0, MainAddr);
+  if (Clang.get()->getLangOpts().PostprocessingOutputSave) {
+    rewrittenSourcesHandler.saveToDisk();
+  }
 
-  return Clang;
+  auto RetCode = cc1_main(Argv, Argv0, MainAddr);
+  return RetCode;
 }
