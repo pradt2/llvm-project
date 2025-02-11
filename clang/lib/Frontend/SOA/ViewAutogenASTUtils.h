@@ -681,7 +681,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
 
       bool VisitCXXForRangeStmt(CXXForRangeStmt *S) {
         if (S == root) return true;
-        auto *attr = GetAttr<SoaConversionTargetAttr>(C, S);
+        auto *attr = GetAttr<SoaConversionAttr>(C, S);
         if (!attr) return true;
         nestedLoops->push_back(S);
         return false;
