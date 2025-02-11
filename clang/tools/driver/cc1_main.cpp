@@ -461,6 +461,6 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
     rewrittenSourcesHandler.saveToDisk();
   }
 
-  auto RetCode = cc1_main(Argv, Argv0, MainAddr);
+  auto RetCode = cc1_main_action(Argv, Argv0, MainAddr);
   return RetCode;
 }

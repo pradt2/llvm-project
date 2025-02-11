@@ -23,7 +23,7 @@ namespace clang {
   /// The amount of stack space that Clang would like to be provided with.
   /// If less than this much is available, we may be unable to reach our
   /// template instantiation depth limit and other similar limits.
-  constexpr size_t DesiredStackSize = 8 << 22;
+  constexpr size_t DesiredStackSize = 8 << 20;
 
   /// Call this once on each thread, as soon after starting the thread as
   /// feasible, to note the approximate address of the bottom of the stack.
