@@ -1031,6 +1031,14 @@ def SoaConversionOffloadCompute : StmtAttr {
     let Documentation = [Undocumented];
 }
 
+def SoaConversionSimd : StmtAttr {
+    let Spellings = [Clang<"soa_conversion_simd">];
+    let Args = [];
+    let Subjects = SubjectList<[ForStmt, CXXForRangeStmt],
+                                ErrorDiag, "'for' statements">;
+    let Documentation = [Undocumented];
+}
+
 def AnnotateType : TypeAttr {
   let Spellings = [CXX11<"clang", "annotate_type">, C23<"clang", "annotate_type">];
   let Args = [StringArgument<"Annotation">, VariadicExprArgument<"Args">];
