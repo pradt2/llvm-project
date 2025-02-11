@@ -167,10 +167,6 @@ private:
     NKI_NumberOfKinds
   };
 
-  NodeKindId KindId;
-
-private:
-
   /// Use getFromNodeKind<T>() to construct the kind.
   constexpr ASTNodeKind(NodeKindId KindId) : KindId(KindId) {}
 
@@ -201,6 +197,8 @@ private:
     const char *Name;
   };
   static const KindInfo AllKindInfo[NKI_NumberOfKinds];
+
+  NodeKindId KindId;
 };
 
 #define KIND_TO_KIND_ID(Class)                                                 \

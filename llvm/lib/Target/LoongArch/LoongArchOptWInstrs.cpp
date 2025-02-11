@@ -695,6 +695,8 @@ static unsigned getWOp(unsigned Opcode) {
     return LoongArch::ADDI_W;
   case LoongArch::ADD_D:
     return LoongArch::ADD_W;
+  case LoongArch::DIV_D:
+    return LoongArch::DIV_W;
   case LoongArch::LD_D:
   case LoongArch::LD_WU:
     return LoongArch::LD_W;
