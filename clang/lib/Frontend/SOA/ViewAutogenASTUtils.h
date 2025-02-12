@@ -628,7 +628,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
         auto *arrType = llvm::cast<ConstantArrayType>(F->getType()->getAsArrayTypeUnsafe());
         type = TypeToString(arrType->getElementType());
       }
-      soaBuffersDecl += type + " * __restrict__ " + name + " = (" + type + "*) " + getUniqueName("__soa_buf", S) + " + " + std::to_string(offset) + " * " + sizeExprStr + ";\n";
+      soaBuffersDecl += type + " * __restrict__ " + name + " = (" + type + "*) (" + getUniqueName("__soa_buf", S) + " + " + std::to_string(offset) + " * " + sizeExprStr + ");\n";
     }
 
     if (IsInOffloadingCtx(C, S)) {
@@ -636,8 +636,8 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       auto devBufSizeName = getUniqueName("__soa_buf_dev_size", S);
 
       std::string targetBuffers = "\n";
-      targetBuffers += "thread_local char *" + devBufName + " = nullptr;\n";
-      targetBuffers += "thread_local long " + devBufSizeName + " = 0;\n";
+      targetBuffers += "static thread_local char *" + devBufName + " = nullptr;\n";
+      targetBuffers += "static thread_local long " + devBufSizeName + " = 0;\n";
       targetBuffers += "if (" + sizeExprStr + " > " + devBufSizeName + ") [[unlikely]] {\n";
       targetBuffers += "omp_target_free(" + devBufName + ", omp_get_default_device());\n";
       targetBuffers += devBufName + " = (char*) omp_target_alloc(" + std::to_string(sizeInBytes) + " * " + sizeExprStr + ", omp_get_default_device());\n";
