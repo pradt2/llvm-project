@@ -588,12 +588,12 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       auto name = F->getNameAsString();
       if (!F->getType()->isArrayType()) {
         auto typeStr = TypeToString(F->getType());
-        soaHelperDecl += "((" + typeStr + "*) __soa_buf_dev + " + std::to_string(Stats.getSoaBufOffset(C, F)) + " * size)[i],\n";
+        soaHelperDecl += "((" + typeStr + "*) (__soa_buf_dev + " + std::to_string(Stats.getSoaBufOffset(C, F)) + " * size))[i],\n";
       } else {
         auto *arrType = llvm::cast<ConstantArrayType>(F->getType()->getAsArrayTypeUnsafe());
         auto typeStr = TypeToString(arrType->getElementType());
         auto size = std::to_string(arrType->getSExtSize());
-        soaHelperDecl += "((" + typeStr + "*) __soa_buf_dev + " + std::to_string(Stats.getSoaBufOffset(C, F)) + " * size)[i * " + size + "],\n";
+        soaHelperDecl += "((" + typeStr + "*) (__soa_buf_dev + " + std::to_string(Stats.getSoaBufOffset(C, F)) + " * size))[i * " + size + "],\n";
         soaHelperDecl += name + " + i * " + size + ",\n";
       }
     }
