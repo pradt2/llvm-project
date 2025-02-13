@@ -55,12 +55,12 @@ T *GetAttr(ASTContext &C, Stmt *S) {
   return nullptr;
 }
 
-bool IsInOffloadingCtx(ASTContext &C, Stmt *S) {
+static Stmt *GetOffloadingCtx(ASTContext &C, Stmt *S) {
   while (S) {
-    if (GetAttr<SoaConversionOffloadComputeAttr>(C, S)) return true;
+    if (GetAttr<SoaConversionOffloadComputeAttr>(C, S)) return S;
     S = GetParent<Stmt>(C, S);
   }
-  return false;
+  return nullptr;
 }
 
 template<typename E>
@@ -604,7 +604,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
   }
 
   std::string getSoaHelperDecl(ASTContext &C, UsageStats &Stats, Stmt *S) {
-    if (IsInOffloadingCtx(C, S)) {
+    if (GetOffloadingCtx(C, S)) {
       return getSoaHelperDeclOffload(C, Stats, S);
     }
     return getSoaHelperDeclClassic(C, Stats, S);
@@ -631,14 +631,27 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       soaBuffersDecl += type + " * __restrict__ " + name + " = (" + type + "*) (" + getUniqueName("__soa_buf", S) + " + " + std::to_string(offset) + " * " + sizeExprStr + ");\n";
     }
 
-    if (IsInOffloadingCtx(C, S)) {
+    if (GetOffloadingCtx(C, S)) {
       auto devBufName = getUniqueName("__soa_buf_dev", S);
       auto devBufSizeName = getUniqueName("__soa_buf_dev_size", S);
 
       std::string targetBuffers = "\n";
       targetBuffers += "static thread_local char *" + devBufName + " = nullptr;\n";
       targetBuffers += "static thread_local long " + devBufSizeName + " = 0;\n";
+
+      if (GetAttr<SoaConversionOffloadComputeAttr>(C, S)) {
+        targetBuffers += "static thread_local omp_depend_t " + getUniqueName("__omp_dep", S) + " = nullptr;\n";
+      }
+
       targetBuffers += "if (" + sizeExprStr + " > " + devBufSizeName + ") [[unlikely]] {\n";
+
+      if (GetAttr<SoaConversionOffloadComputeAttr>(C, S)) {
+        targetBuffers += "if (!" + getUniqueName("__omp_dep", S) + ") [[unlikely]] {\n";
+        targetBuffers += "auto *" + getUniqueName("__omp_dep_val", S) + " = (int *) ((unsigned long) omp_get_thread_num() + 1UL);\n";
+        targetBuffers += "#pragma omp depobj(" + getUniqueName("__omp_dep", S) + ") depend(inout: " + getUniqueName("__omp_dep_val", S) + ")\n";
+        targetBuffers += "}\n";
+      }
+
       targetBuffers += "omp_target_free(" + devBufName + ", omp_get_default_device());\n";
       targetBuffers += devBufName + " = (char*) omp_target_alloc(" + std::to_string(sizeInBytes) + " * " + sizeExprStr + ", omp_get_default_device());\n";
       targetBuffers += devBufSizeName + " = " + sizeExprStr + ";\n";
@@ -764,7 +777,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
   }
 
   std::string getSoaHelperInstance(ASTContext &C, UsageStats &Stats, Stmt *S) {
-    if (IsInOffloadingCtx(C, S)) return getSoaHelperInstanceOffload(Stats, S);
+    if (GetOffloadingCtx(C, S)) return getSoaHelperInstanceOffload(Stats, S);
     return getSoaHelperInstanceClassic(Stats, S);
   }
 
@@ -799,13 +812,14 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
   std::string getOmpPrologue(ASTContext &C, std::string &sizeExprStr, UsageStats &Stats, Stmt *S) {
     std::string prologue = "";
 
-    if (IsInOffloadingCtx(C, S)) {
+    auto *offloadingCtx = GetOffloadingCtx(C, S);
+    if (offloadingCtx) {
       auto bytesToCopy = 0;
       for (auto [F, usage] : Stats.fields) {
         if (!(usage & UsageStats::UsageKind::Read)) continue;
         bytesToCopy += C.getTypeSize(F->getType()) / 8;
       }
-      prologue += "omp_target_memcpy(" + getUniqueName("__soa_buf_dev", S) + ", " + getUniqueName("__soa_buf", S) + ", " + std::to_string(bytesToCopy) + " * " + sizeExprStr + ", 0, 0, omp_get_default_device(), omp_get_initial_device());\n";
+      prologue += "omp_target_memcpy_async(" + getUniqueName("__soa_buf_dev", S) + ", " + getUniqueName("__soa_buf", S) + ", " + std::to_string(bytesToCopy) + " * " + sizeExprStr + ", 0, 0, omp_get_default_device(), omp_get_initial_device(), 1, &" + getUniqueName("__omp_dep", offloadingCtx) + ");\n";
       // on Grace Hopper I get strange errors that thread-local is not supported for target
       // aliasing the thread_local buffer to a regular local variable is supposed to work around this
       prologue += "auto *" + getUniqueName("__soa_buf_dev_alias", S) + " = " + getUniqueName("__soa_buf_dev", S) + ";\n";
@@ -817,7 +831,8 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
   std::string getOmpPragma(ASTContext &C, std::string &sizeExprStr, UsageStats &Stats, Stmt *S) {
     auto *offloadAttr = GetAttr<SoaConversionOffloadComputeAttr>(C, S);
     if (offloadAttr) {
-      std::string pragma = "#pragma omp target teams distribute parallel for";
+      std::string pragma = "";
+      pragma += "#pragma omp target teams distribute parallel for nowait depend(depobj: " + getUniqueName("__omp_dep", S) + ")";
       pragma += " is_device_ptr(" + getUniqueName("__soa_buf_dev_alias", S) + ")";
       for (auto *nestedLoop : getConvertedNestedLoops(C, S)) {
         pragma += " is_device_ptr(" + getUniqueName("__soa_buf_dev_alias", nestedLoop) + ")";
@@ -853,7 +868,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     std::string source = "\n";
     source += getSoaHelperInstance(D->getASTContext(), Stats, S);
 
-    if (IsInOffloadingCtx(D->getASTContext(), S)) {
+    if (GetOffloadingCtx(D->getASTContext(), S)) {
       source += "auto " + D->getNameAsString() + " = " + instanceName + "[" + iterVarName + ", " + sizeExprStr + "];\n";
     } else {
       source += "auto " + D->getNameAsString() + " = " + instanceName + "[" + iterVarName + "];\n";
@@ -874,7 +889,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     source += "for (unsigned long " + iterVarName + " = 0; " + iterVarName + " < " + sizeExprStr + "; ++" + iterVarName + ") {\n";
     source += getSoaHelperInstance(D->getASTContext(), Stats, S) + ";\n";
 
-    if (IsInOffloadingCtx(D->getASTContext(), S)) {
+    if (GetOffloadingCtx(D->getASTContext(), S)) {
       source += "auto " + D->getNameAsString() + " = " + instanceName + "[" + iterVarName + ", " + sizeExprStr + "];\n";
     } else {
       source += "auto " + D->getNameAsString() + " = " + instanceName + "[" + iterVarName + "];\n";
@@ -891,7 +906,8 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
   std::string getOmpEpilogue(ASTContext &C, std::string &sizeExprStr, UsageStats &Stats, Stmt *S) {
     std::string epilogue = "";
 
-    if (IsInOffloadingCtx(C, S)) {
+    auto *offloadingCtx = GetOffloadingCtx(C, S);
+    if (offloadingCtx) {
       auto offset = 0;
       auto bytesToCopy = 0;
       for (auto [F, usage] : Stats.fields) {
@@ -905,8 +921,13 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       if (bytesToCopy == 0) {
         epilogue += "// no need to copy back from " + getUniqueName("__soa_buf_dev", S) + "\n";
       } else {
-        epilogue += "omp_target_memcpy(" + getUniqueName("__soa_buf", S) + ", " + getUniqueName("__soa_buf_dev", S) + ", " + std::to_string(bytesToCopy) + " * " + sizeExprStr + ", " + std::to_string(offset) + " * " + sizeExprStr + ", " + std::to_string(offset) + " * " + sizeExprStr + ", omp_get_initial_device(), omp_get_default_device());\n";
+        epilogue += "omp_target_memcpy_async(" + getUniqueName("__soa_buf", S) + ", " + getUniqueName("__soa_buf_dev", S) + ", " + std::to_string(bytesToCopy) + " * " + sizeExprStr + ", " + std::to_string(offset) + " * " + sizeExprStr + ", " + std::to_string(offset) + " * " + sizeExprStr + ", omp_get_initial_device(), omp_get_default_device(), 1, &" + getUniqueName("__omp_dep", offloadingCtx) + ");\n";
       }
+
+      if (GetAttr<SoaConversionOffloadComputeAttr>(C, S)) {
+        epilogue += "#pragma omp taskwait depend(depobj: " + getUniqueName("__omp_dep", S) + ")\n";
+      }
+
       return epilogue;
     }
     return "";
@@ -1088,7 +1109,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     prologueDefs += soaHelperDecl + "\n";
 
     auto prologueDefsLoc = getPrologueDefsLoc(CI.getASTContext(), S);
-    R->InsertTextBefore(prologueDefsLoc, prologueDefs);
+    R->InsertTextAfter(prologueDefsLoc, prologueDefs);
 
     std::string prologue = "\n";
     prologue += soaBuffersDecl + "\n";
@@ -1096,7 +1117,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     prologue += ompPrologue + "\n";
 
     auto prologueLoc = getPrologueLoc(CI.getASTContext(), S).getLocWithOffset(-1);
-    R->InsertTextBefore(prologueLoc, prologue);
+    R->InsertTextAfter(prologueLoc, prologue);
 
     rewriteForLoop(targetDecl, sizeExprStr, usageStats, S);
 
@@ -1109,7 +1130,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     epilogue += "#pragma clang diagnostic pop\n";
 
     auto epilogueLoc = getEpilogueLoc(CI.getASTContext(), S).getLocWithOffset(1);
-    R->InsertTextAfter(epilogueLoc, epilogue);
+    R->InsertTextBefore(epilogueLoc, epilogue);
 
     return true;
   }
@@ -1139,7 +1160,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     prologueDefs += soaHelperDecl + "\n";
 
     auto prologueDefsLoc = getPrologueDefsLoc(CI.getASTContext(), S);
-    R->InsertTextBefore(prologueDefsLoc, prologueDefs);
+    R->InsertTextAfter(prologueDefsLoc, prologueDefs);
 
     std::string prologue = "\n";
     prologue += sizeDeclStmt + "\n";
@@ -1148,7 +1169,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     prologue += ompPrologue + "\n";
 
     auto prologueLoc = getPrologueLoc(CI.getASTContext(), S).getLocWithOffset(-1);
-    R->InsertTextBefore(prologueLoc, prologue);
+    R->InsertTextAfter(prologueLoc, prologue);
 
     rewriteForRangeLoop(targetDecl, sizeExprStr, usageStats, S);
 
@@ -1161,7 +1182,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     epilogue += "#pragma clang diagnostic pop\n";
 
     auto epilogueLoc = getEpilogueLoc(CI.getASTContext(), S).getLocWithOffset(1);
-    R->InsertTextAfter(epilogueLoc, epilogue);
+    R->InsertTextBefore(epilogueLoc, epilogue);
 
     return true;
   }
