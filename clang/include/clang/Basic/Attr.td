@@ -983,7 +983,7 @@ def CompressRange : InheritableParamAttr {
 }
 
 def CompressTruncateMantissa : InheritableParamAttr {
-    let Spellings = [Clang<"compress_truncate_mantissa">, Clang<"truncate_mantissa">];
+    let Spellings = [Clang<"compress_truncate_mantissa">, Clang<"truncate_mantissa">, Clang<"mantissa">];
     let Args = [IntArgument<"MantissaSize">];
     let Subjects = SubjectList<[Field]>;
     let Documentation = [Undocumented];
