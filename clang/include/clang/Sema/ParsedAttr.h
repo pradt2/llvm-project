@@ -110,7 +110,7 @@ struct IdentifierLoc {
 
 /// A union of the various pointer types that can be passed to an
 /// ParsedAttr as an argument.
-using ArgsUnion = llvm::PointerUnion<Expr *, IdentifierLoc *>;
+using ArgsUnion = llvm::PointerUnion<Expr *, void *, IdentifierLoc *>;
 using ArgsVector = llvm::SmallVector<ArgsUnion, 12U>;
 
 /// ParsedAttr - Represents a syntactic attribute.

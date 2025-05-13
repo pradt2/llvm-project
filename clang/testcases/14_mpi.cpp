@@ -1,33 +1,24 @@
-#include <stdio.h>
-#include <functional>
-#include <mpi.h>
+struct Data {
 
-struct Motorcycle {
-  int engineSize;
-  int topSpeed;
+  struct {
+    struct {
+      int c;
+    } b;
+  } a;
 
-  [[clang::map_mpi_datatype]]
-  static MPI_Datatype getMyMpiMapping();
-};
+  long xx;
 
-struct Car {
-  [[clang::compress_range(255)]]
-  int shifts;
-  [[clang::compress_range(255)]]
-  int topSpeed;
+  struct {
+    struct {
+      float f;
+    } e;
+  } d ;
 
-  [[clang::map_mpi_datatype("shifts")]]
-  static MPI_Datatype getMpi();
-};
-
-struct CarWrapper {
-  Car car;
+  int i, g, h;
 
   [[clang::map_mpi_datatype]]
-  static MPI_Datatype getMpi();
+  static void* getMpiDataType();
+
+  [[clang::map_mpi_datatype(a, d.e, g, h)]]
+  static void *getMpiDataType2();
 };
-
-int main(int argc, char** argv) {
-
-  return 0;
-}

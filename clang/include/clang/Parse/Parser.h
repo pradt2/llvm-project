@@ -3117,6 +3117,14 @@ private:
                                        SourceLocation ScopeLoc,
                                        ParsedAttr::Form Form);
 
+  void ParseMapMpiDatatypeAttribute(IdentifierInfo &AttrName,
+                                  SourceLocation AttrNameLoc,
+                                  ParsedAttributes &Attrs,
+                                  SourceLocation *EndLoc,
+                                  IdentifierInfo *ScopeName,
+                                  SourceLocation ScopeLoc,
+                                  ParsedAttr::Form Form);
+
   void ParseSwiftNewTypeAttribute(IdentifierInfo &AttrName,
                                   SourceLocation AttrNameLoc,
                                   ParsedAttributes &Attrs,

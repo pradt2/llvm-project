@@ -789,6 +789,10 @@ unsigned Parser::ParseClangAttributeArgs(
     ParseObjCBridgeRelatedAttribute(*AttrName, AttrNameLoc, Attrs, EndLoc,
                                     ScopeName, ScopeLoc, Form);
     break;
+  case ParsedAttr::AT_MapMpiDatatype:
+    ParseMapMpiDatatypeAttribute(*AttrName, AttrNameLoc, Attrs, EndLoc, ScopeName,
+                               ScopeLoc, Form);
+    break;
   case ParsedAttr::AT_SwiftNewType:
     ParseSwiftNewTypeAttribute(*AttrName, AttrNameLoc, Attrs, EndLoc, ScopeName,
                                ScopeLoc, Form);
@@ -1764,6 +1768,47 @@ void Parser::ParseObjCBridgeRelatedAttribute(
                SourceRange(ObjCBridgeRelatedLoc, T.getCloseLocation()),
                ScopeName, ScopeLoc, RelatedClass, ClassMethod, InstanceMethod,
                Form);
+}
+
+void Parser::ParseMapMpiDatatypeAttribute(
+    IdentifierInfo &AttrName, SourceLocation AttrNameLoc,
+    ParsedAttributes &Attrs, SourceLocation *EndLoc, IdentifierInfo *ScopeName,
+    SourceLocation ScopeLoc, ParsedAttr::Form Form) {
+  BalancedDelimiterTracker T(*this, tok::l_paren);
+
+  // Opening '('
+  if (T.consumeOpen()) {
+    Diag(Tok, diag::err_expected) << tok::l_paren;
+    return;
+  }
+
+  using NestedField = std::string;
+
+  std::vector<ArgsUnion> args;
+
+  while (Tok.isNot(tok::r_paren)) {
+    auto *nestedField = new NestedField;
+
+    while (Tok.isAnyIdentifier()) {
+      (*nestedField) += Tok.getIdentifierInfo()->getName();
+      ConsumeToken();
+
+      if (Tok.is(tok::period)) {
+        ConsumeToken();
+        nestedField->push_back('.');
+      }
+    }
+    args.push_back(nestedField);
+
+    if (Tok.is(tok::comma)) ConsumeToken();
+  }
+
+  T.skipToEnd();
+
+  Attrs.addNew(&AttrName, SourceRange(AttrNameLoc, T.getCloseLocation()),
+               ScopeName, ScopeLoc, args.data(), args.size(), Form);
+
+  return;
 }
 
 void Parser::ParseSwiftNewTypeAttribute(

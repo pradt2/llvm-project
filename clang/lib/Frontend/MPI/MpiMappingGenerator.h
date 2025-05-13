@@ -9,229 +9,162 @@
 
 class MpiMappingGenerator {
 
-  struct MpiElement {
-    std::vector<std::string> blockLengths;
-    std::vector<std::string> types;
-    std::vector<std::string> offsets;
+  const char *resolveMpiType(const BuiltinType *type) {
+    BuiltinType::Kind kind = type->getKind();
+    switch (kind) {
+    case BuiltinType::Kind::Float:
+      return "MPI_FLOAT";
+    case BuiltinType::Kind::Double:
+      return "MPI_DOUBLE";
+    case BuiltinType::Kind::LongDouble:
+      return "MPI_LONG_DOUBLE";
+    case BuiltinType::Kind::Bool:
+      return "MPI_BYTE";
+    case BuiltinType::Kind::Char_S:
+    case BuiltinType::Kind::SChar:
+      return "MPI_CHAR";
+    case BuiltinType::Kind::Char_U:
+    case BuiltinType::Kind::UChar:
+      return "MPI_UNSIGNED_CHAR";
+    case BuiltinType::Kind::WChar_S:
+    case BuiltinType::Kind::WChar_U:
+      return "MPI_WCHAR";
+    case BuiltinType::Kind::Short:
+      return "MPI_SHORT";
+    case BuiltinType::Kind::UShort:
+      return "MPI_UNSIGNED_SHORT";
+    case BuiltinType::Kind::Int:
+      return "MPI_INTEGER";
+    case BuiltinType::Kind::UInt:
+      return "MPI_UNSIGNED_INTEGER";
+    case BuiltinType::Kind::Long:
+      return "MPI_LONG";
+    case BuiltinType::Kind::ULong:
+      return "MPI_UNSIGNED_LONG";
+    case BuiltinType::Kind::LongLong:
+      return "MPI_LONG_LONG";
+    case BuiltinType::Kind::ULongLong:
+      return "MPI_UNSIGNED_LONG_LONG";
+    default:
+      assert(false && "MPI Datatype: unknown primitive type");
+    }
+  }
+
+  struct MpiEntry {
+    int offset;
+    int blockLen;
+    const char *type;
   };
 
-  MpiElement mapMpiElement(SemaFieldDecl &decl) {
-    std::string relativeElementOffset = getOffsetOfExpr(decl.parent->fullyQualifiedName, decl.name);
-    return mapMpiElement(*decl.type, relativeElementOffset);
-  }
+  void mapMpiTypeRecursively(QualType type, int offset, std::vector<MpiEntry> &entries) {
+    int blockLen = 1;
 
-  MpiElement mapMpiElement(SemaType &type, std::string relativeElementOffset) {
-    MpiElement element;
-
-    if (type.isEnumType()) {
-      return mapMpiElement(((SemaEnumType&) type).integerType, relativeElementOffset);
+    while (type->isConstantArrayType()) {
+      const ConstantArrayType *cat = cast<ConstantArrayType>(type->getAsArrayTypeUnsafe());
+      blockLen *= cat->getSExtSize();
+      type = cat->getElementType();
     }
 
-    if (type.isPrimitiveType()) {
-      element.blockLengths.push_back("1");
-      element.offsets.push_back(relativeElementOffset);
-      BuiltinType::Kind kind = ((SemaPrimitiveType&)type).typeKind;
-      switch (kind) {
-      case BuiltinType::Kind::Float:
-        element.types.push_back("MPI_FLOAT");
-        break;
-      case BuiltinType::Kind::Double:
-        element.types.push_back("MPI_DOUBLE");
-        break;
-      case BuiltinType::Kind::LongDouble:
-        element.types.push_back("MPI_LONG_DOUBLE");
-        break;
-      case BuiltinType::Kind::Bool:
-        element.types.push_back("MPI_BYTE");
-        break;
-      case BuiltinType::Kind::Char_S:
-      case BuiltinType::Kind::SChar:
-        element.types.push_back("MPI_CHAR");
-        break;
-      case BuiltinType::Kind::Char_U:
-      case BuiltinType::Kind::UChar:
-        element.types.push_back("MPI_UNSIGNED_CHAR");
-        break;
-      case BuiltinType::Kind::WChar_S:
-      case BuiltinType::Kind::WChar_U:
-        element.types.push_back("MPI_WCHAR");
-        break;
-      case BuiltinType::Kind::Short:
-        element.types.push_back("MPI_SHORT");
-        break;
-      case BuiltinType::Kind::UShort:
-        element.types.push_back("MPI_UNSIGNED_SHORT");
-        break;
-      case BuiltinType::Kind::Int:
-        element.types.push_back("MPI_INTEGER");
-        break;
-      case BuiltinType::Kind::UInt:
-        element.types.push_back("MPI_UNSIGNED_INTEGER");
-        break;
-      case BuiltinType::Kind::Long:
-        element.types.push_back("MPI_LONG");
-        break;
-      case BuiltinType::Kind::ULong:
-        element.types.push_back("MPI_UNSIGNED_LONG");
-        break;
-      case BuiltinType::Kind::LongLong:
-        element.types.push_back("MPI_LONG_LONG");
-        break;
-      case BuiltinType::Kind::ULongLong:
-        element.types.push_back("MPI_UNSIGNED_LONG_LONG");
-        break;
-      default:
-        llvm::errs() << "Invalid builtin type for MPI mapping " << std::to_string(kind) << "\n";
+    if (type->isRecordType()) {
+      auto *rd = type->getAsRecordDecl();
+
+      // this loop works around the fact that block len for complex types
+      // would require building a separate MPI_Datatype for them
+      for (int blockId = 0; blockId < blockLen; blockId++) {
+        for (auto *field : rd->fields()) {
+          auto fieldOffset = field->getParent()->getASTContext().getFieldOffset(field);
+          mapMpiTypeRecursively(field->getType(), offset + fieldOffset, entries);
+        }
+        offset += rd->getASTContext().getTypeSize(type);
       }
-    }
-
-    else if (type.isConstSizeArrType()) {
-      SemaConstSizeArrType* constSizeArrType = (SemaConstSizeArrType*) &type;
-      int size = 1;
-
-      while (true) {
-        size *= constSizeArrType->elementCount;
-        if (!constSizeArrType->elementType->isConstSizeArrType()) break;
-        constSizeArrType = (SemaConstSizeArrType *) constSizeArrType->elementType.get();
-      }
-
-      auto &elementType = *constSizeArrType->elementType.get();
-
-      if (elementType.isEnumType() || elementType.isPrimitiveType()) {
-
-        MpiElement arrTypeElement = mapMpiElement(elementType, relativeElementOffset);
-        for (auto blockLength : arrTypeElement.blockLengths) {
-          element.blockLengths.push_back(blockLength + " * " + std::to_string(size));
-        }
-        for (auto typ : arrTypeElement.types) {
-          element.types.push_back(typ);
-        }
-        for (auto offset : arrTypeElement.offsets) {
-          element.offsets.push_back(offset);
-        }
-
-      } else {
-
-        size = ((SemaConstSizeArrType*) &type)->size;
-
-        MpiElement arrTypeElement = mapMpiElement(*((SemaConstSizeArrType&) type).elementType, "0");
-
-        for (int i = 0; i < size; i++) {
-          for (auto blockLength : arrTypeElement.blockLengths) {
-            element.blockLengths.push_back(blockLength);
-          }
-          for (auto typ : arrTypeElement.types) {
-            element.types.push_back(typ);
-          }
-          for (auto offset : arrTypeElement.offsets) {
-            element.offsets.push_back(relativeElementOffset + " + " + "sizeof(" + toSource(elementType) + ") * " + std::to_string(i) + " + " + offset);
-          }
-        }
-
-      }
-    } else if (type.isRecordType()) {
-      auto &recordDecl = ((SemaRecordType&) type).recordDecl;
-
-      // check if name ends with __PACKED_CONTAINER
-      // if so, treat it as the bitfield container generated by packing
-      // and send it as a whole
-      auto recordDeclNameRef = llvm::StringRef(recordDecl->name);
-      if (recordDeclNameRef.ends_with("__PACKED_CONTAINER")) {
-        element.blockLengths.push_back("sizeof(" + recordDecl->fullyQualifiedName + ")");
-        element.types.push_back("MPI_BYTE");
-        element.offsets.push_back(relativeElementOffset);
-      } else {
-        for (const auto &field : recordDecl->fields) {
-          MpiElement fieldElement = mapMpiElement(*field);
-          element.blockLengths.insert(element.blockLengths.end(), fieldElement.blockLengths.begin(), fieldElement.blockLengths.end());
-          element.types.insert(element.types.end(), fieldElement.types.begin(), fieldElement.types.end());
-          for (std::string offset : fieldElement.offsets) {
-            element.offsets.push_back(relativeElementOffset + " + " + offset);
-          }
-        }
-      }
-    }
-    return element;
+    } else if (type->isBuiltinType()) {
+      auto *mpiType = resolveMpiType(type->castAs<BuiltinType>());
+      entries.push_back({
+          offset,
+          blockLen,
+          mpiType});
+    } else assert(false && "MPI Datatype: unknown type");
   }
 
-  std::string ReplaceAll(std::string str, const std::string& from, const std::string& to) {
-    size_t start_pos = 0;
-    while((start_pos = str.find(from, start_pos)) != std::string::npos) {
-      str.replace(start_pos, from.length(), to);
-      start_pos += to.length(); // Handles case where 'to' is a substring of 'from'
+  void mapMpiField(RecordDecl *baseDecl, llvm::StringRef field, std::vector<MpiEntry> &entries) {
+    auto offset = 0;
+    auto lastDotPos = 0;
+    auto *currDecl = baseDecl;
+    auto fieldType = QualType();
+
+    while (currDecl) {
+      auto nextDotPos = field.find_first_of('.', lastDotPos);
+      auto fieldName = field.substr(lastDotPos, nextDotPos);
+
+      auto *currField = (FieldDecl*) nullptr;
+      for (auto *f : currDecl->fields()) if (f->getName() == fieldName)  {
+        currField = f;
+        break;
+      }
+
+      assert(currField && "MPI Datatype: Field not found!");
+      offset += baseDecl->getASTContext().getFieldOffset(currField);
+
+      fieldType = currField->getType();
+      if (fieldType->isRecordType()) currDecl = fieldType->getAsRecordDecl();
+      if (nextDotPos == -1UL) break;
+      lastDotPos = nextDotPos + 1;
     }
-    return str;
+
+    mapMpiTypeRecursively(fieldType, offset, entries);
   }
 
-  std::string getOffsetOfExpr(std::string parentTypeName, std::string fieldName) {
-    //offsetof is a macro and cannot cope if the parentTypeName contains commas
-    //  this would be true of parentTypeName is a template instantiation with multiple arguments
-    //  the solution is to #define COMMA ,
-    // and to replace all commas with COMMA
-
-    parentTypeName = ReplaceAll(parentTypeName, ",", " COMMA ");
-
-      return "offsetof(" + parentTypeName + ", " + fieldName + ")";
-  }
-
-  std::string getMappingMethodCode(std::vector<std::unique_ptr<SemaFieldDecl>> &fields, llvm::StringRef fieldsArg) {
-    SemaRecordDecl& recordDecl = *fields[0]->parent;
-
+  std::string getMappingMethodCode(RecordDecl *baseDecl, llvm::StringRef *fieldsArgs, int fieldsSize) {
     std::string sourceCode = "";
 
-    int nitems;
-    std::vector<std::string> blocklengths;
-    std::vector<std::string> types;
-    std::vector<std::string> offsets;
+    bool shouldOnlyIncludeExplicit = fieldsSize > 0;
 
-    bool shouldOnlyIncludeExplicit = fieldsArg.size() > 0;
+    std::vector<MpiEntry> entries;
 
-    for (const auto &field : recordDecl.fields) {
-        if (shouldOnlyIncludeExplicit && !fieldsArg.contains(field->name) && llvm::StringRef(field->name) != "__packed") continue; // TODO this will cause problems for similarly named fields
-      MpiElement element = this->mapMpiElement(*field->type, getOffsetOfExpr(recordDecl.name, field->name));
-      blocklengths.insert(blocklengths.end(), element.blockLengths.begin(), element.blockLengths.end());
-      types.insert(types.end(), element.types.begin(), element.types.end());
-      offsets.insert(offsets.end(), element.offsets.begin(), element.offsets.end());
+    if (shouldOnlyIncludeExplicit) {
+      for (int fieldIdx = 0; fieldIdx < fieldsSize; fieldIdx++) {
+        mapMpiField(baseDecl, fieldsArgs[fieldIdx], entries);
+      }
+    } else {
+      mapMpiTypeRecursively(QualType(baseDecl->getTypeForDecl(), 0), 0, entries);
     }
-
-    nitems = blocklengths.size();
 
     sourceCode += "    #define COMMA ,\n"
                   "    static MPI_Datatype *Datatype = nullptr;\n"
                   "    if (Datatype) return *Datatype;\n\n"
                   "    Datatype = new MPI_Datatype;\n"
-                  "    int blocklengths[" + std::to_string(nitems) + "] = { ";
-    for (auto blocklength : blocklengths) {
-      sourceCode += "(" + blocklength + "), ";
+                  "    int blocklengths[" + std::to_string(entries.size()) + "] = { ";
+    for (auto &entry : entries) {
+      sourceCode += std::to_string(entry.blockLen) + ", ";
     }
-    if (blocklengths.size() > 0) { // remove trailing ', '
+    if (entries.size() > 0) { // remove trailing ', '
       sourceCode.pop_back();
       sourceCode.pop_back();
     }
     sourceCode += " };\n\n";
 
-    sourceCode += "    MPI_Datatype types[" + std::to_string(nitems) + "] = { ";
-    for (auto type: types) {
-      sourceCode += type + ", ";
+    sourceCode += "    MPI_Datatype types[" + std::to_string(entries.size()) + "] = { ";
+    for (auto &entry : entries) {
+      sourceCode += entry.type + std::string(", ");
     }
-    if (types.size() > 0) { // remove trailing ', '
+    if (entries.size() > 0) { // remove trailing ', '
       sourceCode.pop_back();
       sourceCode.pop_back();
     }
     sourceCode += " };\n";
 
-    sourceCode += "    MPI_Aint offsets[" + std::to_string(nitems) + "] = {\n";
-    for (auto offset : offsets) {
-      sourceCode += "        " + offset + ",\n";
+    sourceCode += "    MPI_Aint offsets[" + std::to_string(entries.size()) + "] = {\n";
+    for (auto &entry : entries) {
+      sourceCode += "        " + std::to_string(entry.offset / 8 /* bits to bytes */) + ",\n";
     }
 
-    if (offsets.size() > 0) { // remove trailing ', '
+    if (entries.size() > 0) { // remove trailing ', '
       sourceCode.pop_back();
       sourceCode.pop_back();
     }
     sourceCode += "\n    };\n";
 
-    sourceCode += "    MPI_Type_create_struct(" + std::to_string(nitems) + ", blocklengths, offsets, types, Datatype);\n"
+    sourceCode += "    MPI_Type_create_struct(" + std::to_string(entries.size()) + ", blocklengths, offsets, types, Datatype);\n"
                   "    MPI_Type_commit(Datatype);\n"
                   "    return *Datatype;\n"
                   "    #undef COMMA";
@@ -253,25 +186,10 @@ public:
   }
 
   std::string getMpiMappingMethodBody(CXXMethodDecl *D) {
-      auto *decl = D->getParent();
-
-      auto fieldsRef = this->getMapMpiDatatypeAttr(D)->getFields();
-
-    return getMpiMappingMethodBody(decl->getNameAsString(), decl, fieldsRef);
-  }
-
-  std::string getMpiMappingMethodBody(std::string structName, RecordDecl *decl, llvm::StringRef fields) {
-      auto semaRecordDecl = fromRecordDecl(decl);
-      semaRecordDecl->name = structName;
-      return getMpiMappingMethodBody(*semaRecordDecl, fields);
-  }
-
-  std::string getMpiMappingMethodBody(SemaRecordDecl &decl, llvm::StringRef fields) {
-      return getMpiMappingMethodBody(decl.fields, fields);
-  }
-
-  std::string getMpiMappingMethodBody(std::vector<std::unique_ptr<SemaFieldDecl>> &fields, llvm::StringRef fieldsArg) {
-      return this->getMappingMethodCode(fields, fieldsArg);
+    auto *decl = D->getParent();
+    auto fieldsRef = this->getMapMpiDatatypeAttr(D)->fields_begin();
+    auto code = getMappingMethodCode(decl, fieldsRef, this->getMapMpiDatatypeAttr(D)->fields_size());
+    return code;
   }
 
 };

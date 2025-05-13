@@ -4245,11 +4245,16 @@ void Sema::AddViewAttr(clang::Decl *D, const clang::AttributeCommonInfo &CI, llv
 }
 
 void Sema::AddMapMpiDatatypeAttr(Decl *D, const ParsedAttr &AL) {
-    llvm::StringRef fields;
-    if (AL.getNumArgs() == 1) {
-        fields = llvm::cast<StringLiteral>(AL.getArgAsExpr(0))->getString();
-    }
-  auto *MapMpiDatatypeAttr = clang::MapMpiDatatypeAttr::Create(Context, fields, AL);
+  using NestedField = std::string;
+
+  auto *fields = new StringRef[AL.getNumArgs()];
+
+  for (int i = 0; i < AL.getNumArgs(); i++) {
+    auto *arg = (NestedField *) AL.getArg(i).get<void*>();
+    fields[i] = *arg;
+  }
+
+  MapMpiDatatypeAttr *MapMpiDatatypeAttr = clang::MapMpiDatatypeAttr::Create(Context, fields, AL.getNumArgs(), AL);
   D->addAttr(MapMpiDatatypeAttr);
 }
 

@@ -991,8 +991,9 @@ def CompressTruncateMantissa : InheritableParamAttr {
 
 def MapMpiDatatype : InheritableParamAttr {
     let Spellings = [Clang<"map_mpi_datatype">];
-    let Args = [StringArgument<"Fields", 1>];
+    let Args = [VariadicStringArgument<"Fields">];
     let Subjects = SubjectList<[Function]>;
+    let HasCustomParsing = 1;
     let Documentation = [Undocumented];
 }
 
