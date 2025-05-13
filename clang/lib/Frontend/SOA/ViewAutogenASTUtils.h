@@ -1063,9 +1063,17 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     }
   }
 
+  bool isConversionCandidate(Stmt *S) {
+    return GetAttr<SoaConversionAttr>(CI.getASTContext(), S)
+        || GetAttr<SoaConversionTargetAttr>(CI.getASTContext(), S)
+            || GetAttr<SoaConversionHoistAttr>(CI.getASTContext(), S)
+                || GetAttr<SoaConversionOffloadComputeAttr>(CI.getASTContext(), S);
+  }
+
   bool VisitForStmt(ForStmt *S) {
+    if (!isConversionCandidate(S)) return true;
+
     auto *soaConversionTargetAttr = GetAttr<SoaConversionTargetAttr>(CI.getASTContext(), S);
-    if (!soaConversionTargetAttr) return true;
 
     auto *functionDecl = GetParent<FunctionDecl>(CI.getASTContext(), S);
 
@@ -1115,8 +1123,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
   }
 
   bool VisitCXXForRangeStmt(CXXForRangeStmt *S) {
-    auto *soaConversionAttr = GetAttr<SoaConversionAttr>(CI.getASTContext(), S);
-    if (!soaConversionAttr) return true;
+    if (!isConversionCandidate(S)) return true;
 
     auto *targetDecl = S->getLoopVariable();
     auto *containerDecl = llvm::cast<DeclRefExpr>(S->getRangeInit())->getDecl();
