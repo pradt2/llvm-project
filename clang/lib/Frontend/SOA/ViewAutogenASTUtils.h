@@ -165,7 +165,7 @@ static void InlineFunctionArgs(ASTContext &C, Stmt* S, Rewriter *R) {
 
       bool VisitDeclRefExpr(DeclRefExpr *E) {
         if (E->getDecl() != D) return true;
-        auto newName = FD->getQualifiedNameAsString();
+        auto newName = std::string("::") + FD->getQualifiedNameAsString();
         R->ReplaceText(E->getSourceRange(), newName);
         return true;
       }
@@ -198,7 +198,7 @@ static void InlineTemplateParams(ASTContext &C, Stmt* S, Rewriter *R) {
 
       bool VisitSubstNonTypeTemplateParmExpr(SubstNonTypeTemplateParmExpr *E) {
         if (E->getParameter() != D) return true;
-        auto newName = FD->getQualifiedNameAsString();
+        auto newName = std::string("::") + FD->getQualifiedNameAsString();
         R->ReplaceText(E->getSourceRange(), newName);
         return true;
       }
@@ -1248,8 +1248,8 @@ public:
       }
     }
 
-    std::string forwardDeclarations;
-    std::string implicitSpecialisations;
+    std::string forwardDeclarations = "\n";
+    std::string implicitSpecialisations = "\n";
 
     auto *origR = R;
 
@@ -1278,7 +1278,7 @@ public:
       }
 
       if (hasNonTypeTemplateArgs) {
-        auto newName = FD->getQualifiedNameAsString() + "_" + std::to_string((unsigned long) FD);
+        auto newName = std::string("::") + FD->getQualifiedNameAsString() + "_" + std::to_string((unsigned long) FD);
         auto nameSourceRange = FD->getNameInfo().getSourceRange();
         R->ReplaceText(nameSourceRange, FD->getNameAsString() + "_" + std::to_string((unsigned long) FD));
 
