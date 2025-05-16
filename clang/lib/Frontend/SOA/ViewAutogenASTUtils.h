@@ -9,10 +9,13 @@ static Rewriter CreateRewriter(const Rewriter *oldR) {
 }
 
 static Expr *IgnoreImplicitCasts(Expr *E) {
-  if (!E || !llvm::isa<ImplicitCastExpr>(E)) return E;
-  auto *implicitCast = llvm::cast<ImplicitCastExpr>(E);
-  auto *base = implicitCast->IgnoreImpCasts();
-  return base;
+  auto *oldE = E;
+  do {
+    oldE = E;
+    E = E->IgnoreImpCasts();
+    if (llvm::isa<MaterializeTemporaryExpr>(E)) E = llvm::cast<MaterializeTemporaryExpr>(E)->getSubExpr();
+  } while (oldE != E);
+  return E;
 }
 
 static Expr *IgnoreCommonIndirections(Expr *E) {
@@ -53,6 +56,36 @@ T *GetAttr(ASTContext &C, Stmt *S) {
     }
   }
   return nullptr;
+}
+
+static bool IsConversionCandidate(ASTContext &C, Stmt *S) {
+  return GetAttr<SoaConversionAttr>(C, S)
+         || GetAttr<SoaConversionTargetAttr>(C, S)
+         || GetAttr<SoaConversionHoistAttr>(C, S)
+         || GetAttr<SoaConversionOffloadComputeAttr>(C, S);
+}
+
+static bool IsTransformationCandidate(ASTContext &C, Decl *D) {
+  struct IsTransformationCandidate : public RecursiveASTVisitor<IsTransformationCandidate> {
+    ASTContext &C;
+    bool isCandidate = false;
+
+    bool VisitForStmt(ForStmt *S) {
+      if (!IsConversionCandidate(C, S)) return true;
+      isCandidate = true;
+      return false;
+    }
+
+    bool VisitCXXForRangeStmt(CXXForRangeStmt *S) {
+      if (!IsConversionCandidate(C, S)) return true;
+      isCandidate = true;
+      return false;
+    }
+
+  } Finder{.C = C, .isCandidate = false};
+  Finder.TraverseDecl(D);
+  auto isCandidate = Finder.isCandidate;
+  return isCandidate;
 }
 
 bool IsInOffloadingCtx(ASTContext &C, Stmt *S) {
@@ -446,7 +479,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       return "unknown";
     }
 
-    auto *inc = llvm::cast<UnaryOperator>(S->getInc());
+    auto *inc = llvm::cast<UnaryOperator>(IgnoreImplicitCasts(S->getInc()));
     if (inc->getOpcode() != UnaryOperatorKind::UO_PreInc && inc->getOpcode() != UnaryOperatorKind::UO_PostInc) {
       llvm::errs() << "For loop uses a non-standard increment\n";
       return "<unknown>";
@@ -1070,15 +1103,8 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     }
   }
 
-  bool isConversionCandidate(Stmt *S) {
-    return GetAttr<SoaConversionAttr>(CI.getASTContext(), S)
-        || GetAttr<SoaConversionTargetAttr>(CI.getASTContext(), S)
-            || GetAttr<SoaConversionHoistAttr>(CI.getASTContext(), S)
-                || GetAttr<SoaConversionOffloadComputeAttr>(CI.getASTContext(), S);
-  }
-
   bool VisitForStmt(ForStmt *S) {
-    if (!isConversionCandidate(S)) return true;
+    if (!IsConversionCandidate(CI.getASTContext(), S)) return true;
 
     auto *soaConversionTargetAttr = GetAttr<SoaConversionTargetAttr>(CI.getASTContext(), S);
 
@@ -1130,7 +1156,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
   }
 
   bool VisitCXXForRangeStmt(CXXForRangeStmt *S) {
-    if (!isConversionCandidate(S)) return true;
+    if (!IsConversionCandidate(CI.getASTContext(), S)) return true;
 
     auto *targetDecl = S->getLoopVariable();
     auto *containerDecl = llvm::cast<DeclRefExpr>(S->getRangeInit())->getDecl();
@@ -1185,42 +1211,19 @@ struct SoaConversionASTConsumer : public ASTConsumer, public RecursiveASTVisitor
   CompilerInstance &CI;
   Rewriter *R;
 
-  bool isTransformationCandidate(Decl *D) {
-    struct IsTransformationCandidate : public RecursiveASTVisitor<IsTransformationCandidate> {
-      bool isCandidate = false;
-
-      bool VisitAttributedStmt(AttributedStmt *S) {
-        for (auto *A : S->getAttrs()) {
-          if (llvm::isa<SoaConversionAttr>(A) || llvm::isa<SoaConversionTargetAttr>(A)) {
-            isCandidate = true;
-            return false;
-          }
-        }
-        return true;
-      }
-
-    } Finder{.isCandidate = false};
-    Finder.TraverseDecl(D);
-    auto isCandidate = Finder.isCandidate;
-    return isCandidate;
-  }
-
 public:
   SoaConversionASTConsumer(CompilerInstance &CI) : CI(CI), R(&CI.getSourceManager().getRewriter()) {}
 
   bool VisitFunctionDecl(FunctionDecl *D) {
     if (D->isTemplated()) return true;
-
-    auto isConversionCandidate = isTransformationCandidate(D);
-    if (!isConversionCandidate) return true;
+    if (!IsTransformationCandidate(CI.getASTContext(), D)) return true;
 
     SoaHandler{.CI = CI, .R = R}.TraverseDecl(D);
     return true;
   }
 
   bool VisitFunctionTemplateDecl(FunctionTemplateDecl *D) {
-    auto isConversionCandidate = isTransformationCandidate(D);
-    if (!isConversionCandidate) return true;
+    if (!IsTransformationCandidate(CI.getASTContext(), D)) return true;
 
     int specCount = 0;
     for (auto *FD : D->specializations()) specCount++;
