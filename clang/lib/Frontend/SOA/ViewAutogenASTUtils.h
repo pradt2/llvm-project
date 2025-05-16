@@ -273,7 +273,11 @@ struct UsageFinder : RecursiveASTVisitor<UsageFinder> {
 
     if (llvm::isa<CXXMethodDecl>(memberDecl)) {
       auto *methodDecl = llvm::cast<CXXMethodDecl>(memberDecl);
-      this->Stats->methods.insert(methodDecl);
+      auto i = this->Stats->methods.insert(methodDecl);
+      if (std::get<bool>(i)) {
+        printf("Detected method: %s(%d)\n", methodDecl->getQualifiedNameAsString().c_str(), methodDecl->getMinRequiredArguments());
+      }
+
       return true;
     }
 
@@ -528,7 +532,14 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
         view.pop_back();
       }
       view += ") " + std::string(method->isConst() ? "const " : "");
-      view += R->getRewrittenText(method->getBody()->getSourceRange()) + "\n";
+      if (method->getBody()) {
+        view += R->getRewrittenText(method->getBody()->getSourceRange()) + "\n";
+      } else if (method->isConst()) {
+        view += "{ /* the definition of this const method was unavailable during compilation. fingers crossed it did nothing important */ }\n";
+      } else {
+        llvm::errs() << "SOA: AoS function def is not available\n";
+        exit(1);
+      }
     }
 
     view += structName + " &operator[](int i) { return *this; }\n";
