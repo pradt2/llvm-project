@@ -273,11 +273,7 @@ struct UsageFinder : RecursiveASTVisitor<UsageFinder> {
 
     if (llvm::isa<CXXMethodDecl>(memberDecl)) {
       auto *methodDecl = llvm::cast<CXXMethodDecl>(memberDecl);
-      auto i = this->Stats->methods.insert(methodDecl);
-      if (std::get<bool>(i)) {
-        printf("Detected method: %s(%d)\n", methodDecl->getQualifiedNameAsString().c_str(), methodDecl->getMinRequiredArguments());
-      }
-
+      this->Stats->methods.insert(methodDecl);
       return true;
     }
 
