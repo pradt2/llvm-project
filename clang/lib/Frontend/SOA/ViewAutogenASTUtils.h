@@ -251,6 +251,8 @@ struct UsageStats {
   enum UsageKind {
     Unknown = 0, Read = 1,
     Write = 2,
+
+    LLVM_MARK_AS_BITMASK_ENUM(2)
   };
 
   CXXRecordDecl *record;
@@ -320,10 +322,10 @@ struct UsageFinder : RecursiveASTVisitor<UsageFinder> {
       auto usageKind = isReadAccess ? UsageStats::UsageKind::Read : UsageStats::UsageKind::Write;
 
       // for functions that possibly return references, always assume that the value is at least read
-      if (GetParent<ReturnStmt>(C, E)) usageKind = (UsageStats::UsageKind) (usageKind | UsageStats::UsageKind::Read);
-      if (GetParent<BinaryOperator>(C, E)) usageKind = (UsageStats::UsageKind) (usageKind | UsageStats::UsageKind::Read);
+      if (GetParent<ReturnStmt>(C, E)) usageKind |= UsageStats::UsageKind::Read;
+      if (GetParent<BinaryOperator>(C, E)) usageKind |= UsageStats::UsageKind::Read;
 
-      this->Stats->fields[fieldDecl] = (UsageStats::UsageKind) (this->Stats->fields[fieldDecl] | usageKind);
+      this->Stats->fields[fieldDecl] |= usageKind;
       return true;
     }
 
@@ -590,10 +592,10 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       auto name = F->getNameAsString();
       if (!F->getType()->isArrayType()) {
         auto type = TypeToString(F->getType());
-        soaHelperDecl += type + " *" + name + ";\n";
+        soaHelperDecl += type + " * __restrict__ " + name + ";\n";
       } else {
         auto *arrType = llvm::cast<ConstantArrayType>(F->getType()->getAsArrayTypeUnsafe());
-        soaHelperDecl += TypeToString(arrType->getElementType()) + " *" + name + ";\n";
+        soaHelperDecl += TypeToString(arrType->getElementType()) + " * __restrict__ " + name + ";\n";
       }
     }
     std::string viewName = getReferenceViewDeclName(Stats, S);
@@ -972,6 +974,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     auto declName = D->getNameAsString();
     auto &Layout = D->getASTContext().getASTRecordLayout(Stats.record);
 
+    soaBuffersWriteback += "#pragma omp simd\n";
     soaBuffersWriteback += "for (int i = 0; i < " + sizeExprStr + "; i++) {\n";
     soaBuffersWriteback += "auto *rawPtr = (char*) &" + declName + "[i];\n";
 
@@ -1024,6 +1027,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     auto pointerArithmeticPrefix = std::string(isTargetTypePointer ? "" : "&");
     auto &Layout = target->getASTContext().getASTRecordLayout(Stats.record);
 
+    soaBuffersWriteback += "#pragma omp simd\n";
     soaBuffersWriteback += "for (auto " + deref + itemName + " : " + container->getNameAsString() + ") {\n";
     soaBuffersWriteback += "auto *rawPtr = (char*) " + pointerArithmeticPrefix + itemName + ";\n";
 
