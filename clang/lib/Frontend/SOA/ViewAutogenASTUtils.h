@@ -543,7 +543,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       auto name = F->getNameAsString();
       if (!F->getType()->isArrayType()) {
         auto type = TypeToString(F->getType());
-        view += type + " &" + name + " = *((" + type + "*) 1);\n";
+        view += type + " & __restrict__ " + name + " = *((" + type + "*) 1);\n";
       } else {
         auto *arrType = llvm::cast<ConstantArrayType>(F->getType()->getAsArrayTypeUnsafe());
         view += TypeToString(arrType->getElementType()) + " *" + F->getNameAsString() + ";\n";
@@ -691,7 +691,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
   }
 
   std::string getSoaBuffersInitForLoop(std::string &sizeExprStr, VarDecl *D, UsageStats &Stats, Stmt *S) {
-    std::string soaBuffersInit = "";
+    std::string soaBuffersInit = "#pragma omp simd\n";
     soaBuffersInit += "for (int i = 0; i < " + sizeExprStr + "; i++) {\n";
 
     auto declName = D->getNameAsString();
@@ -716,11 +716,22 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       }
 
       auto name = getUniqueName(F->getNameAsString(), S);
-      auto size = std::to_string(D->getASTContext().getTypeSize(F->getType()) / 8);
-      auto offset = std::to_string(Layout.getFieldOffset(idx) / 8);
+      auto sizeBytes = D->getASTContext().getTypeSize(F->getType()) / 8;
+      auto size = std::to_string(sizeBytes);
+      auto offsetBytes = Layout.getFieldOffset(idx) / 8;
+      auto offset = std::to_string(offsetBytes);
       auto type = TypeToString(F->getType());
 
-      soaBuffersInit += "std::memcpy(&" + name + "[i], (" + type + "*) &rawPtr[" + offset + "], " + size + ");\n";
+      if (sizeBytes > 8 && sizeBytes % 8 == 0) {
+        // somehow copying more than 8 bytes this way can break vectorisation. go figure.
+        // try to split transfers into multiple 8 byte transfers.
+        int chunks = sizeBytes / 8;
+        for (int chunkId = 0; chunkId < sizeBytes / 8; chunkId++) {
+          soaBuffersInit += "std::memcpy((unsigned long*) &" + name + "[i] + " + std::to_string(chunkId) + ", (unsigned long*) &rawPtr[" + std::to_string(offsetBytes + chunkId * 8) + "], 8);\n";
+        }
+      } else {
+        soaBuffersInit += "std::memcpy(&" + name + "[i], (" + type + "*) &rawPtr[" + offset + "], " + size + ");\n";
+      }
     }
 
     soaBuffersInit += "}\n";
@@ -758,11 +769,22 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       }
 
       auto name = getUniqueName(F->getNameAsString(), S);
-      auto size = std::to_string(target->getASTContext().getTypeSize(F->getType()) / 8);
-      auto offset = std::to_string(Layout.getFieldOffset(idx) / 8);
+      auto sizeBytes = target->getASTContext().getTypeSize(F->getType()) / 8;
+      auto size = std::to_string(sizeBytes);
+      auto offsetBytes = Layout.getFieldOffset(idx) / 8;
+      auto offset = std::to_string(offsetBytes);
       auto type = TypeToString(F->getType());
 
-      soaBuffersInit += "std::memcpy(&" + name + "[i], (" + type + "*) &rawPtr[" + offset + "], " + size + ");\n";
+      if (sizeBytes > 8 && sizeBytes % 8 == 0) {
+        // somehow copying more than 8 bytes this way can break vectorisation. go figure.
+        // try to split transfers into multiple 8 byte transfers.
+        int chunks = sizeBytes / 8;
+        for (int chunkId = 0; chunkId < sizeBytes / 8; chunkId++) {
+          soaBuffersInit += "std::memcpy((unsigned long*) &" + name + "[i] + " + std::to_string(chunkId) + ", (unsigned long*) &rawPtr[" + std::to_string(offsetBytes + chunkId * 8) + "], 8);\n";
+        }
+      } else {
+        soaBuffersInit += "std::memcpy(&" + name + "[i], (" + type + "*) &rawPtr[" + offset + "], " + size + ");\n";
+      }
     }
     soaBuffersInit += "++" + counterName + ";\n";
     soaBuffersInit += "}\n";
@@ -970,11 +992,23 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       }
 
       auto name = getUniqueName(F->getNameAsString(), S);
-      auto size = std::to_string(D->getASTContext().getTypeSize(F->getType()) / 8);
-      auto offset = std::to_string(Layout.getFieldOffset(idx) / 8);
+      auto sizeBytes = D->getASTContext().getTypeSize(F->getType()) / 8;
+      auto size = std::to_string(sizeBytes);
+      auto offsetBytes = Layout.getFieldOffset(idx) / 8;
+      auto offset = std::to_string(offsetBytes);
       auto type = TypeToString(F->getType());
 
-      soaBuffersWriteback += "std::memcpy((" + type + "*) &rawPtr[" + offset + "], &" + name + "[i], " + size + ");\n";
+      if (sizeBytes > 8 && sizeBytes % 8 == 0) {
+        // somehow copying more than 8 bytes this way can break vectorisation. go figure.
+        // try to split transfers into multiple 8 byte transfers.
+        int chunks = sizeBytes / 8;
+        for (int chunkId = 0; chunkId < sizeBytes / 8; chunkId++) {
+          soaBuffersWriteback += "std::memcpy((unsigned long*) &rawPtr[" + std::to_string(offsetBytes + chunkId * 8) + "], (unsigned long*) &" + name + "[i] + " + std::to_string(chunkId) + ", 8);\n";
+        }
+      } else {
+        soaBuffersWriteback += "std::memcpy((" + type + "*) &rawPtr[" + offset + "], &" + name + "[i], " + size + ");\n";
+      }
+
     }
     soaBuffersWriteback += "}\n";
     return soaBuffersWriteback;
@@ -1010,11 +1044,22 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       }
 
       auto name = getUniqueName(F->getNameAsString(), S);
-      auto size = std::to_string(target->getASTContext().getTypeSize(F->getType()) / 8);
-      auto offset = std::to_string(Layout.getFieldOffset(idx) / 8);
+      auto sizeBytes = target->getASTContext().getTypeSize(F->getType()) / 8;
+      auto size = std::to_string(sizeBytes);
+      auto offsetBytes = Layout.getFieldOffset(idx) / 8;
+      auto offset = std::to_string(offsetBytes);
       auto type = TypeToString(F->getType());
 
-      soaBuffersWriteback += "std::memcpy((" + type + "*) &rawPtr[" + offset + "], &" + name + "[i], " + size + ");\n";
+      if (sizeBytes > 8 && sizeBytes % 8 == 0) {
+        // somehow copying more than 8 bytes this way can break vectorisation. go figure.
+        // try to split transfers into multiple 8 byte transfers.
+        int chunks = sizeBytes / 8;
+        for (int chunkId = 0; chunkId < sizeBytes / 8; chunkId++) {
+          soaBuffersWriteback += "std::memcpy((unsigned long*) &rawPtr[" + std::to_string(offsetBytes + chunkId * 8) + "], (unsigned long*) &" + name + "[i] + " + std::to_string(chunkId) + ", 8);\n";
+        }
+      } else {
+        soaBuffersWriteback += "std::memcpy((" + type + "*) &rawPtr[" + offset + "], &" + name + "[i], " + size + ");\n";
+      }
     }
     soaBuffersWriteback += "++" + counterName + ";\n";
     soaBuffersWriteback += "}\n";
