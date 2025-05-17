@@ -693,7 +693,10 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
   std::string getSoaBuffersInitForLoop(std::string &sizeExprStr, VarDecl *D, UsageStats &Stats, Stmt *S) {
     std::string soaBuffersInit = "";
     soaBuffersInit += "for (int i = 0; i < " + sizeExprStr + "; i++) {\n";
+
     auto declName = D->getNameAsString();
+    soaBuffersInit += "auto *rawPtr = (char*) &" + declName + "[i];\n";
+
     auto &Layout = D->getASTContext().getASTRecordLayout(Stats.record);
 
     for (auto [F, usage] : Stats.fields) {
@@ -713,19 +716,13 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       }
 
       auto name = getUniqueName(F->getNameAsString(), S);
+      auto size = std::to_string(D->getASTContext().getTypeSize(F->getType()) / 8);
       auto offset = std::to_string(Layout.getFieldOffset(idx) / 8);
-      if (!F->getType()->isArrayType()) {
-        auto type = TypeToString(F->getType());
-        soaBuffersInit += name + "[i] = " + "*((" + type + "*) (((char*) &" + declName + "[i]) + " + offset + "));\n";
-      } else {
-        auto *arrType = llvm::cast<ConstantArrayType>(F->getType()->getAsArrayTypeUnsafe());
-        auto type = TypeToString(arrType->getElementType());
-        auto size = arrType->getSExtSize();
-        for (int i = 0; i < size; i++) {
-          soaBuffersInit += name + "[i * " + std::to_string(size) + " + " + std::to_string(i) + "] = " + "*(((" + type + "*) (((char*) &" + declName + "[i]) + " + offset + ") " + std::to_string(i) + "));\n";
-        }
-      }
+      auto type = TypeToString(F->getType());
+
+      soaBuffersInit += "std::memcpy(&" + name + "[i], (" + type + "*) &rawPtr[" + offset + "], " + size + ");\n";
     }
+
     soaBuffersInit += "}\n";
     return soaBuffersInit;
   }
@@ -738,7 +735,10 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     auto isTargetTypePointer = target->getType()->isPointerType();
     auto deref = std::string(isTargetTypePointer ? "*" : "&");
     auto pointerArithmeticPrefix = std::string(isTargetTypePointer ? "" : "&");
+
     soaBuffersInit += "for (auto " + deref + itemName + " : " + container->getNameAsString() + ") {\n";
+    soaBuffersInit += "auto *rawPtr = (char*) " + pointerArithmeticPrefix + itemName + ";\n";
+
     auto &Layout = target->getASTContext().getASTRecordLayout(Stats.record);
 
     for (auto [F, usage] : Stats.fields) {
@@ -758,18 +758,11 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       }
 
       auto name = getUniqueName(F->getNameAsString(), S);
+      auto size = std::to_string(target->getASTContext().getTypeSize(F->getType()) / 8);
       auto offset = std::to_string(Layout.getFieldOffset(idx) / 8);
-      if (!F->getType()->isArrayType()) {
-        auto type = TypeToString(F->getType());
-        soaBuffersInit += name + "[" + counterName + "] = " + "*((" + type + "*) (((char*) " + pointerArithmeticPrefix + itemName + ") + " + offset + "));\n";
-      } else {
-        auto *arrType = llvm::cast<ConstantArrayType>(F->getType()->getAsArrayTypeUnsafe());
-        auto type = TypeToString(arrType->getElementType());
-        auto size = arrType->getSExtSize();
-        for (int i = 0; i < size; i++) {
-          soaBuffersInit += name + "[" + counterName + " * " + std::to_string(size) + " + " + std::to_string(i) + "] = " + "*(((" + type + "*) (((char*) " + pointerArithmeticPrefix + itemName + ") + " + offset + ") " + std::to_string(i) + "));\n";
-        }
-      }
+      auto type = TypeToString(F->getType());
+
+      soaBuffersInit += "std::memcpy(&" + name + "[i], (" + type + "*) &rawPtr[" + offset + "], " + size + ");\n";
     }
     soaBuffersInit += "++" + counterName + ";\n";
     soaBuffersInit += "}\n";
@@ -954,14 +947,15 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
 
   std::string getSoaBuffersWritebackForLoop(std::string &sizeExprStr, VarDecl *D, UsageStats &Stats, Stmt *S) {
     std::string soaBuffersWriteback = "";
-    soaBuffersWriteback += "for (int i = 0; i < " + sizeExprStr + "; i++) {\n";
     auto declName = D->getNameAsString();
     auto &Layout = D->getASTContext().getASTRecordLayout(Stats.record);
+
+    soaBuffersWriteback += "for (int i = 0; i < " + sizeExprStr + "; i++) {\n";
+    soaBuffersWriteback += "auto *rawPtr = (char*) &" + declName + "[i];\n";
 
     for (auto [F, usage] : Stats.fields) {
       if (!(usage & UsageStats::UsageKind::Write)) continue;
 
-      auto name = getUniqueName(F->getNameAsString(), S);
       auto idx = -1;
       auto found = false;
       for (auto *field : Stats.record->fields()) {
@@ -975,18 +969,12 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
         exit(1);
       }
 
+      auto name = getUniqueName(F->getNameAsString(), S);
+      auto size = std::to_string(D->getASTContext().getTypeSize(F->getType()) / 8);
       auto offset = std::to_string(Layout.getFieldOffset(idx) / 8);
-      if (!F->getType()->isArrayType()) {
-        auto type = TypeToString(F->getType());
-        soaBuffersWriteback += "*((" + type + "*) (((char*) &" + declName + "[i]) + " + offset + ")) = " + name + "[i];\n";
-      } else {
-        auto *arrType = llvm::cast<ConstantArrayType>(F->getType()->getAsArrayTypeUnsafe());
-        auto type = TypeToString(arrType->getElementType());
-        auto size = arrType->getSExtSize();
-        for (int i = 0; i < size; i++) {
-          soaBuffersWriteback += "*(((" + type + "*) (((char*) &" + declName + "[i]) + " + offset + ") " + std::to_string(i) + ")) = " + name + "[i * " + std::to_string(size) + " + " + std::to_string(i) + "];\n";
-        }
-      }
+      auto type = TypeToString(F->getType());
+
+      soaBuffersWriteback += "std::memcpy((" + type + "*) &rawPtr[" + offset + "], &" + name + "[i], " + size + ");\n";
     }
     soaBuffersWriteback += "}\n";
     return soaBuffersWriteback;
@@ -1000,8 +988,10 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     auto isTargetTypePointer = target->getType()->isPointerType();
     auto deref = std::string(isTargetTypePointer ? "*" : "&");
     auto pointerArithmeticPrefix = std::string(isTargetTypePointer ? "" : "&");
-    soaBuffersWriteback += "for (auto " + deref + itemName + " : " + container->getNameAsString() + ") {\n";
     auto &Layout = target->getASTContext().getASTRecordLayout(Stats.record);
+
+    soaBuffersWriteback += "for (auto " + deref + itemName + " : " + container->getNameAsString() + ") {\n";
+    soaBuffersWriteback += "auto *rawPtr = (char*) " + pointerArithmeticPrefix + itemName + ";\n";
 
     for (auto [F, usage] : Stats.fields) {
       if (!(usage & UsageStats::UsageKind::Write)) continue;
@@ -1020,18 +1010,11 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       }
 
       auto name = getUniqueName(F->getNameAsString(), S);
+      auto size = std::to_string(target->getASTContext().getTypeSize(F->getType()) / 8);
       auto offset = std::to_string(Layout.getFieldOffset(idx) / 8);
-      if (!F->getType()->isArrayType()) {
-        auto type = TypeToString(F->getType());
-        soaBuffersWriteback += "*((" + type + "*) (((char*) " + pointerArithmeticPrefix + itemName + ") + " + offset + ")) = " + name + "[" + counterName + "];\n";
-      } else {
-        auto *arrType = llvm::cast<ConstantArrayType>(F->getType()->getAsArrayTypeUnsafe());
-        auto type = TypeToString(arrType->getElementType());
-        auto size = arrType->getSExtSize();
-        for (int i = 0; i < size; i++) {
-          soaBuffersWriteback += "*(((" + type + "*) (((char*) " + pointerArithmeticPrefix + itemName + ") + " + offset + ") " + std::to_string(i) + ")) = " + name + "[" + counterName + " * " + std::to_string(size) + " + " + std::to_string(i) + "];\n";
-        }
-      }
+      auto type = TypeToString(F->getType());
+
+      soaBuffersWriteback += "std::memcpy((" + type + "*) &rawPtr[" + offset + "], &" + name + "[i], " + size + ");\n";
     }
     soaBuffersWriteback += "++" + counterName + ";\n";
     soaBuffersWriteback += "}\n";
