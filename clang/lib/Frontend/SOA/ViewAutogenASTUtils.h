@@ -921,6 +921,11 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
   }
 
   void rewriteForLoop(VarDecl *D, std::string &sizeExprStr, UsageStats &Stats, ForStmt *S) {
+    if (!IsInOffloadingCtx(D->getASTContext(), S)) {
+      auto *as = GetParent<AttributedStmt>(D->getASTContext(), S);
+      R->InsertTextBefore(as->getBeginLoc(), "#pragma omp simd\n");
+    }
+
     auto iterVarName = llvm::cast<VarDecl>(llvm::cast<DeclStmt>(S->getInit())->getSingleDecl())->getNameAsString();
     std::string instanceName = getSoaHelperInstanceName(Stats, S);
 
@@ -951,6 +956,11 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
   }
 
   void rewriteForRangeLoop(VarDecl *D, std::string &sizeExprStr, UsageStats &Stats, CXXForRangeStmt *S) {
+    if (!IsInOffloadingCtx(D->getASTContext(), S)) {
+      auto *as = GetParent<AttributedStmt>(D->getASTContext(), S);
+      R->InsertTextBefore(as->getBeginLoc(), "#pragma omp simd\n");
+    }
+
     auto iterVarName = getUniqueName("iter", S);
     std::string instanceName = getSoaHelperInstanceName(Stats, S);
 
