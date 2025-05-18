@@ -262,19 +262,36 @@ struct UsageStats {
 
   int getSoaBufOffset(ASTContext &C, FieldDecl *D) {
     auto offsetBytes = 0;
-    for (auto [F, usage] : fields) {
+    for (auto *F : D->getParent()->fields()) {
+      if (!fields.count(F)) continue;
+      if (D == F) return offsetBytes;
+      offsetBytes += C.getTypeSize(F->getType()) / 8;
+    }
+    llvm::errs() << "SOA: field not found!";
+    exit(1);
+  }
+
+  int getSoaBufOffsetOffload(ASTContext &C, FieldDecl *D) {
+    auto offsetBytes = 0;
+    for (auto *F : D->getParent()->fields()) {
+      if (!fields.count(F)) continue;
+      auto usage = fields[F];
       if (usage != UsageKind::Read) continue;
       if (D == F) return offsetBytes;
       offsetBytes += C.getTypeSize(F->getType()) / 8;
     }
 
-    for (auto [F, usage] : fields) {
+    for (auto *F : D->getParent()->fields()) {
+      if (!fields.count(F)) continue;
+      auto usage = fields[F];
       if (usage != (UsageKind::Read | UsageKind::Write)) continue;
       if (D == F) return offsetBytes;
       offsetBytes += C.getTypeSize(F->getType()) / 8;
     }
 
-    for (auto [F, usage] : fields) {
+    for (auto *F : D->getParent()->fields()) {
+      if (!fields.count(F)) continue;
+      auto usage = fields[F];
       if (usage != UsageKind::Write) continue;
       if (D == F) return offsetBytes;
       offsetBytes += C.getTypeSize(F->getType()) / 8;
@@ -542,7 +559,8 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     }
 
     int counter = 1000; // helps spread out fake initial ref addresses
-    for (auto [F, v] : Stats.fields) {
+    for (auto *F : Stats.record->fields()) {
+      if (!Stats.fields.count(F)) continue;
       auto name = F->getNameAsString();
       if (!F->getType()->isArrayType()) {
         auto type = TypeToString(F->getType());
@@ -590,7 +608,8 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     std::string soaHelperDecl = "";
     std::string structName = getSoaHelperDeclName(Stats, S);
     soaHelperDecl += "struct " + structName + " {\n";
-    for (auto [F, usage] : Stats.fields) {
+    for (auto *F : Stats.record->fields()) {
+      if (!Stats.fields.count(F)) continue;
       auto name = F->getNameAsString();
       if (!F->getType()->isArrayType()) {
         auto type = TypeToString(F->getType());
@@ -603,7 +622,8 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     std::string viewName = getReferenceViewDeclName(Stats, S);
     soaHelperDecl += viewName + " operator[](int i) {\n";
     soaHelperDecl += "return " + viewName + "{\n";
-    for (auto [F, usage] : Stats.fields) {
+    for (auto *F : Stats.record->fields()) {
+      if (!Stats.fields.count(F)) continue;
       auto name = F->getNameAsString();
       if (!F->getType()->isArrayType()) {
         soaHelperDecl += name + "[i],\n";
@@ -628,16 +648,17 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     std::string viewName = getReferenceViewDeclName(Stats, S);
     soaHelperDecl += viewName + " operator[](int i, int size) {\n";
     soaHelperDecl += "return " + viewName + "{\n";
-    for (auto [F, usage] : Stats.fields) {
+    for (auto *F : Stats.record->fields()) {
+      if (!Stats.fields.count(F)) continue;
       auto name = F->getNameAsString();
       if (!F->getType()->isArrayType()) {
         auto typeStr = TypeToString(F->getType());
-        soaHelperDecl += "((" + typeStr + "*) (__soa_buf_dev + " + std::to_string(Stats.getSoaBufOffset(C, F)) + " * size))[i],\n";
+        soaHelperDecl += "((" + typeStr + "*) (__soa_buf_dev + " + std::to_string(Stats.getSoaBufOffsetOffload(C, F)) + " * size))[i],\n";
       } else {
         auto *arrType = llvm::cast<ConstantArrayType>(F->getType()->getAsArrayTypeUnsafe());
         auto typeStr = TypeToString(arrType->getElementType());
         auto size = std::to_string(arrType->getSExtSize());
-        soaHelperDecl += "((" + typeStr + "*) (__soa_buf_dev + " + std::to_string(Stats.getSoaBufOffset(C, F)) + " * size))[i * " + size + "],\n";
+        soaHelperDecl += "((" + typeStr + "*) (__soa_buf_dev + " + std::to_string(Stats.getSoaBufOffsetOffload(C, F)) + " * size))[i * " + size + "],\n";
         soaHelperDecl += name + " + i * " + size + ",\n";
       }
     }
@@ -657,12 +678,14 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
   std::string getSoaBuffersDecl(std::string &sizeExprStr, ASTContext &C, UsageStats &Stats, Stmt *S) {
     std::string soaBuffersDecl = "alignas (64) char " + getUniqueName("__soa_buf", S) + "[";
     unsigned int sizeInBytes = 0;
-    for (auto [F, usage] : Stats.fields) {
+    for (auto *F : Stats.record->fields()) {
+      if (!Stats.fields.count(F)) continue;
       sizeInBytes += C.getTypeSize(F->getType()) / 8;
     }
     soaBuffersDecl += std::to_string(sizeInBytes) + " * " + sizeExprStr + "];\n";
 
-    for (auto [F, usage] : Stats.fields) {
+    for (auto *F : Stats.record->fields()) {
+      if (!Stats.fields.count(F)) continue;
       auto name = getUniqueName(F->getNameAsString(), S);
       auto offset = Stats.getSoaBufOffset(C, F);
       std::string type = "";
@@ -703,7 +726,9 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
 
     auto &Layout = D->getASTContext().getASTRecordLayout(Stats.record);
 
-    for (auto [F, usage] : Stats.fields) {
+    for (auto *F : Stats.record->fields()) {
+      if (!Stats.fields.count(F)) continue;
+      auto usage = Stats.fields[F];
       if (!(usage & UsageStats::UsageKind::Read)) continue;
 
       auto idx = -1;
@@ -756,7 +781,9 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
 
     auto &Layout = target->getASTContext().getASTRecordLayout(Stats.record);
 
-    for (auto [F, usage] : Stats.fields) {
+    for (auto *F : Stats.record->fields()) {
+      if (!Stats.fields.count(F)) continue;
+      auto usage = Stats.fields[F];
       if (!(usage & UsageStats::UsageKind::Read)) continue;
 
       auto idx = -1;
@@ -804,7 +831,8 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     std::string structName = getSoaHelperDeclName(Stats, S);
     std::string instanceName = getSoaHelperInstanceName(Stats, S);
     soaHelperInstance += "auto " + instanceName + " = " + structName + "{";
-    for (auto [F, usage] : Stats.fields) {
+    for (auto *F : Stats.record->fields()) {
+      if (!Stats.fields.count(F)) continue;
       auto name = getUniqueName(F->getNameAsString(), S);
       soaHelperInstance += name + ",";
     }
@@ -860,7 +888,9 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
 
     if (IsInOffloadingCtx(C, S)) {
       auto bytesToCopy = 0;
-      for (auto [F, usage] : Stats.fields) {
+      for (auto *F : Stats.record->fields()) {
+        if (!Stats.fields.count(F)) continue;
+        auto usage = Stats.fields[F];
         if (!(usage & UsageStats::UsageKind::Read)) continue;
         bytesToCopy += C.getTypeSize(F->getType()) / 8;
       }
@@ -953,7 +983,9 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     if (IsInOffloadingCtx(C, S)) {
       auto offset = 0;
       auto bytesToCopy = 0;
-      for (auto [F, usage] : Stats.fields) {
+      for (auto *F : Stats.record->fields()) {
+        if (!Stats.fields.count(F)) continue;
+        auto usage = Stats.fields[F];
         if (usage == UsageStats::UsageKind::Read) {
           offset += C.getTypeSize(F->getType()) / 8;
         }
@@ -980,7 +1012,9 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     soaBuffersWriteback += "for (int i = 0; i < " + sizeExprStr + "; i++) {\n";
     soaBuffersWriteback += "auto *rawPtr = (char*) &" + declName + "[i];\n";
 
-    for (auto [F, usage] : Stats.fields) {
+    for (auto *F : Stats.record->fields()) {
+      if (!Stats.fields.count(F)) continue;
+      auto usage = Stats.fields[F];
       if (!(usage & UsageStats::UsageKind::Write)) continue;
 
       auto idx = -1;
@@ -1033,7 +1067,9 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     soaBuffersWriteback += "for (auto " + deref + itemName + " : " + container->getNameAsString() + ") {\n";
     soaBuffersWriteback += "auto *rawPtr = (char*) " + pointerArithmeticPrefix + itemName + ";\n";
 
-    for (auto [F, usage] : Stats.fields) {
+    for (auto *F : Stats.record->fields()) {
+      if (!Stats.fields.count(F)) continue;
+      auto usage = Stats.fields[F];
       if (!(usage & UsageStats::UsageKind::Write)) continue;
 
       auto idx = -1;
