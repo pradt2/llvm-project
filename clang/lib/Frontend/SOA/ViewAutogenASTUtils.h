@@ -558,18 +558,16 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       }
     }
 
-    int counter = 1000; // helps spread out fake initial ref addresses
     for (auto *F : Stats.record->fields()) {
       if (!Stats.fields.count(F)) continue;
       auto name = F->getNameAsString();
       if (!F->getType()->isArrayType()) {
         auto type = TypeToString(F->getType());
-        view += type + " & __restrict__ " + name + " = *((" + type + "*) " + std::to_string(counter) + ");\n";
+        view += type + " & __restrict__ " + name + ";\n";
       } else {
         auto *arrType = llvm::cast<ConstantArrayType>(F->getType()->getAsArrayTypeUnsafe());
         view += TypeToString(arrType->getElementType()) + " *" + F->getNameAsString() + ";\n";
       }
-      counter += 1000;
     }
 
     for (auto *method : Stats.methods) {
