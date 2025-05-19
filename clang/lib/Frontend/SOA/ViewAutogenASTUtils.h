@@ -680,8 +680,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       sizeInBytes += C.getTypeSize(F->getType()) / 8;
     }
 
-    std::string soaBuffersDecl = "alignas (64) char " + getUniqueName("__soa_buf", S) + "[";
-    soaBuffersDecl += std::to_string(sizeInBytes) + " * " + sizeExprStr + "];\n";
+    std::string soaBuffersDecl;
 
     for (auto *F : Stats.record->fields()) {
       if (!Stats.fields.count(F)) continue;
@@ -694,7 +693,7 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
         auto *arrType = llvm::cast<ConstantArrayType>(F->getType()->getAsArrayTypeUnsafe());
         type = TypeToString(arrType->getElementType());
       }
-      soaBuffersDecl += type + " * __restrict__ " + name + " = (" + type + "*) (" + getUniqueName("__soa_buf", S) + " + " + std::to_string(offset) + " * " + sizeExprStr + ");\n";
+      soaBuffersDecl += type + " " + name + "[" + sizeExprStr + "];\n";
     }
 
     if (IsInOffloadingCtx(C, S)) {
