@@ -674,12 +674,13 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
   }
 
   std::string getSoaBuffersDecl(std::string &sizeExprStr, ASTContext &C, UsageStats &Stats, Stmt *S) {
-    std::string soaBuffersDecl = "alignas (64) char " + getUniqueName("__soa_buf", S) + "[";
     unsigned int sizeInBytes = 0;
     for (auto *F : Stats.record->fields()) {
       if (!Stats.fields.count(F)) continue;
       sizeInBytes += C.getTypeSize(F->getType()) / 8;
     }
+
+    std::string soaBuffersDecl = "alignas (64) char " + getUniqueName("__soa_buf", S) + "[";
     soaBuffersDecl += std::to_string(sizeInBytes) + " * " + sizeExprStr + "];\n";
 
     for (auto *F : Stats.record->fields()) {
