@@ -1,11 +1,23 @@
 #pragma once
 
 #include <optional>
+#include <string>
 
 using namespace clang;
 
 static Rewriter CreateRewriter(const Rewriter *oldR) {
   return Rewriter(oldR->getSourceMgr(), oldR->getLangOpts());
+}
+
+// 'bool' in template args is replaced to '_Bool'
+// which breaks compilation. this method reverses that
+static std::string Replace_Bool(std::string s) {
+  while (true) {
+    auto pos = s.find("_Bool");
+    if (pos == std::string::npos) break;
+    s.replace(pos, 5, " bool");
+  }
+  return s;
 }
 
 static Expr *IgnoreImplicitCasts(Expr *E) {
@@ -245,6 +257,7 @@ static std::string TypeToString(QualType type) {
   type = type.getCanonicalType();
   if (type->isBooleanType()) return "bool";
   auto s = type.getAsString();
+  s = Replace_Bool(s);
   return s;
 }
 
