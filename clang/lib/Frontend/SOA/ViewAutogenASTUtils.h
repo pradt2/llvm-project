@@ -62,7 +62,8 @@ static bool IsConversionCandidate(ASTContext &C, Stmt *S) {
   return GetAttr<SoaConversionAttr>(C, S)
          || GetAttr<SoaConversionTargetAttr>(C, S)
          || GetAttr<SoaConversionHoistAttr>(C, S)
-         || GetAttr<SoaConversionOffloadComputeAttr>(C, S);
+         || GetAttr<SoaConversionOffloadComputeAttr>(C, S)
+         || GetAttr<SoaConversionSimdAttr>(C, S);
 }
 
 static bool IsTransformationCandidate(ASTContext &C, Decl *D) {
@@ -919,11 +920,6 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
   }
 
   void rewriteForLoop(VarDecl *D, std::string &sizeExprStr, UsageStats &Stats, ForStmt *S) {
-    if (!IsInOffloadingCtx(D->getASTContext(), S)) {
-      auto *as = GetParent<AttributedStmt>(D->getASTContext(), S);
-      R->InsertTextBefore(as->getBeginLoc(), "#pragma omp simd\n");
-    }
-
     auto iterVarName = llvm::cast<VarDecl>(llvm::cast<DeclStmt>(S->getInit())->getSingleDecl())->getNameAsString();
     std::string instanceName = getSoaHelperInstanceName(Stats, S);
 
@@ -954,11 +950,6 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
   }
 
   void rewriteForRangeLoop(VarDecl *D, std::string &sizeExprStr, UsageStats &Stats, CXXForRangeStmt *S) {
-    if (!IsInOffloadingCtx(D->getASTContext(), S)) {
-      auto *as = GetParent<AttributedStmt>(D->getASTContext(), S);
-      R->InsertTextBefore(as->getBeginLoc(), "#pragma omp simd\n");
-    }
-
     auto iterVarName = getUniqueName("iter", S);
     std::string instanceName = getSoaHelperInstanceName(Stats, S);
 
