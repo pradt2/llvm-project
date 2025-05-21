@@ -809,10 +809,10 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
         // try to split transfers into multiple 8 byte transfers.
         int chunks = sizeBytes / 8;
         for (int chunkId = 0; chunkId < sizeBytes / 8; chunkId++) {
-          soaBuffersInit += "std::memcpy((unsigned long*) &" + name + "[i] + " + std::to_string(chunkId) + ", (unsigned long*) &rawPtr[" + std::to_string(offsetBytes + chunkId * 8) + "], 8);\n";
+          soaBuffersInit += "std::memcpy((unsigned long*) &" + name + "[" + counterName + "] + " + std::to_string(chunkId) + ", (unsigned long*) &rawPtr[" + std::to_string(offsetBytes + chunkId * 8) + "], 8);\n";
         }
       } else {
-        soaBuffersInit += "std::memcpy(&" + name + "[i], (" + type + "*) &rawPtr[" + offset + "], " + size + ");\n";
+        soaBuffersInit += "std::memcpy(&" + name + "[" + counterName + "], (" + type + "*) &rawPtr[" + offset + "], " + size + ");\n";
       }
     }
     soaBuffersInit += "++" + counterName + ";\n";
@@ -1105,10 +1105,10 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
         // try to split transfers into multiple 8 byte transfers.
         int chunks = sizeBytes / 8;
         for (int chunkId = 0; chunkId < sizeBytes / 8; chunkId++) {
-          soaBuffersWriteback += "std::memcpy((unsigned long*) &rawPtr[" + std::to_string(offsetBytes + chunkId * 8) + "], (unsigned long*) &" + name + "[i] + " + std::to_string(chunkId) + ", 8);\n";
+          soaBuffersWriteback += "std::memcpy((unsigned long*) &rawPtr[" + std::to_string(offsetBytes + chunkId * 8) + "], (unsigned long*) &" + name + "[" + counterName + "] + " + std::to_string(chunkId) + ", 8);\n";
         }
       } else {
-        soaBuffersWriteback += "std::memcpy((" + type + "*) &rawPtr[" + offset + "], &" + name + "[i], " + size + ");\n";
+        soaBuffersWriteback += "std::memcpy((" + type + "*) &rawPtr[" + offset + "], &" + name + "[" + counterName + "], " + size + ");\n";
       }
     }
     soaBuffersWriteback += "++" + counterName + ";\n";
