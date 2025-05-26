@@ -709,22 +709,46 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       }
       soaBuffersDecl += type + " " + name + "[" + sizeExprStr + "];\n";
     }
+    return soaBuffersDecl;
+  }
 
-    if (IsInOffloadingCtx(C, S)) {
-      auto devBufName = getUniqueName("__soa_buf_dev", S);
-      auto devBufSizeName = getUniqueName("__soa_buf_dev_size", S);
-
-      std::string targetBuffers = "\n";
-      targetBuffers += "static thread_local char *" + devBufName + " = nullptr;\n";
-      targetBuffers += "static thread_local long " + devBufSizeName + " = 0;\n";
-      targetBuffers += "if (" + sizeExprStr + " > " + devBufSizeName + ") [[unlikely]] {\n";
-      targetBuffers += "omp_target_free(" + devBufName + ", omp_get_default_device());\n";
-      targetBuffers += devBufName + " = (char*) omp_target_alloc(" + std::to_string(sizeInBytes) + " * " + sizeExprStr + ", omp_get_default_device());\n";
-      targetBuffers += devBufSizeName + " = " + sizeExprStr + ";\n";
-      targetBuffers += "}\n";
-
-      soaBuffersDecl += targetBuffers;
+  std::string getSoaBuffersDeclOffload(std::string &sizeExprStr, ASTContext &C, UsageStats &Stats, Stmt *S) {
+    unsigned int sizeInBytes = 0;
+    for (auto *F : Stats.record->fields()) {
+      if (!Stats.fields.count(F)) continue;
+      sizeInBytes += C.getTypeSize(F->getType()) / 8;
     }
+
+    std::string soaBuffersDecl = "alignas (64) char " + getUniqueName("__soa_buf", S) + "[";
+    soaBuffersDecl += std::to_string(sizeInBytes) + " * " + sizeExprStr + "];\n";
+
+    for (auto *F : Stats.record->fields()) {
+      if (!Stats.fields.count(F)) continue;
+      auto name = getUniqueName(F->getNameAsString(), S);
+      auto offset = Stats.getSoaBufOffsetOffload(C, F);
+      std::string type = "";
+      if (!F->getType()->isArrayType()) {
+        type = TypeToString(F->getType());
+      } else {
+        auto *arrType = llvm::cast<ConstantArrayType>(F->getType()->getAsArrayTypeUnsafe());
+        type = TypeToString(arrType->getElementType());
+      }
+      soaBuffersDecl += type + " * __restrict__ " + name + " = (" + type + "*) (" + getUniqueName("__soa_buf", S) + " + " + std::to_string(offset) + " * " + sizeExprStr + ");\n";
+    }
+
+    auto devBufName = getUniqueName("__soa_buf_dev", S);
+    auto devBufSizeName = getUniqueName("__soa_buf_dev_size", S);
+
+    std::string targetBuffers = "\n";
+    targetBuffers += "static thread_local char *" + devBufName + " = nullptr;\n";
+    targetBuffers += "static thread_local long " + devBufSizeName + " = 0;\n";
+    targetBuffers += "if (" + sizeExprStr + " > " + devBufSizeName + ") [[unlikely]] {\n";
+    targetBuffers += "omp_target_free(" + devBufName + ", omp_get_default_device());\n";
+    targetBuffers += devBufName + " = (char*) omp_target_alloc(" + std::to_string(sizeInBytes) + " * " + sizeExprStr + ", omp_get_default_device());\n";
+    targetBuffers += devBufSizeName + " = " + sizeExprStr + ";\n";
+    targetBuffers += "}\n";
+
+    soaBuffersDecl += targetBuffers;
 
     return soaBuffersDecl;
   }
@@ -1198,7 +1222,9 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     getUsageStats(&usageStats, targetDecl, S);
 
     auto sizeExprStr = getIterCountExprStr(S);
-    auto soaBuffersDecl = getSoaBuffersDecl(sizeExprStr, CI.getASTContext(), usageStats, S);
+    auto soaBuffersDecl = IsInOffloadingCtx(CI.getASTContext(), S)
+        ? getSoaBuffersDeclOffload(sizeExprStr, CI.getASTContext(), usageStats, S)
+        : getSoaBuffersDecl(sizeExprStr, CI.getASTContext(), usageStats, S);
     auto soaBuffersInit = getSoaBuffersInitForLoop(sizeExprStr, targetDecl, usageStats, S);
     auto refViewDecl = getReferenceViewDecl(CI.getASTContext(), usageStats, S);
     auto soaHelperDecl = getSoaHelperDecl(CI.getASTContext(), usageStats, S);
@@ -1248,7 +1274,9 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
 
     auto sizeExprStr = getIterCountExprStr(S);
     auto sizeDeclStmt = std::string("auto ") + sizeExprStr + " = " + containerDecl->getNameAsString() + ".size();";
-    auto soaBuffersDecl = getSoaBuffersDecl(sizeExprStr, CI.getASTContext(), usageStats, S);
+    auto soaBuffersDecl = IsInOffloadingCtx(CI.getASTContext(), S)
+                              ? getSoaBuffersDeclOffload(sizeExprStr, CI.getASTContext(), usageStats, S)
+                              : getSoaBuffersDecl(sizeExprStr, CI.getASTContext(), usageStats, S);
     auto soaBuffersInit = getSoaBuffersInitForRangeLoop(sizeExprStr, targetDecl, containerDecl, usageStats, S);
     auto refViewDecl = getReferenceViewDecl(CI.getASTContext(), usageStats, S);
     auto soaHelperDecl = getSoaHelperDecl(CI.getASTContext(), usageStats, S);
