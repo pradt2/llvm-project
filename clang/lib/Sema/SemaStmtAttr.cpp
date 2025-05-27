@@ -388,6 +388,21 @@ static Attr *handleSoaConversionOffloadCompute(Sema &S, Stmt *St, const ParsedAt
   return ::new (S.Context) SoaConversionOffloadComputeAttr(S.Context, A);
 }
 
+static Attr *handleSoaConversionOffloadMap(Sema &S, Stmt *St, const ParsedAttr &A,
+                                           SourceRange Range) {
+  if (A.getNumArgs() == 0) return nullptr;
+
+  auto *stringRefs = new StringRef[A.getNumArgs()];
+
+  for (int i = 0; i < A.getNumArgs(); i++) {
+    auto *stringLiteral = llvm::cast<StringLiteral>(A.getArgAsExpr(i));
+    auto expr = stringLiteral->getString();
+    stringRefs[i] = expr;
+  }
+
+  return ::new (S.Context) SoaConversionOffloadMapAttr(S.Context, A, stringRefs, A.getNumArgs());
+}
+
 static Attr *handleSoaConversionSimd(Sema &S, Stmt *St, const ParsedAttr &A,
                                                SourceRange Range) {
   return ::new (S.Context) SoaConversionSimdAttr(S.Context, A);
@@ -752,6 +767,8 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &A,
     return handleSoaConversionHoist(S, St, A, Range);
   case ParsedAttr::AT_SoaConversionOffloadCompute:
     return handleSoaConversionOffloadCompute(S, St, A, Range);
+  case ParsedAttr::AT_SoaConversionOffloadMap:
+    return handleSoaConversionOffloadMap(S, St, A, Range);
   case ParsedAttr::AT_SoaConversionSimd:
     return handleSoaConversionSimd(S, St, A, Range);
   case ParsedAttr::AT_SoaConversionAllocationStrategy:

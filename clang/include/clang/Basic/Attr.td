@@ -1053,6 +1053,14 @@ def SoaConversionOffloadCompute : StmtAttr {
     let Documentation = [Undocumented];
 }
 
+def SoaConversionOffloadMap : StmtAttr {
+    let Spellings = [Clang<"soa_conversion_offload_map">];
+    let Args = [VariadicStringArgument<"MapArgs">];
+    let Subjects = SubjectList<[ForStmt, CXXForRangeStmt],
+                                ErrorDiag, "'for' statements">;
+    let Documentation = [Undocumented];
+}
+
 def SoaConversionSimd : StmtAttr {
     let Spellings = [Clang<"soa_conversion_simd">];
     let Args = [];
