@@ -939,6 +939,57 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     return "";
   }
 
+  std::string getTimingBeforeConversion(ASTContext &C, Stmt *S) {
+    auto *timingAttr = GetAttr<SoaConversionTimeAttr>(C, S);
+    if (!timingAttr) return "";
+
+    auto timing = std::string("auto ") + getUniqueName("__ts_before_conv", S) + " = " + timingAttr->getTimingArg().str() + ";";
+    return timing;
+  }
+
+  std::string getTimingBeforeLoop(ASTContext &C, Stmt *S) {
+    auto *timingAttr = GetAttr<SoaConversionTimeAttr>(C, S);
+    if (!timingAttr) return "";
+
+    auto timing = std::string("auto ") + getUniqueName("__ts_before_loop", S) + " = " + timingAttr->getTimingArg().str() + ";";
+    return timing;
+  }
+
+  std::string getTimingAfterLoop(ASTContext &C, Stmt *S) {
+    auto *timingAttr = GetAttr<SoaConversionTimeAttr>(C, S);
+    if (!timingAttr) return "";
+
+    auto timing = std::string("auto ") + getUniqueName("__ts_after_loop", S) + " = " + timingAttr->getTimingArg().str() + ";";
+    return timing;
+  }
+
+  std::string getTimingAfterConversion(ASTContext &C, Stmt *S) {
+    auto *timingAttr = GetAttr<SoaConversionTimeAttr>(C, S);
+    if (!timingAttr) return "";
+
+    auto timing = std::string("auto ") + getUniqueName("__ts_after_conv", S) + " = " + timingAttr->getTimingArg().str() + ";";
+    return timing;
+  }
+
+  std::string getTimingSummary(ASTContext &C, Stmt *S) {
+    auto *timingAttr = GetAttr<SoaConversionTimeAttr>(C, S);
+    if (!timingAttr) return "";
+
+    std::string summary = "printf(\"AoS->SoA: %llu, Loop: %llu, SoA->AoS: %llu\", "
+                          + getUniqueName("__ts_before_loop", S) + " - " + getUniqueName("__ts_before_conv", S) + ", "
+                          + getUniqueName("__ts_after_loop", S) + " - " + getUniqueName("__ts_before_loop", S) + ", "
+                          + getUniqueName("__ts_after_conv", S) + " - " + getUniqueName("__ts_after_loop", S) + ");\n";
+
+    summary += "auto " + getUniqueName("__ts_sum", S) + " = " + getUniqueName("__ts_after_conv", S) + " - " + getUniqueName("__ts_before_conv", S) + ";\n";
+
+    summary += std::string("printf(\"AoS->SoA: %.3f, Loop: %.3f, SoA->AoS: %.3f\", ")
+                          + "( (double) " + getUniqueName("__ts_before_loop", S) + " - " + getUniqueName("__ts_before_conv", S) + ") / " + getUniqueName("__ts_sum", S) + ", "
+                          + "( (double) " + getUniqueName("__ts_after_loop", S) + " - " + getUniqueName("__ts_before_loop", S) + ") / " + getUniqueName("__ts_sum", S) + ", "
+                          + "( (double) " + getUniqueName("__ts_after_conv", S) + " - " + getUniqueName("__ts_after_loop", S) + ") / " + getUniqueName("__ts_sum", S) + ");\n";
+
+    return summary;
+  }
+
   std::string getOmpPragma(ASTContext &C, std::string &sizeExprStr, UsageStats &Stats, Stmt *S) {
     auto *offloadAttr = GetAttr<SoaConversionOffloadComputeAttr>(C, S);
     if (offloadAttr) {
@@ -1233,7 +1284,9 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     auto soaBuffersDecl = IsInOffloadingCtx(CI.getASTContext(), S)
         ? getSoaBuffersDeclOffload(sizeExprStr, CI.getASTContext(), usageStats, S)
         : getSoaBuffersDecl(sizeExprStr, CI.getASTContext(), usageStats, S);
+    auto timingBeforeConv = getTimingBeforeConversion(CI.getASTContext(), S);
     auto soaBuffersInit = getSoaBuffersInitForLoop(sizeExprStr, targetDecl, usageStats, S);
+    auto timingBeforeLoop = getTimingBeforeLoop(CI.getASTContext(), S);
     auto refViewDecl = getReferenceViewDecl(CI.getASTContext(), usageStats, S);
     auto soaHelperDecl = getSoaHelperDecl(CI.getASTContext(), usageStats, S);
     auto ompPrologue = getOmpPrologue(CI.getASTContext(), sizeExprStr, usageStats, S);
@@ -1249,7 +1302,9 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
 
     std::string prologue = "\n";
     prologue += soaBuffersDecl + "\n";
+    prologue += timingBeforeConv + "\n";
     prologue += soaBuffersInit + "\n";
+    prologue += timingBeforeLoop + "\n";
     prologue += ompPrologue + "\n";
 
     auto prologueLoc = getPrologueLoc(CI.getASTContext(), S).getLocWithOffset(-1);
@@ -1258,11 +1313,17 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     rewriteForLoop(targetDecl, sizeExprStr, usageStats, S);
 
     auto ompEpilogue = getOmpEpilogue(CI.getASTContext(), sizeExprStr, usageStats, S);
+    auto timingAfterLoop = getTimingAfterLoop(CI.getASTContext(), S);
     auto soaWriteback = getSoaBuffersWritebackForLoop(sizeExprStr, targetDecl, usageStats, S);
+    auto timingAfterConv = getTimingAfterConversion(CI.getASTContext(), S);
+    auto timingSummary = getTimingSummary(CI.getASTContext(), S);
 
     std::string epilogue = "\n";
     epilogue += ompEpilogue + "\n";
+    epilogue += timingAfterLoop + "\n";
     epilogue += soaWriteback + "\n";
+    epilogue += timingAfterConv + "\n";
+    epilogue += timingSummary + "\n";
     epilogue += "#pragma clang diagnostic pop\n";
 
     auto epilogueLoc = getEpilogueLoc(CI.getASTContext(), S).getLocWithOffset(1);
@@ -1285,7 +1346,9 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     auto soaBuffersDecl = IsInOffloadingCtx(CI.getASTContext(), S)
                               ? getSoaBuffersDeclOffload(sizeExprStr, CI.getASTContext(), usageStats, S)
                               : getSoaBuffersDecl(sizeExprStr, CI.getASTContext(), usageStats, S);
+    auto timingBeforeConv = getTimingBeforeConversion(CI.getASTContext(), S);
     auto soaBuffersInit = getSoaBuffersInitForRangeLoop(sizeExprStr, targetDecl, containerDecl, usageStats, S);
+    auto timingBeforeLoop = getTimingBeforeLoop(CI.getASTContext(), S);
     auto refViewDecl = getReferenceViewDecl(CI.getASTContext(), usageStats, S);
     auto soaHelperDecl = getSoaHelperDecl(CI.getASTContext(), usageStats, S);
     auto ompPrologue = getOmpPrologue(CI.getASTContext(), sizeExprStr, usageStats, S);
@@ -1302,7 +1365,9 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     std::string prologue = "\n";
     prologue += sizeDeclStmt + "\n";
     prologue += soaBuffersDecl + "\n";
+    prologue += timingBeforeConv + "\n";
     prologue += soaBuffersInit + "\n";
+    prologue += timingBeforeLoop + "\n";
     prologue += ompPrologue + "\n";
 
     auto prologueLoc = getPrologueLoc(CI.getASTContext(), S).getLocWithOffset(-1);
@@ -1311,11 +1376,17 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     rewriteForRangeLoop(targetDecl, sizeExprStr, usageStats, S);
 
     auto ompEpilogue = getOmpEpilogue(CI.getASTContext(), sizeExprStr, usageStats, S);
+    auto timingAfterLoop = getTimingAfterLoop(CI.getASTContext(), S);
     auto soaWriteback = getSoaBuffersWritebackForRangeLoop(sizeExprStr, targetDecl, containerDecl, usageStats, S);
+    auto timingAfterConv = getTimingAfterConversion(CI.getASTContext(), S);
+    auto timingSummary = getTimingSummary(CI.getASTContext(), S);
 
     std::string epilogue = "\n";
     epilogue += ompEpilogue + "\n";
+    epilogue += timingAfterLoop + "\n";
     epilogue += soaWriteback + "\n";
+    epilogue += timingAfterConv + "\n";
+    epilogue += timingSummary + "\n";
     epilogue += "#pragma clang diagnostic pop\n";
 
     auto epilogueLoc = getEpilogueLoc(CI.getASTContext(), S).getLocWithOffset(1);
