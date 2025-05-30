@@ -975,17 +975,16 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
     auto *timingAttr = GetAttr<SoaConversionTimeAttr>(C, S);
     if (!timingAttr) return "";
 
-    std::string summary = "printf(\"AoS->SoA: %llu, Loop: %llu, SoA->AoS: %llu\", "
+    std::string summary = "auto " + getUniqueName("__ts_sum", S) + " = " + getUniqueName("__ts_after_conv", S) + " - " + getUniqueName("__ts_before_conv", S) + ";\n";
+
+    summary += "printf(\"AoS->SoA:\t%llu\t(%.3f),\tLoop:\t%llu\t(%.3f),\tSoA->AoS: %llu\t(%.3f)\\n\", "
                           + getUniqueName("__ts_before_loop", S) + " - " + getUniqueName("__ts_before_conv", S) + ", "
-                          + getUniqueName("__ts_after_loop", S) + " - " + getUniqueName("__ts_before_loop", S) + ", "
-                          + getUniqueName("__ts_after_conv", S) + " - " + getUniqueName("__ts_after_loop", S) + ");\n";
-
-    summary += "auto " + getUniqueName("__ts_sum", S) + " = " + getUniqueName("__ts_after_conv", S) + " - " + getUniqueName("__ts_before_conv", S) + ";\n";
-
-    summary += std::string("printf(\"AoS->SoA: %.3f, Loop: %.3f, SoA->AoS: %.3f\", ")
                           + "( (double) " + getUniqueName("__ts_before_loop", S) + " - " + getUniqueName("__ts_before_conv", S) + ") / " + getUniqueName("__ts_sum", S) + ", "
+                          + getUniqueName("__ts_after_loop", S) + " - " + getUniqueName("__ts_before_loop", S) + ", "
                           + "( (double) " + getUniqueName("__ts_after_loop", S) + " - " + getUniqueName("__ts_before_loop", S) + ") / " + getUniqueName("__ts_sum", S) + ", "
+                          + getUniqueName("__ts_after_conv", S) + " - " + getUniqueName("__ts_after_loop", S) + ", "
                           + "( (double) " + getUniqueName("__ts_after_conv", S) + " - " + getUniqueName("__ts_after_loop", S) + ") / " + getUniqueName("__ts_sum", S) + ");\n";
+
 
     return summary;
   }
