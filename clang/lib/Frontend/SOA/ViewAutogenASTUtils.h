@@ -103,7 +103,7 @@ static bool IsTransformationCandidate(ASTContext &C, Decl *D) {
 
 bool IsInOffloadingCtx(ASTContext &C, Stmt *S) {
   while (S) {
-    if (GetAttr<SoaConversionOffloadComputeAttr>(C, S)) return true;
+    if (GetAttr<SoaConversionOffloadComputeAttr>(C, S) || GetAttr<SoaConversionOffloadMapAttr>(C, S)) return true;
     S = GetParent<Stmt>(C, S);
   }
   return false;
@@ -947,6 +947,14 @@ struct SoaHandler : public RecursiveASTVisitor<SoaHandler> {
       for (auto *nestedLoop : getConvertedNestedLoops(C, S)) {
         pragma += " is_device_ptr(" + getUniqueName("__soa_buf_dev_alias", nestedLoop) + ")";
       }
+
+      auto *offloadMapAttr = GetAttr<SoaConversionOffloadMapAttr>(C, S);
+      if (offloadMapAttr) {
+        for (auto ref : offloadMapAttr->mapArgs()) {
+          pragma += " map(" + ref.str() + ")";
+        }
+      }
+
       return pragma;
     }
     auto *simdAttr = GetAttr<SoaConversionSimdAttr>(C, S);
